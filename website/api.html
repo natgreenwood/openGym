@@ -221,6 +221,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <a class="side-link" href="#push"><b>Push</b><span>Notifications &amp; rest timer</span></a>
   <a class="side-link" href="#activity"><b>Activity</b><span>Live presence</span></a>
   <a class="side-link" href="#media"><b>Media</b><span>Photos &amp; videos of your exercises &amp; workouts</span></a>
+  <a class="side-link" href="#shares"><b>Sharing</b><span>Routines shared between profiles</span></a>
   <a class="side-link" href="#coach"><b>AI Coach</b><span>Plans, reviews, debriefs</span></a>
   <a class="side-link" href="#admin"><b>Admin</b><span>Users, invites, audit log, Coach</span></a>
   <a class="side-link" href="#schemas"><b>Schemas</b><span>The state blob, the error shape &amp; co.</span></a>
@@ -245,7 +246,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.3</span>
-    <span>75 endpoints</span>
+    <span>85 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -334,6 +335,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="ep-body">
 <p>The flags the login screen needs before anyone is signed in. Both reflect environment variables on the server (<code>INVITE_ONLY</code>, <code>ALLOW_GUEST</code>), and so does <code>password_login</code>, which is there only when <code>PASSWORD_LOGIN=1</code>, and <code>default_lang</code>, which is there only when <code>DEFAULT_LANG</code> is set.</p>
 <p><code>media</code> is there unless the instance runs with <code>MEDIA_UPLOADS=0</code>, for everybody: the caps are not a secret, and its absence is how the app knows this server does not store photos and videos at all.</p>
+<p><code>shares</code> is there only once an admin has switched routine sharing on, for everybody.</p>
 <p>A caller with a valid session also gets a <code>coach</code> key: the block when the instance has the AI Coach switched on <b>and</b> a provider connected, and <code>null</code> when it has not. A caller with no session gets no key at all. The block names the provider this instance talks to, which is the same fact <code>GET /api/coach/disclosure</code> will not hand out unauthenticated.</p>
 <p>The key is always present for a session, <code>null</code> included, so a client that caches this answer can tell &quot;no Coach on this instance&quot; from &quot;you were not signed in when you asked&quot; and knows whether asking again would change it.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Public: no authentication required.</span></p>
@@ -343,7 +345,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <div class="ptab">
   <div class="prow rrow">
     <span class="r-code s2">200</span>
-    <span class="p-desc">Instance flags, plus the Coach block for a signed-in caller.<span class="r-sig">{ invite_only: boolean, allow_guest: boolean, coach: object | null, password_login: always true, default_lang: string, media: <a href="#schema-MediaConfig">MediaConfig</a> }</span></span>
+    <span class="p-desc">Instance flags, plus the Coach block for a signed-in caller.<span class="r-sig">{ invite_only: boolean, allow_guest: boolean, coach: object | null, password_login: always true, default_lang: string, media: <a href="#schema-MediaConfig">MediaConfig</a>, shares: always true }</span></span>
   </div>
     </div>
   </div>
@@ -2163,6 +2165,237 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
 </section>
 
+<section class="api-sec" id="shares">
+  <h2>Sharing</h2>
+  <p class="sub">Routine sharing between profiles on one server. Every route here is refused or empty until an admin switches sharing on (<code>POST /api/admin/sharing/enable</code>).</p>
+  <div class="eps">
+
+<details class="ep" id="op-shareRecipients">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/shares/recipients</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Who a routine can be shared with</span>
+  </summary>
+  <div class="ep-body">
+<p>Every enabled account on this server except the caller, sorted by name. Ids and names only: no e-mail, no admin flag. There is no way to address a user on another instance.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The accounts.<span class="r-sig">{ users: <a href="#schema-ShareUser">ShareUser</a>[] }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Routine sharing is not switched on on this instance (<code>sharing-off</code>).<span class="r-sig"><code>{&quot;error&quot;:&quot;routine sharing is not switched on on this server&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listShares">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/shares</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Your incoming and outgoing shares</span>
+  </summary>
+  <div class="ep-body">
+<p><code>incoming</code> holds the shares addressed to you that are pending or accepted; a declined or removed one is never listed. <code>outgoing</code> holds every share you made, with no state at all, so a decline or a removal looks exactly like a share still waiting. No routine body is included yet.</p>
+<p><code>etag</code> moves whenever either list changes for you; the sharer's half covers ids only, so a recipient's answer does not move it. While sharing is off the answer is <code>{ incoming: [], outgoing: [], etag: &quot;off&quot; }</code> rather than an error.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Both lists.<span class="r-sig">{ incoming: <a href="#schema-ShareIncoming">ShareIncoming</a>[], outgoing: <a href="#schema-ShareOutgoing">ShareOutgoing</a>[], etag: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createShares">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/shares</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Share one of your routines</span>
+  </summary>
+  <div class="ep-body">
+<p>One pending share per recipient, all or nothing: every recipient is checked before any record is written. The routine has to be in your own document, so a routine shared with you cannot be passed on. A routine with a custom exercise cannot be shared.</p>
+<p>Your answers never depend on what a recipient did with a share. Asking again for a recipient who already has a share of this routine returns it as it is, with the same id and <code>created</code>, whether they accepted, declined, removed it or never looked; a declined or removed share is not offered to them again. To offer it again, revoke it (<code>DELETE /api/shares/{id}</code>) and share again, which makes a new share with a new id. A request that creates nothing spends no budget, so it is safe to retry.</p>
+<p>Limits: at most 50 shares per profile, counting every share you have not revoked whatever its state, so only a revoke frees a place (409 <code>share-limit</code>); and at most 30 requests an hour per profile that create at least one new share (429 <code>locked</code>). Each record created is recorded in the activity log as <code>share.create</code>, with the share id and both profiles.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">routineId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 64 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc">User ids from <code>GET /api/shares/recipients</code>.</span>
+  </div>
+</div>
+<pre><code>{
+  &quot;routineId&quot;: &quot;r1&quot;,
+  &quot;to&quot;: [
+    &quot;Zk3x9&quot;
+  ]
+}</code></pre>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The shares, one per recipient, in the order asked.<span class="r-sig">{ shares: <a href="#schema-ShareOutgoing">ShareOutgoing</a>[], etag: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc"><code>bad-request</code> (the shape, more than 20 recipients, or one listed twice), <code>custom-exercise</code> (the routine holds a custom exercise) or <code>self</code> (you are one of the recipients).<span class="r-sig"><code>{&quot;error&quot;:&quot;a routine with a custom exercise cannot be shared&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Routine sharing is not switched on on this instance (<code>sharing-off</code>).<span class="r-sig"><code>{&quot;error&quot;:&quot;routine sharing is not switched on on this server&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc"><code>routine-missing</code> (no routine with that id in your own document) or <code>user-missing</code> (a recipient is unknown or disabled).<span class="r-sig"><code>{&quot;error&quot;:&quot;no such user on this server&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc"><code>share-limit</code>: this would take you past 50 shares. Revoke one first.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc"><code>locked</code>: the hourly budget is spent. <code>retryAfter</code> says for how long.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Your own document cannot be read.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-acceptShare">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/shares/{id}/accept</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Accept a share addressed to you</span>
+  </summary>
+  <div class="ep-body">
+<p>Recorded in the activity log as <code>share.accept</code>.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Accepted.<span class="r-sig">{ ok: always true, share: <a href="#schema-ShareIncoming">ShareIncoming</a>, etag: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc"><code>share-missing</code>: no share with that id, or not one you made or received. The two are not told apart, and a malformed id answers the same.<span class="r-sig"><code>{&quot;error&quot;:&quot;no such share&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc"><code>share-state</code>: the share is no longer pending.<span class="r-sig"><code>{&quot;error&quot;:&quot;this share is no longer waiting for an answer&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-declineShare">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/shares/{id}/decline</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Decline a share addressed to you</span>
+  </summary>
+  <div class="ep-body">
+<p>The sharer is not told. Recorded in the activity log as <code>share.decline</code>.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Declined.<span class="r-sig">{ ok: always true, etag: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc"><code>share-missing</code>: no share with that id, or not one you made or received. The two are not told apart, and a malformed id answers the same.<span class="r-sig"><code>{&quot;error&quot;:&quot;no such share&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc"><code>share-state</code>: the share is no longer pending.<span class="r-sig"><code>{&quot;error&quot;:&quot;this share is no longer waiting for an answer&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-deleteShare">
+  <summary>
+    <span class="m delete">DELETE</span>
+    <span class="ep-path"><code>/api/shares/{id}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Revoke a share you made, or remove one you received</span>
+  </summary>
+  <div class="ep-body">
+<p>The sharer revokes: the record is deleted whatever its state (<code>share.revoke</code>). The recipient removes: an accepted share becomes removed (<code>share.remove</code>) and a pending one declined (<code>share.decline</code>); one already declined or removed stays as it is, so a retry answers 200. Neither changes the sharer's routine.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Done.<span class="r-sig">{ ok: always true, etag: string }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc"><code>share-missing</code>: no share with that id, or not one you made or received. The two are not told apart, and a malformed id answers the same.<span class="r-sig"><code>{&quot;error&quot;:&quot;no such share&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+  </div>
+</section>
+
 <section class="api-sec" id="coach">
   <h2>AI Coach</h2>
   <p class="sub">AI Coach: plans, reviews and debriefs. Every route here answers 503 unless the instance has the Coach switched on and a provider connected.</p>
@@ -3160,6 +3393,36 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s2">200</span>
     <span class="p-desc">Cleared.<span class="r-sig"><a href="#schema-Ok">Ok</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Signed in, but not an admin. The attempt is recorded in the audit log.<span class="r-sig"><code>{&quot;error&quot;:&quot;forbidden&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-adminSharingEnable">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/admin/sharing/enable</code><span class="ep-chip admin">admin</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Switch routine sharing on</span>
+  </summary>
+  <div class="ep-body">
+<p>Switches routine sharing on for the whole instance. One-way in v1: no route switches it off, because once it is on every signed-in user sees the enabled accounts on the server in the recipient picker. Idempotent: a second call changes nothing and returns the time it was first switched on. Recorded in the activity log as <code>admin.sharing.enable</code>, once.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Admin only: a signed-in session whose user is an admin (<code>ADMIN_UIDS</code> or <code>admin:true</code>), as the session cookie or a Bearer token.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Sharing is on.<span class="r-sig">{ ok: always true, enabled: always true, enabledAt: string <span class="p-hint">(date-time)</span> }</span></span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">401</span>
@@ -4685,6 +4948,100 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-name">workouts</span>
     <span class="p-type"><a href="#schema-Workout">Workout</a>[]</span>
     <span class="p-desc">Full history, newest first.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ShareUser">
+  <summary>
+    <span class="sch-name"><code>ShareUser</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">name</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ShareIncoming">
+  <summary>
+    <span class="sch-name"><code>ShareIncoming</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">A share addressed to you that is pending or accepted.</span>
+  </summary>
+  <div class="ep-body">
+<p>No routine body yet.</p>
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id</span>
+    <span class="p-type">string</span>
+    <span class="p-desc">16 hex characters.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">state</span>
+    <span class="p-type">&quot;pending&quot; | &quot;accepted&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">from</span>
+    <span class="p-type"><a href="#schema-ShareUser">ShareUser</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">created</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">acceptedAt</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc">Once accepted.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ShareOutgoing">
+  <summary>
+    <span class="sch-name"><code>ShareOutgoing</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">A share you made.</span>
+  </summary>
+  <div class="ep-body">
+<p>No state, by design.</p>
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to</span>
+    <span class="p-type"><a href="#schema-ShareUser">ShareUser</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routineId</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">created</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
   </div>
 </div>
   </div>

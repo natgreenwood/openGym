@@ -159,6 +159,10 @@ tags:
     description: Web Push (VAPID) subscriptions, rest-timer and test pushes
   - name: activity
     description: Live-workout presence heartbeat
+  - name: shares
+    description: >-
+      Routine sharing between profiles on one server. Every route here is refused or empty
+      until an admin switches sharing on (`POST /api/admin/sharing/enable`).
   - name: admin
     description: Admin dashboard. Requires an admin session (`ADMIN_UIDS` or `admin:true`)
   - name: media
@@ -237,6 +241,8 @@ paths:
         caps are not a secret, and its absence is how the app knows this server does not
         store photos and videos at all.
 
+        `shares` is there only once an admin has switched routine sharing on, for everybody.
+
         A caller with a valid session also gets a `coach` key: the block when the
         instance has the AI Coach switched on **and** a provider connected, and `null`
         when it has not. A caller with no session gets no key at all. The block names
@@ -299,6 +305,12 @@ paths:
                       always wins; a tag the app has no translation for is ignored.
                   media:
                     $ref: '#/components/schemas/MediaConfig'
+                  shares:
+                    type: boolean
+                    const: true
+                    description: >-
+                      Present (and true) only once an admin has switched routine sharing on
+                      (`POST /api/admin/sharing/enable`); absent otherwise.
               examples:
                 anonymous: { value: { invite_only: true, allow_guest: false } }
                 signedInNoCoach: { value: { invite_only: true, allow_guest: false, coach: null } }
@@ -2718,6 +2730,249 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
 
+  /api/admin/sharing/enable:
+    post:
+      tags: [admin]
+      operationId: adminSharingEnable
+      summary: 'Admin: switch routine sharing on'
+      description: >-
+        Switches routine sharing on for the whole instance. One-way in v1: no route switches
+        it off, because once it is on every signed-in user sees the enabled accounts on the
+        server in the recipient picker. Idempotent: a second call changes nothing and returns
+        the time it was first switched on. Recorded in the activity log as
+        `admin.sharing.enable`, once.
+      responses:
+        '200':
+          description: Sharing is on.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  enabled: { type: boolean, const: true }
+                  enabledAt: { type: string, format: date-time }
+              example: { ok: true, enabled: true, enabledAt: "2026-11-03T00:00:00.000Z" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+
+  # ---------------------------------------------------------------- routine sharing
+  # Share records in db.json. A routine body is never copied: what a recipient can train from
+  # is read from the sharer's own document (not in this version of the API yet).
+  /api/shares/recipients:
+    get:
+      tags: [shares]
+      operationId: shareRecipients
+      summary: Who a routine can be shared with
+      description: >-
+        Every enabled account on this server except the caller, sorted by name. Ids and
+        names only: no e-mail, no admin flag. There is no way to address a user on another
+        instance.
+      responses:
+        '200':
+          description: The accounts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShareUser' }
+              example: { users: [{ id: "Zk3x9", name: "Sam" }] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SharingOff' }
+
+  /api/shares:
+    get:
+      tags: [shares]
+      operationId: listShares
+      summary: Your incoming and outgoing shares
+      description: |
+        `incoming` holds the shares addressed to you that are pending or accepted; a
+        declined or removed one is never listed. `outgoing` holds every share you made, with
+        no state at all, so a decline or a removal looks exactly like a share still waiting.
+        No routine body is included yet.
+
+        `etag` moves whenever either list changes for you; the sharer's half covers ids only,
+        so a recipient's answer does not move it. While sharing is off the answer is
+        `{ incoming: [], outgoing: [], etag: "off" }` rather than an error.
+      responses:
+        '200':
+          description: Both lists.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  incoming:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShareIncoming' }
+                  outgoing:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShareOutgoing' }
+                  etag: { type: string, description: 16 hex characters, or `off`. }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [shares]
+      operationId: createShares
+      summary: Share one of your routines
+      description: |
+        One pending share per recipient, all or nothing: every recipient is checked before
+        any record is written. The routine has to be in your own document, so a routine
+        shared with you cannot be passed on. A routine with a custom exercise cannot be
+        shared.
+
+        Your answers never depend on what a recipient did with a share. Asking again for a
+        recipient who already has a share of this routine returns it as it is, with the same
+        id and `created`, whether they accepted, declined, removed it or never looked; a
+        declined or removed share is not offered to them again. To offer it again, revoke it
+        (`DELETE /api/shares/{id}`) and share again, which makes a new share with a new id. A
+        request that creates nothing spends no budget, so it is safe to retry.
+
+        Limits: at most 50 shares per profile, counting every share you have not revoked
+        whatever its state, so only a revoke frees a place (409 `share-limit`); and at most
+        30 requests an hour per profile that create at least one new share (429 `locked`).
+        Each record created is recorded in the activity log as `share.create`, with the
+        share id and both profiles.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routineId, to]
+              properties:
+                routineId: { type: string, minLength: 1, maxLength: 64 }
+                to:
+                  type: array
+                  minItems: 1
+                  maxItems: 20
+                  uniqueItems: true
+                  items: { type: string }
+                  description: User ids from `GET /api/shares/recipients`.
+            example: { routineId: "r1", to: ["Zk3x9"] }
+      responses:
+        '200':
+          description: The shares, one per recipient, in the order asked.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shares:
+                    type: array
+                    items: { $ref: '#/components/schemas/ShareOutgoing' }
+                  etag: { type: string }
+        '400':
+          description: >-
+            `bad-request` (the shape, more than 20 recipients, or one listed twice),
+            `custom-exercise` (the routine holds a custom exercise) or `self` (you are one of
+            the recipients).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: "a routine with a custom exercise cannot be shared", code: "custom-exercise" }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SharingOff' }
+        '404':
+          description: >-
+            `routine-missing` (no routine with that id in your own document) or
+            `user-missing` (a recipient is unknown or disabled).
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: "no such user on this server", code: "user-missing" }
+        '409':
+          description: '`share-limit`: this would take you past 50 shares. Revoke one first.'
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+        '429':
+          description: '`locked`: the hourly budget is spent. `retryAfter` says for how long.'
+          headers:
+            Retry-After:
+              schema: { type: integer }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: "too many attempts, try again later", code: "locked", retryAfter: 1800 }
+        '503':
+          description: Your own document cannot be read.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+
+  /api/shares/{id}/accept:
+    parameters:
+      - $ref: '#/components/parameters/ShareId'
+    post:
+      tags: [shares]
+      operationId: acceptShare
+      summary: Accept a share addressed to you
+      description: Recorded in the activity log as `share.accept`.
+      responses:
+        '200':
+          description: Accepted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  share: { $ref: '#/components/schemas/ShareIncoming' }
+                  etag: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/ShareMissing' }
+        '409': { $ref: '#/components/responses/ShareState' }
+
+  /api/shares/{id}/decline:
+    parameters:
+      - $ref: '#/components/parameters/ShareId'
+    post:
+      tags: [shares]
+      operationId: declineShare
+      summary: Decline a share addressed to you
+      description: The sharer is not told. Recorded in the activity log as `share.decline`.
+      responses:
+        '200':
+          description: Declined.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  etag: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/ShareMissing' }
+        '409': { $ref: '#/components/responses/ShareState' }
+
+  /api/shares/{id}:
+    parameters:
+      - $ref: '#/components/parameters/ShareId'
+    delete:
+      tags: [shares]
+      operationId: deleteShare
+      summary: Revoke a share you made, or remove one you received
+      description: |
+        The sharer revokes: the record is deleted whatever its state (`share.revoke`). The
+        recipient removes: an accepted share becomes removed (`share.remove`) and a pending
+        one declined (`share.decline`); one already declined or removed stays as it is, so a
+        retry answers 200. Neither changes the sharer's routine.
+      responses:
+        '200':
+          description: Done.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean, const: true }
+                  etag: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/ShareMissing' }
+
   # ---------------------------------------------------------------- AI Coach
   # The routes live in api/coach/routes.js and are mixed into the same route table as
   # everything above; they are inert (503) while the instance has no Coach enabled
@@ -3436,6 +3691,35 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: "that code is wrong, used or expired", code: "link-invalid" }
 
+    SharingOff:
+      description: Routine sharing is not switched on on this instance (`sharing-off`).
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "routine sharing is not switched on on this server", code: "sharing-off" }
+    ShareMissing:
+      description: >-
+        `share-missing`: no share with that id, or not one you made or received. The two are
+        not told apart, and a malformed id answers the same.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "no such share", code: "share-missing" }
+    ShareState:
+      description: '`share-state`: the share is no longer pending.'
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "this share is no longer waiting for an answer", code: "share-state" }
+
+  parameters:
+    ShareId:
+      name: id
+      in: path
+      required: true
+      description: The share id, 16 lowercase hex characters.
+      schema: { type: string, pattern: '^[0-9a-f]{16}$' }
+
   schemas:
     Error:
       type: object
@@ -3968,6 +4252,30 @@ components:
           type: array
           description: Full history, newest first.
           items: { $ref: '#/components/schemas/Workout' }
+
+    ShareUser:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+    ShareIncoming:
+      type: object
+      description: >-
+        A share addressed to you that is pending or accepted. No routine body yet.
+      properties:
+        id: { type: string, description: 16 hex characters. }
+        state: { type: string, enum: [pending, accepted] }
+        from: { $ref: '#/components/schemas/ShareUser' }
+        created: { type: string, format: date-time }
+        acceptedAt: { type: string, format: date-time, description: Once accepted. }
+    ShareOutgoing:
+      type: object
+      description: A share you made. No state, by design.
+      properties:
+        id: { type: string }
+        to: { $ref: '#/components/schemas/ShareUser' }
+        routineId: { type: string }
+        created: { type: string, format: date-time }
 
     Invite:
       type: object
