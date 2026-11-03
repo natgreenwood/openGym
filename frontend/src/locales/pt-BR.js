@@ -1781,6 +1781,7 @@ export const PT_BR_OVERRIDES = {
   'Shared, {0} waiting': 'Compartilhadas, {0} esperando',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Também para de compartilhar com {0} pessoa para sempre: compartilhar de novo depois envia um novo convite.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Também para de compartilhar com {0} pessoas para sempre: compartilhar de novo depois envia um novo convite.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Este treino é de uma rotina compartilhada com você, então não pode ser salvo como uma rotina sua.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

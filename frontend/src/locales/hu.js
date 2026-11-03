@@ -2702,4 +2702,5 @@ export default {
   'Shared, {0} waiting': 'Megosztott, {0} vár',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Emellett végleg megszűnik a megosztás {0} személlyel: ha később újra megosztod, új meghívó megy ki.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Emellett végleg megszűnik a megosztás {0} személlyel: ha később újra megosztod, új meghívó megy ki.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Ez az edzés egy veled megosztott rutinból származik, ezért nem menthető el saját rutinként.',
 }

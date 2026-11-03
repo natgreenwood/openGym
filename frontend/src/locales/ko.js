@@ -2699,4 +2699,5 @@ export default {
   'Shared, {0} waiting': '공유됨, {0}개 대기 중',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': '또한 {0}명과의 공유가 영구히 끝납니다. 나중에 다시 공유하면 새 초대가 전송됩니다.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': '또한 {0}명과의 공유가 영구히 끝납니다. 나중에 다시 공유하면 새 초대가 전송됩니다.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': '이 운동은 나와 공유된 루틴에서 나온 것이라 내 루틴으로 저장할 수 없습니다.',
 }

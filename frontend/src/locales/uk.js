@@ -2696,4 +2696,5 @@ export default {
   'Shared, {0} waiting': { one: 'Спільні, {0} чекає', few: 'Спільні, {0} чекають', many: 'Спільні, {0} чекають' },
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Також назавжди закриється доступ для {0} людини: якщо поділитися знову, піде нове запрошення.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': { one: 'Також назавжди закриється доступ для {0} людини: якщо поділитися знову, піде нове запрошення.', few: 'Також назавжди закриється доступ для {0} людей: якщо поділитися знову, піде нове запрошення.', many: 'Також назавжди закриється доступ для {0} людей: якщо поділитися знову, піде нове запрошення.' },
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Це тренування з програми, якою з тобою поділилися, тож його не можна зберегти як власну програму.',
 }

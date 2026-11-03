@@ -2699,4 +2699,5 @@ export default {
   'Shared, {0} waiting': '已分享，{0}个待回复',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': '还会永久停止与{0}人的分享：之后再次分享会发送新的邀请。',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': '还会永久停止与{0}人的分享：之后再次分享会发送新的邀请。',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': '这次训练来自别人分享给你的训练日，因此不能保存为你自己的训练日。',
 }

@@ -2710,4 +2710,5 @@ export default {
   'Shared, {0} waiting': 'ที่แชร์, รอ {0} รายการ',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'และจะเลิกแชร์กับ {0} คนอย่างถาวร: ถ้าแชร์อีกครั้งภายหลังจะส่งคำเชิญใหม่',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'และจะเลิกแชร์กับ {0} คนอย่างถาวร: ถ้าแชร์อีกครั้งภายหลังจะส่งคำเชิญใหม่',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'การฝึกนี้มาจากรูทีนที่มีคนแชร์ให้คุณ จึงบันทึกเป็นรูทีนของคุณเองไม่ได้',
 }

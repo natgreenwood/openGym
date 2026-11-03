@@ -2699,4 +2699,5 @@ export default {
   'Shared, {0} waiting': { one: 'Udostępnione, {0} czeka', few: 'Udostępnione, {0} czekają', many: 'Udostępnione, {0} czeka' },
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Kończy też na stałe udostępnianie {0} osobie: ponowne udostępnienie później wyśle nowe zaproszenie.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': { one: 'Kończy też na stałe udostępnianie {0} osobie: ponowne udostępnienie później wyśle nowe zaproszenie.', few: 'Kończy też na stałe udostępnianie {0} osobom: ponowne udostępnienie później wyśle nowe zaproszenie.', many: 'Kończy też na stałe udostępnianie {0} osobom: ponowne udostępnienie później wyśle nowe zaproszenie.' },
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Ten trening pochodzi z planu udostępnionego Tobie, więc nie można go zapisać jako własnego planu treningowego.',
 }

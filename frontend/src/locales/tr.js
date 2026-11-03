@@ -2699,4 +2699,5 @@ export default {
   'Shared, {0} waiting': 'Paylaşılan, {0} bekliyor',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Ayrıca {0} kişiyle paylaşım kalıcı olarak sona erer: daha sonra yeniden paylaşırsan yeni bir davet gider.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Ayrıca {0} kişiyle paylaşım kalıcı olarak sona erer: daha sonra yeniden paylaşırsan yeni bir davet gider.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Bu antrenman seninle paylaşılan bir rutinden, bu yüzden kendi rutinin olarak kaydedilemez.',
 }

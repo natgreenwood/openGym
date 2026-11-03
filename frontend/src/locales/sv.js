@@ -2746,4 +2746,5 @@ export default {
   'Shared, {0} waiting': 'Delade, {0} väntar',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Det slutar också dela med {0} person för gott: delar du igen senare skickas en ny inbjudan.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Det slutar också dela med {0} personer för gott: delar du igen senare skickas en ny inbjudan.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Det här passet kommer från en rutin som delats med dig, så det kan inte sparas som en egen rutin.',
 }

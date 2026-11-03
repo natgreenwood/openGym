@@ -138,7 +138,19 @@ export function routineFromSession(session, name = session?.name, routines = [])
   return { id: uid(), name: String(name || 'Workout').trim() || 'Workout', ex }
 }
 
+/**
+ * Whether any of the session was trained from a routine shared with you (`shared:<id>`, NATG-486).
+ * Such a session is never saved as a routine: that would be a copy of someone else's routine,
+ * editable and outside their changes, which sharing doesn't allow (NATG-483 AC14, NATG-500).
+ */
+export function fromSharedRoutine(session) {
+  return sessionEntries(session).some(e => isSharedId(entryRoutineId(session, e)))
+    || [].concat(session?.routineIds ?? []).some(isSharedId) || isSharedId(session?.routineId)
+}
+
+/** Null, and nothing saved, for a session from a shared routine (fromSharedRoutine). */
 export function saveSessionAsRoutine(state, session, name) {
+  if (fromSharedRoutine(session)) return null
   const routine = routineFromSession(session, name, state.routines)
   state.routines.push(routine)
   return routine.id

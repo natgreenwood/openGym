@@ -2778,4 +2778,5 @@ export default {
   'Shared, {0} waiting': 'শেয়ার করা, {0}টি অপেক্ষায়',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'এতে {0} জনের সাথে শেয়ার করাও চিরতরে বন্ধ হবে: পরে আবার শেয়ার করলে নতুন আমন্ত্রণ যাবে।',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'এতে {0} জনের সাথে শেয়ার করাও চিরতরে বন্ধ হবে: পরে আবার শেয়ার করলে নতুন আমন্ত্রণ যাবে।',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'এই ওয়ার্কআউটটি আপনার সাথে শেয়ার করা একটি রুটিন থেকে, তাই এটি আপনার নিজের রুটিন হিসেবে সেভ করা যাবে না।',
 }

@@ -2699,4 +2699,5 @@ export default {
   'Shared, {0} waiting': 'Partilhadas, {0} à espera',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Também deixa de partilhar com {0} pessoa para sempre: partilhar outra vez mais tarde envia um novo convite.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Também deixa de partilhar com {0} pessoas para sempre: partilhar outra vez mais tarde envia um novo convite.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Este treino é de uma rotina partilhada contigo, por isso não pode ser guardado como uma rotina tua.',
 }

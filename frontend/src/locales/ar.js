@@ -2754,4 +2754,5 @@ export default {
   'Shared, {0} waiting': 'المشتركة، {0} بالانتظار',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'ويتوقف أيضاً المشاركة مع {0} شخص نهائياً: المشاركة مرة أخرى لاحقاً ترسل دعوة جديدة.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'ويتوقف أيضاً المشاركة مع {0} أشخاص نهائياً: المشاركة مرة أخرى لاحقاً ترسل دعوة جديدة.',
+  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'هذا التمرين من روتين شاركه معك شخص آخر، لذا لا يمكن حفظه كروتين خاص بك.',
 }
