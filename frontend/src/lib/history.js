@@ -574,7 +574,9 @@ export function nextTrainingDay(S, iso, shared = null) {
  * - `warm`, `drops`, `totalReps`: the planned warm-ups, the drops on each drop set, a rest-pause
  *   set's total reps; `bursts` the rest-pause bursts that total splits into.
  * - `rows`: everything built, rows and their drops or bursts: a rest-pause exercise is one
- *   warm-up and one work row with its bursts, whatever `sets` says.
+ *   warm-up and one work row with its bursts, whatever `sets` says (per side: two sides each,
+ *   each side bursting its own half of the total). Exact for what a session opens with, except
+ *   a triple progression below its ceiling, where it is the most that session can open with.
  */
 export function rowPlan(cfg) {
   const mode = modeOf(cfg || {})
@@ -588,7 +590,12 @@ export function rowPlan(cfg) {
   const drops = kind === 'dropset' ? clampCount(cfg.intensifier.count, MAX_DROPS) : 0
   const totalReps = kind === 'restpause' ? clampCount(cfg.intensifier.totalReps, MAX_BURST_REPS) : 0
   const bursts = totalReps ? splitBurstReps(totalReps).length : 0
-  const rows = kind === 'restpause' ? side * (2 + bursts) : side * (work + warm + work * drops)
+  // A per-side rest-pause set splits its total between the sides (ceil to L, floor to R), and
+  // each side bursts its own half, so its rows are each side's, not twice the whole total's.
+  const rpRows = side === 2
+    ? 4 + splitBurstReps(Math.ceil(totalReps / 2)).length + splitBurstReps(Math.floor(totalReps / 2)).length
+    : 2 + bursts
+  const rows = kind === 'restpause' ? rpRows : side * (work + warm + work * drops)
   return { sets, work, side, warm, drops, totalReps, bursts, rows }
 }
 

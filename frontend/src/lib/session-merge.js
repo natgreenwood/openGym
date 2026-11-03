@@ -14,16 +14,21 @@ import { routineRows } from './history.js'
 import { isSideSet } from './workout-model.js'
 import { MAX_ROUTINE_ROWS } from './limits.js'
 
+// The drops and rest-pause bursts one row (or one side of a per-side row) carries.
+const extrasOf = x => (Array.isArray(x?.drops) ? x.drops.length : 0) + (Array.isArray(x?.clusters) ? x.clusters.length : 0)
+
 /**
- * The rows a session's entries hold, counted the way history.js rowPlan counts a routine's: a
- * per-side row twice, each drop and each rest-pause burst as one more (SEC-486-01).
+ * The rows a session's entries hold, counted the way history.js rowPlan counts a routine's
+ * (SEC-486-01): a plain row and each of its drops or bursts is one; a per-side row is its two
+ * sides, each one row plus that side's own drops or bursts. The parent of a per-side row is not
+ * counted as well: it is only the two sides' aggregate (workout-model.js syncSideAggregate),
+ * which keeps no drops or bursts of its own.
  */
 export function sessionRows(entries) {
   let n = 0
   for (const e of Array.isArray(entries) ? entries : []) {
     for (const s of Array.isArray(e?.sets) ? e.sets : []) {
-      const extra = (Array.isArray(s?.drops) ? s.drops.length : 0) + (Array.isArray(s?.clusters) ? s.clusters.length : 0)
-      n += (isSideSet(s) ? 2 : 1) * (1 + extra)
+      n += isSideSet(s) ? 2 + extrasOf(s.sides.L) + extrasOf(s.sides.R) : 1 + extrasOf(s)
     }
   }
   return n

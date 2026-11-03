@@ -75,3 +75,79 @@ describe('case 3: an addition that crosses the cap', () => {
     expect(sessionRows([{ sets: [{ w: 1, r: 1, drops: [{}, {}] }, { sides: { L: { r: 1 }, R: { r: 1 } }, r: 2 }] }])).toBe(3 + 2)
   })
 })
+
+// SEC-486-01, counted from what was built: sessionRows reads a built session the way rowPlan
+// reads its plan, so the budget's two sides agree. A per-side row is its two sides, each with its
+// own drops or bursts; the parent row is their aggregate and isn't counted as well.
+describe('sessionRows of the built entries is rowPlan’s rows', () => {
+  const lift = { id: '0025', sets: 3, reps: 8, weight: 60 }
+  const drops = n => ({ type: 'dropset', count: n, pct: 20 })
+  const restPause = total => ({ type: 'restpause', totalReps: total, restSec: 15 })
+  const built = cfg => buildSessionEntries(S, { id: 'r', name: 'R', ex: [cfg] })
+  it.each([
+    ['plain', lift],
+    ['per-side', { ...lift, side: true }],
+    ['timed per-side', { id: '0001', mode: 'time', sec: 30, side: true, sets: 3 }],
+    ['drop-set', { ...lift, intensifier: drops(2) }],
+    ['per-side drop-set', { ...lift, side: true, intensifier: drops(3) }],
+    ['per-side drop-set at the limits', { ...lift, side: true, sets: 20, intensifier: drops(10) }],
+    ['rest-pause', { ...lift, intensifier: restPause(20) }],
+    ['per-side rest-pause, an odd total (uneven side extras)', { ...lift, side: true, intensifier: restPause(15) }],
+    ['per-side rest-pause of one rep (one side has none)', { ...lift, side: true, intensifier: restPause(1) }],
+    ['warm-ups', { ...lift, warmupSets: 2 }],
+    ['warm-ups and a drop-set', { ...lift, warmupSets: 2, intensifier: drops(2) }],
+    ['per-side warm-ups', { ...lift, side: true, warmupSets: 3 }],
+    ['pyramid', { ...lift, sets: 4, pyramid: [12, 10, 8, 'Max'] }],
+  ])('%s', (_, cfg) => {
+    expect(sessionRows(built(cfg))).toBe(rowPlan(cfg).rows)
+  })
+  it('per-side rest-pause with an odd total really is uneven: each side bursts its own half', () => {
+    const [entry] = built({ ...lift, side: true, intensifier: restPause(15) })
+    const work = entry.sets.find(s => s.type === 'restpause')
+    expect(work.sides.L.clusters.length).not.toBe(work.sides.R.clusters.length)
+  })
+  it('triple progression: never more than rowPlan’s rows, and exactly them once it opens at its ceiling', () => {
+    const cfg = { ...lift, sets: 3, setsMax: 5, reps: 10, repsMin: 8, prog: 'triple' }
+    const routine = { id: 'r', name: 'R', ex: [cfg] }
+    let st = { ...S, routines: [routine] }
+    const seen = []
+    for (let day = 1; day <= 30 && !seen.includes(5); day++) {
+      const [entry] = buildSessionEntries(st, routine)
+      const rows = sessionRows([entry])
+      expect(rows).toBeLessThanOrEqual(rowPlan(cfg).rows)
+      seen.push(rows)
+      // Every set lifted as asked, then saved: the cycle climbs to its ceiling.
+      const sets = entry.sets.map(s => ({ ...s, done: true }))
+      st = { ...st, workouts: [...st.workouts, { d: `2026-01-${String(day).padStart(2, '0')}`, routineId: 'r', entries: [{ ...entry, rid: 'r', sets }] }] }
+    }
+    expect(seen[0]).toBe(3)
+    expect(seen.at(-1)).toBe(rowPlan(cfg).rows)
+  })
+  it('counts each side’s own extras when they differ: a drop taken off one side, bursts added to the other', () => {
+    const cfg = { ...lift, side: true, intensifier: drops(3) }
+    const entries = built(cfg)
+    const set = entries[0].sets[0]
+    set.sides.L.drops.pop()
+    set.sides.R.drops.push({ w: 10, r: 8 }, { w: 8, r: 8 })
+    expect(sessionRows(entries)).toBe(rowPlan(cfg).rows - 1 + 2)
+  })
+  it('does not count a per-side row’s parent as a row of its own, nor drops left on it', () => {
+    const side = { r: 4, drops: [{}, {}] }
+    expect(sessionRows([{ sets: [{ sides: { L: side, R: { r: 4 } }, r: 8, drops: [{}, {}, {}] }] }])).toBe(2 + 2)
+  })
+})
+
+describe('an addition that crosses the cap because of per-side extras', () => {
+  // 20 per-side sets with 10 drops each: 2 × (20 + 200) = 440 rows, built. Counting the parent row
+  // only (the earlier undercount) made it 40.
+  const unilateral = { id: 'u', name: 'Unilateral', ex: [{ id: '0025', side: true, sets: 20, reps: 8, weight: 60, intensifier: { type: 'dropset', count: 10, pct: 10 } }] }
+  const hundred = { id: 'h', name: 'Hundred', ex: [{ id: '0007', sets: 50, reps: 5 }, { id: '0001', sets: 50, reps: 5 }] }
+  const sixty = { id: 'x', name: 'Sixty', ex: [{ id: '0007', sets: 50, reps: 5 }, { id: '0001', sets: 10, reps: 5 }] }
+  const st = { ...S, routines: [unilateral, hundred, sixty] }
+  it('a 440-row per-side session can’t take 100 rows more, and can take 60', () => {
+    const { entries } = buildCombinedEntries(st, ['u'])
+    expect(sessionRows(entries)).toBe(440)
+    expect(fitsSession([hundred], entries)).toBe(false)
+    expect(fitsSession([sixty], entries)).toBe(true)
+  })
+})
