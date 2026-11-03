@@ -1,7 +1,7 @@
 // Routine sharing, the sharer's side (NATG-485): what the screens decide before they draw
 // anything. The routes are the server's (api/server.js, "routine sharing"); this module only reads
 // what they answer. Kept framework-free so each rule has a unit test beside it.
-import { t } from './i18n-core.js'
+import { t, tn } from './i18n-core.js'
 
 /**
  * Whether any share action may appear at all. One check covers every case where sharing is
@@ -44,6 +44,43 @@ export function shareCounts(outgoing) {
   for (const o of Array.isArray(outgoing) ? outgoing : []) if (o && o.routineId) n[o.routineId] = (n[o.routineId] || 0) + 1
   return n
 }
+
+/**
+ * What the custom-exercise guard can go by (NATG-486, closing the gap NATG-485 left):
+ * `{ state, counts }`. `off`: sharing is unavailable, so no routine of yours is shared and nothing
+ * is held back. `known`: the share lists, from the server or the last answer kept on this device,
+ * and `counts` how many people each routine is shared with. `loading` / `failed`: no list at all
+ * yet, or the load failed with none kept. Then a custom exercise is held back from every routine,
+ * since any of them may be shared, and the screen says it couldn't check.
+ */
+export function shareGuard(available, mine, failed = false) {
+  if (!available) return { state: 'off', counts: {} }
+  if (mine) return { state: 'known', counts: shareCounts(mine.outgoing) }
+  return { state: failed ? 'failed' : 'loading', counts: {} }
+}
+
+/** Whether the guard holds a custom exercise back from routine `routineId`. */
+export const guardHolds = (guard, routineId) => guard.state === 'loading' || guard.state === 'failed' || (guard.counts[routineId] || 0) > 0
+
+/** Why it holds it back, short, for a tag on the routine's row. */
+export const guardTag = guard => guard.state === 'failed' ? t('Couldn’t check who has it')
+  : guard.state === 'loading' ? t('Checking who has it') : t('Shared, unshare first')
+
+/**
+ * How many of your shares a replace of your document would end for good (NATG-487): the server
+ * deletes every share of a routine that `routines` (the incoming document's) no longer holds, and
+ * putting the same routine back later doesn't bring them back. Every share counts: the sharer
+ * can't tell a declined one from one in use.
+ */
+export function sharesLostBy(outgoing, routines) {
+  const keep = new Set((Array.isArray(routines) ? routines : []).filter(r => r && r.id != null).map(r => r.id))
+  return (Array.isArray(outgoing) ? outgoing : []).filter(o => o && o.routineId != null && !keep.has(o.routineId)).length
+}
+
+/** The sentence a backup restore or a reset adds when it ends shares, or ''. */
+export const sharesLostLine = n => n > 0
+  ? tn('It also stops sharing with {0} person for good: sharing again later sends a new invite.', 'It also stops sharing with {0} people for good: sharing again later sends a new invite.', n)
+  : ''
 
 /** Up to two initials for the avatar: the first letters of the first two words. */
 export function initials(name) {

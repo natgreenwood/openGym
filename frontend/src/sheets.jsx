@@ -58,7 +58,8 @@ import { saveSessionAsRoutine, routineAdditions, addToRoutine } from './lib/sess
 import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
-import { useSharedCounts } from './lib/use-shared-counts.js'
+import { useShareGuard } from './lib/use-shared-counts.js'
+import { guardHolds, guardTag } from './lib/shares.js'
 import { useSharedRoutines, sharedNow } from './lib/use-shared-routines.js'
 import { routineById } from './lib/routine-lookup.js'
 import { unavailableOf } from './lib/shared-routines.js'
@@ -1268,9 +1269,10 @@ export const exerciseHistorySheet = exId => ui().openSheet(close => <ExerciseHis
 function AddToRoutine({ ex, close }) {
   const st = useStore(s => s.S)
   // A custom exercise can't go into a routine that is shared (NATG-483 AC11): that routine's row
-  // stays, says why, and does nothing. "New routine" is never shared, so it stays open.
-  const shared = useSharedCounts()
-  const blocked = rid => isCustomEx(ex) && shared[rid] > 0
+  // stays, says why, and does nothing. "New routine" is never shared, so it stays open. With no
+  // share list to go by (not loaded yet, or the load failed), every routine is held back.
+  const guard = useShareGuard()
+  const blocked = rid => isCustomEx(ex) && guardHolds(guard, rid)
   const pick = rid => {
     if (blocked(rid)) return
     close()
@@ -1294,7 +1296,7 @@ function AddToRoutine({ ex, close }) {
         ? <div key={r.id} className="item add-blocked" role="button" tabIndex={0} aria-disabled="true" aria-describedby={'blk-' + r.id}>
           <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
           <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-          <span className="tag" id={'blk-' + r.id}>{t('Shared, unshare first')}</span><Icon name="lock" className="chev" />
+          <span className="tag" id={'blk-' + r.id}>{guardTag(guard)}</span><Icon name="lock" className="chev" />
         </div>
         : <div key={r.id} className="item" {...tappable(() => pick(r.id))}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -3706,10 +3708,10 @@ function CardioDone({ st, w }) {
 // (NATG-483 AC11), and the line under the button says which stayed out and why.
 function KeepInRoutine({ additions }) {
   const [added, setAdded] = useState({})
-  const shared = useSharedCounts()
+  const guard = useShareGuard()
   if (!additions?.length) return null
   const split = a => {
-    const custom = shared[a.routineId] > 0 ? a.ex.filter(cfg => isCustomEx(EXIDX[cfg.id])) : []
+    const custom = guardHolds(guard, a.routineId) ? a.ex.filter(cfg => isCustomEx(EXIDX[cfg.id])) : []
     return { lib: a.ex.filter(cfg => !custom.includes(cfg)), custom }
   }
   const keep = a => {
@@ -3731,7 +3733,9 @@ function KeepInRoutine({ additions }) {
           ? <div className="small accent row" style={{ gap: 6 }}><Icon name="checkCircle" /><span>{t('Added to “{0}”', a.name)}</span></div>
           : lib.length > 0 && <Button icon="plusCircle" onClick={() => keep(a)}>{tn('Add it to “{1}”', 'Add them to “{1}”', lib.length, a.name)}</Button>}
         {custom.length > 0 && <div className="small dim row" style={{ gap: 6, marginTop: 6, alignItems: 'flex-start' }}><Icon name="people" style={{ flex: 'none', marginTop: 2 }} />
-          <span>{t('Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.', a.name, custom.map(nameOf).join(', '))}</span></div>}
+          <span>{guard.state === 'known'
+            ? t('Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.', a.name, custom.map(nameOf).join(', '))
+            : t('Couldn’t check who has “{0}”, and custom exercises can’t go in a shared routine: {1}. Try again once you’re online.', a.name, custom.map(nameOf).join(', '))}</span></div>}
       </div>
     })}
   </div>

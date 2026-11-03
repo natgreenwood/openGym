@@ -24,6 +24,8 @@ export function useRoutineShares(routineId) {
   const available = sharingAvailable(config, user, { demo: DEMO })
   useEffect(() => { if (available) useStore.getState().loadShares() }, [available, user?.id])
   const mine = available ? sharesOf(shares, user) : null
+  // `mine` may be the last answer kept on this device (useStore SHARED_KEY), which is what the
+  // guards go by while the server can't be asked.
   return { available, list: mine ? sharedWith(mine.outgoing, routineId) : null, failed: available && !mine && failed }
 }
 
