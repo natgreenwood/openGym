@@ -70,16 +70,28 @@ function dayIn(ms, tz) {
     return `${g('year')}-${g('month')}-${g('day')}`;
   } catch { return new Date(ms).toISOString().slice(0, 10); }
 }
+// EXTRA IDS (shared with the frontend): `extraIds`, an optional Set, names further routine ids
+// that count as known beside `S.routines`: the `shared:<id>` pointers of the shared routines
+// (routine sharing, NATG-483) that the caller can resolve right now. Without it, a day whose only
+// routine is a shared one reads as a rest day. Everywhere below that asks "does this routine
+// exist" asks it of both. A shared routine's name is not in `S.routines`, so the DONE RULE's
+// dated name clause never matches one; the clock clause does.
+const knownIds = (S, extraIds) => {
+  const known = new Set((S.routines || []).map(r => r?.id));
+  if (extraIds) for (const id of extraIds) known.add(id);
+  return known;
+};
+
 // Tolerant reader, as in the frontend: a missing or malformed queue reads as none. A missing
 // startsOn means active since the day of the apply (dayIn above); a session whose routine was
 // deleted is dropped from the week (the frontend's queue.js does the same — it could never be
 // started or logged).
-function queueOf(S) {
+function queueOf(S, extraIds = null) {
   const q = S.queue;
   if (!q || typeof q !== 'object' || !Array.isArray(q.ids)) return null;
   const startsOn = typeof q.startsOn === 'string' ? q.startsOn : dayIn(q.since || 0, S.reminder?.tz);
   // First valid occurrence of each id — the same normalization as the frontend's queueOf.
-  const known = new Set((S.routines || []).map(r => r?.id));
+  const known = knownIds(S, extraIds);
   const ids = [...new Set(q.ids)].filter(id => known.has(id));
   if (!ids.length) return null;
   return { ids, startsOn };
@@ -88,8 +100,8 @@ function queueOf(S) {
 // preview a different date against, so `today` in the spec's `next(iso, today)` is just `iso`.
 // That collapses `iso === max(today, startsOn)` to the equivalent, simpler `iso >= startsOn`, and
 // "pins dated today or later" to "pins dated `iso` or later".
-function queueNext(S, iso) {
-  const q = queueOf(S);
+function queueNext(S, iso, extraIds = null) {
+  const q = queueOf(S, extraIds);
   if (!q || iso < q.startsOn) return null;
   const done = doneIds(S, q);
   const remaining = q.ids.filter(id => !done.has(id));
@@ -105,8 +117,8 @@ function queueNext(S, iso) {
 // still to do (its day's session, skipped elsewhere); 'done' — a fulfilled pin, to be read as no
 // override; null — not a queue session (no queue, a malformed one, a routine override, 'rest', a
 // deleted routine), so the plain override rules apply.
-export function pinState(S, id) {
-  const q = queueOf(S);
+export function pinState(S, id, extraIds = null) {
+  const q = queueOf(S, extraIds);
   if (!q || !id || !q.ids.includes(id)) return null;
   return doneIds(S, q).has(id) ? 'done' : 'open';
 }
@@ -114,33 +126,34 @@ export function pinState(S, id) {
 // A weekday can hold a routine-id list (combine routines); the reminder only needs the first.
 // The `?.` on each routine entry is this copy's own: it reads whatever is on disk, including a
 // file written before PUT /api/data dropped null entries.
+// `extraIds`: see EXTRA IDS above.
 // Per-date overrides: 'rest' -> null; a pin on an open queue session -> that session; a pin on a
 // done one is fulfilled and ignored; an explicit routine id -> that id. Otherwise a live queue's
 // next session wins over the plain weekday assignment, falling back to the weekday only once the
 // queue is finished, not yet started, or absent.
-export function effectiveRoutineId(S, iso) {
+export function effectiveRoutineId(S, iso, extraIds = null) {
   const ov = S.dayPlan?.[iso];
   if (ov === 'rest') return null;
-  const pin = pinState(S, ov);
+  const pin = pinState(S, ov, extraIds);
   if (pin === 'open') return ov;
-  if (!pin && ov && S.routines?.some(r => r?.id === ov)) return ov;
-  const q = queueNext(S, iso);
+  const known = knownIds(S, extraIds);
+  if (!pin && ov && known.has(ov)) return ov;
+  const q = queueNext(S, iso, extraIds);
   if (q) return q;
   const wd = new Date(iso + 'T12:00:00').getDay();
   // The planner's weekday pointers stay hidden on a live queue day even when it has no session for
   // it (every remaining one pinned to another day): those sessions have their days.
-  const live = queueLiveOn(S, iso);
+  const live = queueLiveOn(S, iso, extraIds);
   const list = [].concat(S.week?.[wd] || []);
   if (!list.length) return null;
-  const known = new Set((S.routines || []).map(r => r?.id));
   const queued = live ? new Set(S.queue.ids) : null;
   return list.find(id => known.has(id) && !(live && queued.has(id))) || null;
 }
 
 // Is `iso` a day the queue speaks for, with sessions still to do? (`today === iso` here, so
 // "the queue's day" is any day from startsOn on.)
-export function queueLiveOn(S, iso) {
-  const q = queueOf(S);
+export function queueLiveOn(S, iso, extraIds = null) {
+  const q = queueOf(S, extraIds);
   if (!q || iso < q.startsOn) return false;
   const done = doneIds(S, q);
   return q.ids.some(id => !done.has(id));

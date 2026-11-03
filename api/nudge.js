@@ -45,27 +45,29 @@ export function excusedOn(S, iso) {
   return DAY_NOTE_TAGS.includes(e.tag) || (typeof e.text === 'string' && e.text.trim() !== '');
 }
 
-function missed(S, iso) {
+function missed(S, iso, extraIds) {
   if (logged(S, iso) || excusedOn(S, iso)) return null;
-  const rid = effectiveRoutineId(S, iso);
+  const rid = effectiveRoutineId(S, iso, extraIds);
   if (!rid) return null;
-  if (queueLiveOn(S, iso) && logged(S, dayBefore(iso))) return null;
+  if (queueLiveOn(S, iso, extraIds) && logged(S, dayBefore(iso))) return null;
   return rid;
 }
 
 /**
  * The routine id to nudge about on `iso`, or null: not a missed day, or 3 missed days in a row
  * already since the last workout (back-off). Workouts dated after `iso` are not looked at.
+ * `extraIds`: further routine ids that count as planned, the usable shared routines (queue.js
+ * EXTRA IDS); the id returned can be one of them.
  */
-export function nudgeFor(state, iso) {
+export function nudgeFor(state, iso, extraIds = null) {
   const S = { ...state, workouts: records(state?.workouts), routines: records(state?.routines) };
-  const rid = missed(S, iso);
+  const rid = missed(S, iso, extraIds);
   if (!rid) return null;
   const last = S.workouts.reduce((m, w) => (typeof w.d === 'string' && w.d < iso && w.d > m ? w.d : m), '');
   let misses = 0;
   let d = dayBefore(iso);
   for (let i = 0; i < NUDGE_LOOKBACK_DAYS && d > last; i++, d = dayBefore(d)) {
-    if (missed(S, d) && ++misses >= NUDGE_MAX_MISSES) return null;
+    if (missed(S, d, extraIds) && ++misses >= NUDGE_MAX_MISSES) return null;
   }
   return rid;
 }
