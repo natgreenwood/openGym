@@ -120,8 +120,9 @@ imported. When you change one side, change the other in the same pull request:
 | `lib/nudge.js` | `api/nudge.js` | mirrored cases in `lib/nudge.test.js` and `api/test/nudge.test.js` |
 | `lib/queue.js` | `api/queue.js` | mirrored cases in `lib/queue.test.js` and `api/test/queue.test.js` |
 | `lib/plan-share.js` `cleanEx` (what a plan export keeps of a routine) | `api/shared-routine.js` (what a shared routine projects to its recipients) | `lib/shared-routine-parity.test.js` compares the field lists |
+| `MAX_PICK` in `components/ShareRoutineSheet.jsx` | `MAX_SHARE_RECIPIENTS` in `api/server.js` | nothing: the most people one share request takes |
 
-The nudge and queue rows have no test that compares the code itself, so a change on one side only is not
+The nudge, queue and share-recipient cap rows have no test that compares the code itself, so a change on one side only is not
 caught automatically.
 
 The Coach goes the other way: `frontend/src/lib/coach-local.js` imports `api/coach/core/` directly,

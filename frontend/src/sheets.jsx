@@ -58,6 +58,7 @@ import { saveSessionAsRoutine, routineAdditions, addToRoutine } from './lib/sess
 import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
+import { useSharedCounts } from './lib/use-shared-counts.js'
 import { useAutoMore } from './lib/use-auto-more.js'
 import { isFav, toggleFav, sortFavouritesFirst, sortYoursFirst } from './lib/favourites.js'
 import { buildSessionEntries, buildPlannedEntry, buildSessionEntry, plannedConfigOf } from './lib/session-start.js'
@@ -1262,7 +1263,12 @@ export const exerciseHistorySheet = exId => ui().openSheet(close => <ExerciseHis
 /* ============================ add to routine ============================ */
 function AddToRoutine({ ex, close }) {
   const st = useStore(s => s.S)
+  // A custom exercise can't go into a routine that is shared (NATG-483 AC11): that routine's row
+  // stays, says why, and does nothing. "New routine" is never shared, so it stays open.
+  const shared = useSharedCounts()
+  const blocked = rid => isCustomEx(ex) && shared[rid] > 0
   const pick = rid => {
+    if (blocked(rid)) return
     close()
     const isNew = rid === '_new'
     exConfigSheet(ex, null, cfg => {
@@ -1280,7 +1286,13 @@ function AddToRoutine({ ex, close }) {
     <h3 className={exerciseNameClass(ex)}>{t('Add “{0}”', exerciseNameFor(ex))}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Pick a routine. Sets, reps and weight come next.')}</div>
     <div className="list">
-      {st.routines.map(r => <div key={r.id} className="item" {...tappable(() => pick(r.id))}>
+      {st.routines.map(r => blocked(r.id)
+        ? <div key={r.id} className="item add-blocked" role="button" tabIndex={0} aria-disabled="true" aria-describedby={'blk-' + r.id}>
+          <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
+          <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
+          <span className="tag" id={'blk-' + r.id}>{t('Shared, unshare first')}</span><Icon name="lock" className="chev" />
+        </div>
+        : <div key={r.id} className="item" {...tappable(() => pick(r.id))}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
         {r.ex.some(e => e.id === ex.id) && <span className="tag">{t('already in')}</span>}<Icon name="plus" className="chev" />
@@ -3652,23 +3664,38 @@ function CardioDone({ st, w }) {
 
 // Exercises added during a routine's session, offered to that routine for next time (#592). One
 // tap adds them with today's setup; leaving the summary without it changes nothing.
+// A routine that is shared takes only the library exercises: custom ones can't go into it
+// (NATG-483 AC11), and the line under the button says which stayed out and why.
 function KeepInRoutine({ additions }) {
   const [added, setAdded] = useState({})
+  const shared = useSharedCounts()
   if (!additions?.length) return null
+  const split = a => {
+    const custom = shared[a.routineId] > 0 ? a.ex.filter(cfg => isCustomEx(EXIDX[cfg.id])) : []
+    return { lib: a.ex.filter(cfg => !custom.includes(cfg)), custom }
+  }
   const keep = a => {
+    const { lib } = split(a)
+    if (!lib.length) return
     let n = 0
-    update(s => { n = addToRoutine(s.routines.find(r => r.id === a.routineId), a.ex) })
+    update(s => { n = addToRoutine(s.routines.find(r => r.id === a.routineId), lib) })
     setAdded(x => ({ ...x, [a.routineId]: true }))
     if (n) ui().toast(t('Routine updated'))
   }
   return <div style={{ textAlign: 'start', marginBottom: 14 }} data-keep-in-routine>
     <h4 className="sec">{t('New in this workout')}</h4>
-    {additions.map(a => <div key={a.routineId} style={{ marginBottom: 8 }}>
-      <div className="small dim" style={{ marginBottom: 6 }}>{a.ex.map(cfg => EXIDX[cfg.id] ? exerciseNameText(EXIDX[cfg.id]) : cfg.id).join(', ')}</div>
-      {added[a.routineId]
-        ? <div className="small accent row" style={{ gap: 6 }}><Icon name="checkCircle" /><span>{t('Added to “{0}”', a.name)}</span></div>
-        : <Button icon="plusCircle" onClick={() => keep(a)}>{tn('Add it to “{1}”', 'Add them to “{1}”', a.ex.length, a.name)}</Button>}
-    </div>)}
+    {additions.map(a => {
+      const { lib, custom } = split(a)
+      const nameOf = cfg => EXIDX[cfg.id] ? exerciseNameText(EXIDX[cfg.id]) : cfg.id
+      return <div key={a.routineId} style={{ marginBottom: 8 }}>
+        <div className="small dim" style={{ marginBottom: 6 }}>{a.ex.map(nameOf).join(', ')}</div>
+        {added[a.routineId]
+          ? <div className="small accent row" style={{ gap: 6 }}><Icon name="checkCircle" /><span>{t('Added to “{0}”', a.name)}</span></div>
+          : lib.length > 0 && <Button icon="plusCircle" onClick={() => keep(a)}>{tn('Add it to “{1}”', 'Add them to “{1}”', lib.length, a.name)}</Button>}
+        {custom.length > 0 && <div className="small dim row" style={{ gap: 6, marginTop: 6, alignItems: 'flex-start' }}><Icon name="people" style={{ flex: 'none', marginTop: 2 }} />
+          <span>{t('Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.', a.name, custom.map(nameOf).join(', '))}</span></div>}
+      </div>
+    })}
   </div>
 }
 

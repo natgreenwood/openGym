@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
@@ -21,6 +21,7 @@ import { glyphOf, DEFAULT_GLYPH } from '../lib/glyphs.js'
 import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
 import { coachAvailable } from '../lib/coach.js'
+import { sharingAvailable, sharesOf, shareCounts } from '../lib/shares.js'
 import { queueOf, queueView } from '../lib/queue.js'
 import { deriveSessionName } from '../lib/session-merge.js'
 import { markUndone, undoMarks } from '../lib/sync-merge.js'
@@ -444,7 +445,14 @@ function Routines({ S, update, nav }) {
   // The weekdays a routine is on, short, in the order the week runs.
   const order = weekOrder(weekStartOf(S))
   const daysOf = id => order.filter(d => [].concat(S.week[d] || []).includes(id)).map(d => t(DAYS[d]))
-  const sub = r => [exCount(r.ex.length), daysOf(r.id).join(', ')].filter(Boolean).join(' · ')
+  // "Shared with 3" (NATG-485), once the server has said whom, and only while sharing is available.
+  const config = useStore(s => s.config)
+  const user = useStore(s => s.user)
+  const shares = useStore(s => s.shares)
+  const canShare = sharingAvailable(config, user, { demo: DEMO })
+  useEffect(() => { if (canShare) useStore.getState().loadShares() }, [canShare, user?.id])
+  const sharedN = canShare ? shareCounts(sharesOf(shares, user)?.outgoing) : {}
+  const sub = r => [exCount(r.ex.length), daysOf(r.id).join(', '), sharedN[r.id] ? t('Shared with {0}', sharedN[r.id]) : ''].filter(Boolean).join(' · ')
 
   return <>
     <div className="row between plan-sec-h plan-routines-bar">

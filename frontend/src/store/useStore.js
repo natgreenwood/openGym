@@ -6,6 +6,7 @@ import { registerCustom, healCustomEx } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { rememberDefaultLang } from '../lib/default-lang.js'
 import { guestAllowed } from '../lib/guest.js'
+import { sharingAvailable, sharesOf } from '../lib/shares.js'
 import { stateJson } from '../lib/state-json.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth, readHealth } from '../lib/health-sync.js'
@@ -364,6 +365,7 @@ export const useStore = create((set, get) => {
   let pushAgain = false    // a push asked for while one was in flight — run once more after it
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
+  let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
   let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
@@ -1598,11 +1600,48 @@ export const useStore = create((set, get) => {
     async refreshConfig() {
       if (configFetch) return configFetch
       configFetch = (async () => {
-        try { const c = await api('/api/config'); rememberDefaultLang(c); set({ config: c }); return c }
+        try { const c = await api('/api/config'); rememberDefaultLang(c); set({ config: c }); get().sharesIfAvailable(); return c }
         catch { return null }
         finally { configFetch = null }
       })()
       return configFetch
+    },
+
+    // Routine sharing (GET /api/shares): the caller's two lists as the server last answered,
+    // `{ uid, outgoing, incoming, etag }`, or null before the first answer. Never part of `S`: a
+    // share is a record on the server, not something this profile's document holds, and it must
+    // not sync or merge. Tagged with whose it is, so a sign-in as someone else never shows the
+    // previous profile's list. `sharesError` is set while the last load failed.
+    shares: null,
+    sharesError: false,
+    // Loads the lists once, the moment sharing becomes available for this user (a config that
+    // says `shares`, a sign-in), so every guard against a custom exercise in a shared routine
+    // reads the same answer wherever it is asked, not only on the screens that load it themselves.
+    sharesIfAvailable() {
+      const { config, user, shares } = get()
+      if (sharingAvailable(config, user, { demo: DEMO }) && !sharesOf(shares, user)) get().loadShares()
+    },
+    async loadShares() {
+      const user = get().user
+      if (!user) return null
+      // A request still out for someone else (a sign-in switch while it was in flight) is not this
+      // user's answer: it stores nothing when it lands, so this user gets a request of their own.
+      if (sharesFetch?.uid === user.id) return sharesFetch.promise
+      const mine = { uid: user.id, promise: null }
+      sharesFetch = mine
+      mine.promise = (async () => {
+        try {
+          const r = await api('/api/shares')
+          if (get().user?.id !== user.id) return null
+          const shares = { uid: user.id, outgoing: Array.isArray(r?.outgoing) ? r.outgoing : [], incoming: Array.isArray(r?.incoming) ? r.incoming : [], etag: r?.etag || null }
+          set({ shares, sharesError: false })
+          return shares
+        } catch {
+          if (get().user?.id === user.id) set({ sharesError: true })
+          return null
+        } finally { if (sharesFetch === mine) sharesFetch = null }
+      })()
+      return mine.promise
     },
 
     // `adopt` (a sign-in, a pairing — { alwaysAsk } for a device link): adoptProfile follows and
@@ -1675,6 +1714,7 @@ export const useStore = create((set, get) => {
       } else { rejoined = false; adoptHold = false; localStorage.removeItem('gym_user') }
       set({ user: u })
       setSync({ held: adoptHold })
+      if (u) get().sharesIfAvailable()
     },
 
     // One PUT at a time: a push asked for while one is in flight runs after it (once, however

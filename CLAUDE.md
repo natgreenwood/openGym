@@ -137,7 +137,9 @@ The API image cannot import the frontend, so some rules are hand-copied. Change 
 together: `lib/sync-merge.js` and `api/sync-stamps.js` (parity test), `lib/glyphs.js` and
 `api/coach/core/glyphs.js` (parity test), `lib/nudge.js` and `api/nudge.js`, `lib/queue.js` and
 `api/queue.js` (mirrored test cases only, nothing compares the code), `lib/plan-share.js` `cleanEx`
-and `api/shared-routine.js`'s field allowlist (parity test). The other way round,
+and `api/shared-routine.js`'s field allowlist (parity test), `MAX_PICK` in
+`components/ShareRoutineSheet.jsx` and `MAX_SHARE_RECIPIENTS` in `api/server.js` (the most people
+one share request takes; nothing compares them). The other way round,
 `lib/coach-local.js` imports `api/coach/core/` directly so the phones run the same coach pipeline.
 
 ### MCP server (`mcp/src`)

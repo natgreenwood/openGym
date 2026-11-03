@@ -8,10 +8,10 @@ import { auditCat, auditLabel, auditReason, auditLine, auditAct, fmtWhen } from 
 // If a new one is added there without a label here, the first test fails rather than the
 // dashboard quietly printing a dotted identifier at a person.
 const SERVER = readFileSync(new URL('../../../api/server.js', import.meta.url), 'utf8')
-// Every quoted auth./admin./media. name, not only `audit(req, '…'`: a name with a hyphen
+// Every quoted auth./admin./media./share. name, not only `audit(req, '…'`: a name with a hyphen
 // ('admin.first-user') or one picked by a ternary slipped past that pattern and reached the
 // dashboard raw.
-const EVENTS = [...new Set([...SERVER.matchAll(/['"`]((?:auth|admin|media)\.[a-z0-9.-]+)['"`]/g)].map(m => m[1]))]
+const EVENTS = [...new Set([...SERVER.matchAll(/['"`]((?:auth|admin|media|share)\.[a-z0-9.-]+)['"`]/g)].map(m => m[1]))]
 const REASONS = [...new Set([...SERVER.matchAll(/msg: '([a-z-]+)'/g)].map(m => m[1]))]
 
 describe('auditLabel', () => {
@@ -41,8 +41,9 @@ describe('auditCat', () => {
   })
   // `media` is the third: the photo and video clean-up and throttle. It has no chip of its own —
   // those rows show under All, and a throttle under Failed.
-  it('puts every known event in auth, admin or media', () => {
-    expect([...new Set(EVENTS.map(auditCat))].sort()).toEqual(['admin', 'auth', 'media'])
+  // `share` is the fourth (NATG-483), chip-less like `media`: its rows show under All.
+  it('puts every known event in auth, admin, media or share', () => {
+    expect([...new Set(EVENTS.map(auditCat))].sort()).toEqual(['admin', 'auth', 'media', 'share'])
   })
 })
 
@@ -66,6 +67,13 @@ describe('auditReason', () => {
 })
 
 describe('auditLine', () => {
+  // NATG-485 AC6: the sharing events read as sentences, with both sides and the share named.
+  it('labels the routine-sharing events instead of printing their names', () => {
+    expect(EVENTS).toEqual(expect.arrayContaining(['admin.sharing.enable', 'share.create', 'share.accept', 'share.decline', 'share.revoke', 'share.remove']))
+    expect(auditLine({ ev: 'admin.sharing.enable', ok: true, name: 'Ana' })).toEqual({ title: 'Turned on routine sharing', sub: 'Ana' })
+    expect(auditLine({ ev: 'share.create', ok: true, name: 'Sam', tname: 'Jo', msg: '0123456789abcdef' }))
+      .toEqual({ title: 'Shared a routine', sub: 'Sam · → Jo · share 0123456789abcdef' })
+  })
   it('reads the server lists off api/server.js, pairing events included', () => {
     // Guards the extraction itself: an empty match would make the two loops above vacuous.
     expect(EVENTS).toEqual(expect.arrayContaining(['auth.login.ok', 'auth.pair.create', 'auth.pair.ok', 'auth.pair.fail', 'admin.audit.clear']))
