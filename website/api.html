@@ -2211,7 +2211,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </summary>
   <div class="ep-body">
 <p><code>incoming</code> holds the shares addressed to you that are pending or accepted; a declined or removed one is never listed. <code>outgoing</code> holds every share you made, with no state at all, so a decline or a removal looks exactly like a share still waiting.</p>
-<p>Each incoming share is read from the sharer's own document at request time. An accepted one carries the routine as it is now, the sharer's weight unit and <code>hash</code>, a content hash of those two; a pending one carries only a preview, the routine's name and number of exercises, and a <code>hash</code> of the preview. An accepted share whose routine now holds a custom exercise comes back as <code>unavailable: custom-exercise</code>, and one whose sharer's document cannot be read as <code>unavailable: unreadable</code>; neither carries a routine, and both come back as usable on their own once the cause is gone. A share whose routine was deleted is not listed, and is deleted here (<code>share.revoke</code>, <code>act</code> <code>routine-gone</code>).</p>
+<p>Each incoming share is read from the sharer's own document at request time. An accepted one carries the routine as it is now, the sharer's weight unit and <code>hash</code>, a content hash of those two; a pending one carries only a preview, the routine's name and number of exercises, and a <code>hash</code> of the preview. An accepted share whose routine now holds a custom exercise comes back as <code>unavailable: custom-exercise</code>, and one whose sharer's document cannot be read, or holds a value the server cannot project, as <code>unavailable: unreadable</code>; neither carries a routine, and both come back as usable on their own once the cause is gone. A share whose routine was deleted is not listed, and is deleted here (<code>share.revoke</code>, <code>act</code> <code>routine-gone</code>).</p>
 <p><code>etag</code> moves whenever either list changes for you, when what a share shows you changes (the routine or the sharer's unit once accepted, the name or the exercise count while pending) and when a share's availability changes. Nothing else the sharer syncs moves it. The sharer's half covers ids only, so a recipient's answer does not move it. <code>GET /api/data/rev</code> carries the same etag. While sharing is off the answer is <code>{ incoming: [], outgoing: [], etag: &quot;off&quot; }</code> rather than an error.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
@@ -5061,7 +5061,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">preview</span>
     <span class="p-type">object</span>
-    <span class="p-desc">Pending only.</span>
+    <span class="p-desc">Pending only. <code>exercises</code> counts the exercises <code>routine.ex</code> would carry once accepted (those with a string <code>id</code>), and <code>name</code> follows the same rule as <code>routine.name</code>: always a string, empty when the stored one is not text.</span>
   </div>
   <div class="prow">
     <span class="p-name">preview.name</span>
@@ -5076,7 +5076,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">unavailable</span>
     <span class="p-type">&quot;custom-exercise&quot; | &quot;unreadable&quot;</span>
-    <span class="p-desc">Why the share cannot be used right now: the routine holds a custom exercise (accepted only), or the sharer's document cannot be read.</span>
+    <span class="p-desc">Why the share cannot be used right now: the routine holds a custom exercise (accepted only), or the sharer's document cannot be read or holds a value the server cannot project.</span>
   </div>
 </div>
   </div>

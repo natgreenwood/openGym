@@ -28,8 +28,10 @@ export const SLOT_FIELDS = [
 export const SLOT_WITHHELD = ['subs'];
 
 const isEntry = x => x && typeof x === 'object' && !Array.isArray(x);
-// The same rule as server.js `text()`: String() is not safe on parsed JSON, `{"toString":1}`
-// makes it throw. A string stays, a number becomes one, anything else is empty.
+// A value from parsed JSON that is meant to be text: a caller-supplied field, or a sharer's
+// value another user is shown. String() alone is not safe on a parsed body:
+// `{"code":{"toString":1}}` is valid JSON and String() throws on it. A string stays, a number
+// becomes one, anything else is empty. server.js uses this one for its own callers too.
 export const text = v => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 /** The slots of `r` a recipient gets, before their fields are picked: entries with a string id. */
 export const sharedSlots = r => (Array.isArray(r.ex) ? r.ex : []).filter(e => isEntry(e) && typeof e.id === 'string');

@@ -37,7 +37,7 @@ import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
-import { sharedRoutine, sharedPreview, contentHash, text as shareText } from './shared-routine.js';
+import { sharedRoutine, sharedPreview, contentHash, text } from './shared-routine.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -912,9 +912,6 @@ function readBody(req) {
     req.on('error', e => reject(Object.assign(e, { clientGone: true })));
   });
 }
-// A caller-supplied field that is meant to be text. String() alone is not safe on a parsed body:
-// `{"code":{"toString":1}}` is valid JSON and String() throws on it.
-const text = v => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
 const b64uToBuf = s => Buffer.from(s, 'base64url');
 
 /* ---------- live presence (in-memory) ---------- */
@@ -2277,12 +2274,16 @@ function dropSharesOfGoneRoutines(req, user, state) {
 // What a reminder or nudge about a `shared:<id>` needs of the routine: its name and emoji, as
 // text (SEC-01: the push builders interpolate both). Null when there is no such shared routine
 // for `uid`, or it has no name, so the push falls back to its generic title.
+// Invariant: this runs outside projectIncoming's try/catch, and only after sharedRoutineIds
+// deemed the share usable through it in the same tick. That is safe only while resolveShare
+// cannot throw, so resolveShare must never gain a step that can: anything that can goes in
+// incomingItem, inside the containment.
 function sharedRoutineFor(uid, rid) {
   if (typeof rid !== 'string' || !rid.startsWith('shared:')) return null;
   const s = db.shares.find(x => x.id === rid.slice(7) && x.to === uid && x.state === 'accepted');
   const r = s ? resolveShare(s).routine : null;
-  const name = r ? shareText(r.name) : '';
-  return name ? { name, emoji: shareText(r.emoji) } : null;
+  const name = r ? text(r.name) : '';
+  return name ? { name, emoji: text(r.emoji) } : null;
 }
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
 // ids alone, so a decline does not move it. The recipient's half moves with what each item shows
