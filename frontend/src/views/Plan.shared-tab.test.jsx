@@ -198,6 +198,14 @@ describe('Schedule with shared routines (AC4, AC9)', () => {
     expect(dayRow(1).querySelector('.ss').textContent).toBe('From Sam Keller · 2 exercises')
     expect(dayRow(1).querySelector('.shared-badge')).toBeTruthy()
   })
+  it('doesn’t call a plan made only of shared routines empty', () => {
+    mocks.S = { ...mocks.S, routines: [] }
+    render()
+    expect(host.textContent).not.toContain('No routines yet.')
+    mocks.shares = { ...mocks.shares, incoming: [] }
+    render()
+    expect(host.textContent).toContain('No routines yet.')
+  })
   it('keeps a day whose shared routine is not available, and says so instead of rest', () => {
     mocks.shares = { ...mocks.shares, incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable: 'custom-exercise' }], names: { s1: 'Leg Day' } }
     render()

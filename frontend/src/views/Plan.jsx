@@ -339,7 +339,8 @@ function Schedule({ S, update, nav, mode }) {
       <SeasonDeco spot="plan-card" />
     </Section>
 
-    {!S.routines.length && <div className="empty plan-empty">
+    {/* Routines shared with you count: a plan made only of them is a plan, not an empty one. */}
+    {!S.routines.length && !shared.routines.length && <div className="empty plan-empty">
       <div className="ico"><Icon name="clipboard" /></div>{t('No routines yet.')}<br />{t('Make one, or grab the starter plan to get going.')}
       <div style={{ marginTop: 12 }}><Button icon="clipboard" onClick={starterPlanSheet}>{t('Load starter plan')}</Button></div>
     </div>}
