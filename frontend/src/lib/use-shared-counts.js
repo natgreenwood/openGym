@@ -14,7 +14,8 @@ export function useShareGuard() {
   const shares = useStore(s => s.shares)
   const failed = useStore(s => s.sharesError)
   const mine = sharesOf(shares, user)
-  // A list kept for this account is proof sharing is on (it can't be switched off in v1), the
-  // rule the Shared tab follows: a phone that starts offline has no config, and still a list.
-  return shareGuard(sharingAvailable(config, user, { demo: DEMO }) || !!mine, mine, failed)
+  // Until the config has loaded (a phone that starts offline has none), a list kept for this
+  // account is proof sharing is on: it can't be switched off in v1, the rule the Shared tab
+  // follows. A config the server did answer still decides.
+  return shareGuard(sharingAvailable(config, user, { demo: DEMO }) || (config == null && !!mine), mine, failed)
 }

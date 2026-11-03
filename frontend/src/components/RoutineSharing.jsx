@@ -25,11 +25,11 @@ export function useRoutineShares(routineId) {
   useEffect(() => { if (available) useStore.getState().loadShares() }, [available, user?.id])
   // `mine` may be the last answer kept on this device (useStore SHARED_KEY), which is what the
   // guards go by while the server can't be asked. Kept for this account, it is proof sharing is
-  // on (it can't be switched off in v1) even before the config has loaded, as on a phone that
-  // starts offline: `guarded` is the custom-exercise guard's "sharing is on", `available` stays
-  // the share action's, which needs the server anyway.
+  // on (it can't be switched off in v1) until the config has loaded, as on a phone that starts
+  // offline; a config the server did answer still decides. `guarded` is the custom-exercise
+  // guard's "sharing is on"; `available` stays the share action's, which needs the server anyway.
   const mine = sharesOf(shares, user)
-  const guarded = available || !!mine
+  const guarded = available || (config == null && !!mine)
   return { available, guarded, list: mine && guarded ? sharedWith(mine.outgoing, routineId) : null, failed: available && !mine && failed }
 }
 
