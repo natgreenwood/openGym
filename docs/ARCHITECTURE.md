@@ -119,8 +119,9 @@ imported. When you change one side, change the other in the same pull request:
 | `lib/glyphs.js` | `api/coach/core/glyphs.js` | `lib/coach-parity.test.js` |
 | `lib/nudge.js` | `api/nudge.js` | mirrored cases in `lib/nudge.test.js` and `api/test/nudge.test.js` |
 | `lib/queue.js` | `api/queue.js` | mirrored cases in `lib/queue.test.js` and `api/test/queue.test.js` |
+| `MAX_PICK` in `components/ShareRoutineSheet.jsx` | `MAX_SHARE_RECIPIENTS` in `api/server.js` | nothing: the most people one share request takes |
 
-The last two have no test that compares the code itself, so a change on one side only is not
+The last three have no test that compares the code itself, so a change on one side only is not
 caught automatically.
 
 The Coach goes the other way: `frontend/src/lib/coach-local.js` imports `api/coach/core/` directly,
