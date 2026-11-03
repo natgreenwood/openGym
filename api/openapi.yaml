@@ -1739,7 +1739,7 @@ paths:
 
         While routine sharing is on, `shares` is the etag `GET /api/shares` would answer, so a
         new share, an answer, a revoke or a sharer's edit of a shared routine is noticed with no
-        request of its own; fetch `GET /api/shares` when it moved. Nothing is written by this
+        request of its own (and nothing else the sharer syncs is); fetch `GET /api/shares` when it moved. Nothing is written by this
         route.
       responses:
         '200':
@@ -2807,18 +2807,20 @@ paths:
         no state at all, so a decline or a removal looks exactly like a share still waiting.
 
         Each incoming share is read from the sharer's own document at request time. An
-        accepted one carries the routine as it is now, the sharer's weight unit and the
-        sharer's document revision (`rev`); a pending one carries only a preview, the
-        routine's name and number of exercises, and `rev`. An accepted share whose routine now
+        accepted one carries the routine as it is now, the sharer's weight unit and `hash`, a
+        content hash of those two; a pending one carries only a preview, the routine's name and
+        number of exercises, and a `hash` of the preview. An accepted share whose routine now
         holds a custom exercise comes back as `unavailable: custom-exercise`, and one whose
         sharer's document cannot be read as `unavailable: unreadable`; neither carries a
         routine, and both come back as usable on their own once the cause is gone. A share
         whose routine was deleted is not listed, and is deleted here (`share.revoke`, `act`
         `routine-gone`).
 
-        `etag` moves whenever either list changes for you, when a sharer edits a routine shared
-        with you and when a share's availability changes; the sharer's half covers ids only,
-        so a recipient's answer does not move it. `GET /api/data/rev` carries the same etag.
+        `etag` moves whenever either list changes for you, when what a share shows you changes
+        (the routine or the sharer's unit once accepted, the name or the exercise count while
+        pending) and when a share's availability changes. Nothing else the sharer syncs moves
+        it. The sharer's half covers ids only, so a recipient's answer does not move it.
+        `GET /api/data/rev` carries the same etag.
         While sharing is off the answer is `{ incoming: [], outgoing: [], etag: "off" }` rather
         than an error.
       responses:
@@ -4290,7 +4292,7 @@ components:
       type: object
       description: >-
         A share addressed to you that is pending or accepted, read from the sharer's document.
-        Accepted and usable: `rev`, `unit` and `routine`. Pending: `rev` and `preview`.
+        Accepted and usable: `hash`, `unit` and `routine`. Pending: `hash` and `preview`.
         Unavailable: `unavailable` and none of those.
       properties:
         id: { type: string, description: 16 hex characters. }
@@ -4298,14 +4300,19 @@ components:
         from: { $ref: '#/components/schemas/ShareUser' }
         created: { type: string, format: date-time }
         acceptedAt: { type: string, format: date-time, description: Once accepted. }
-        rev: { type: integer, description: "The sharer's document revision: moves with every edit the sharer makes." }
+        hash:
+          type: string
+          description: >-
+            16 hex characters of SHA-256 over the canonical JSON (keys sorted) of what the item
+            shows: `{ unit, routine }` once accepted, `{ preview }` while pending. A version tag
+            to compare for equality; it moves only when that content does.
         unit: { type: string, enum: [kg, lb], description: "The sharer's weight unit, which the routine's weights are in." }
         routine:
           type: object
           description: >-
             The routine as the sharer has it now: `id`, `name`, `emoji`, `prog`,
-            `excludeFromProgression` and `ex`, with no sync bookkeeping (`_ts`, `_f`, `_u`) and
-            no planned backups (`subs`) on its exercises.
+            `excludeFromProgression` and `ex`. Each exercise carries only the fields the plan
+            export keeps (api/shared-routine.js), less the planned backups (`subs`).
           properties:
             id: { type: string }
             name: { type: string }

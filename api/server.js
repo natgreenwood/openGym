@@ -37,6 +37,7 @@ import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
+import { sharedRoutine, contentHash } from './shared-routine.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -546,6 +547,11 @@ function nudgeTick(user, S, now) {
 // a few bytes, so there is one for every user, and a full read happens only while one of that
 // user's windows is open and something could still be sent.
 const stateSummaries = new Map(); // uid -> { mtimeMs, size, rem, consent, settled }
+// Forget a "nothing owed today" the tick settled for `uid` (routine sharing: see the tick).
+function clearSettled(uid) {
+  const sum = stateSummaries.get(uid);
+  if (sum) sum.settled = '';
+}
 function stateSummary(uid) {
   let st;
   try { st = fs.statSync(stateFile(uid)); } catch { stateSummaries.delete(uid); return null; }
@@ -582,18 +588,15 @@ setInterval(() => {
       if (!S?.reminder?.on) continue;
       if (nudgeOpen) nudgeTick(user, S, now);
       if (!reminderOpen) continue;
-      // Nothing below depends on anything but the file (and, for the rest-day answer, the
-      // caller's accepted shares), so an answer of "nothing owed today" holds until the file
-      // changes (which drops the summary) or the date does.
+      // Nothing below depends on anything but the file, so an answer of "nothing owed today"
+      // holds until the file changes (which drops the summary) or the date does. The one
+      // exception is a shared routine, whose availability lives in the sharer's file: accepting
+      // a share and the sharer's PUT /api/data clear `settled` for the recipients it concerns
+      // (clearSettled). A sharer's file changed by hand waits for the date to turn.
       if ((S.workouts || []).some(w => w?.d === now.date)) { sum.settled = now.date; continue; }
       if (excusedOn(S, now.date)) { sum.settled = now.date; continue; } // noted as sick, away, … (nudge.js excusedOn)
       const rid = effectiveRoutineId(S, now.date, sharedRoutineIds(user.id));
-      // Rest day — nothing planned. Settled only while no accepted share could change that: a
-      // shared routine's answer depends on the sharer's document too, not on this file alone.
-      if (!rid) {
-        if (!db.shares.some(x => x.to === user.id && x.state === 'accepted')) sum.settled = now.date;
-        continue;
-      }
+      if (!rid) { sum.settled = now.date; continue; } // rest day — nothing planned
       const routine = (S.routines || []).find(r => r?.id === rid) || sharedRoutineFor(user.id, rid);
       console.log('reminder firing', user.id, rid);
       user.lastReminder = now.date;
@@ -1024,7 +1027,8 @@ function audit(req, ev, f = {}) {
   if (f.msg) rec.msg = String(f.msg).slice(0, 120);
   // What a failed proof of ownership was guarding (proveOwner): 'email', 'passkey-add', …
   if (f.act) rec.act = String(f.act).slice(0, 40);
-  const ip = clientIp(req);
+  // A line the server writes on its own account (`system`) has no client to locate.
+  const ip = f.system ? null : clientIp(req);
   if (ip) rec.ip = ip;
   try { fs.appendFileSync(auditFile, JSON.stringify(rec) + '\n'); }
   catch (e) { return console.error('audit write failed', e.message); }
@@ -2136,12 +2140,13 @@ const hasCustomEx = (S, routine) => {
 //   { unavailable: 'unreadable' }        the sharer's document cannot be read or is missing; the
 //                                         record is kept, a disk problem must not look like a revoke
 //   { gone: true }                       no routine with that id in the sharer's document
-//   { rev, unavailable: 'custom-exercise' }   accepted, but the routine now holds a custom exercise
-//   { rev, unit, routine }               usable (accepted) or previewable (pending)
+//   { unavailable: 'custom-exercise' }   accepted, but the routine now holds a custom exercise
+//   { unit, routine }                    usable (accepted) or previewable (pending)
 //
 // A pending share is never hidden for a custom exercise: it only shows a name and a count, and
-// the accepted item is where the rule bites. `rev` is the sharer's document revision, on pending
-// items too, so a rename while a share waits still moves the recipient's etag.
+// the accepted item is where the rule bites. The sharer's document revision is never exposed: it
+// moves on every sync, workouts included, and would tell every recipient when the sharer trains.
+// An item's version tag is `hash`, over what the recipient can see (incomingItem).
 const unreadableSharers = new Set();   // logged once per sharer until the document reads again
 function sharerDoc(uid, docs) {
   if (docs?.has(uid)) return docs.get(uid);
@@ -2158,27 +2163,19 @@ function resolveShare(s, docs) {
   if (S === UNREADABLE) return { unavailable: 'unreadable' };
   const routine = records(S.routines).find(r => r.id === s.routineId);
   if (!routine) return { gone: true };
-  const rev = Number(S._rev) || 0;
-  if (s.state === 'accepted' && hasCustomEx(S, routine)) return { rev, unavailable: 'custom-exercise' };
-  return { rev, unit: S.unit === 'lb' ? 'lb' : 'kg', routine };
+  if (s.state === 'accepted' && hasCustomEx(S, routine)) return { unavailable: 'custom-exercise' };
+  return { unit: S.unit === 'lb' ? 'lb' : 'kg', routine };
 }
-// What leaves the sharer's document: the routine fields the plan export keeps (buildPlanBundle in
-// frontend/src/lib/plan-share.js), without the sync bookkeeping, and each slot without its
-// bookkeeping and its planned backups (`subs`). The client normalises it as the plan import does.
-const ROUTINE_FIELDS = ['id', 'name', 'emoji', 'prog', 'excludeFromProgression'];
-const SLOT_DROPPED = new Set(['_ts', '_f', '_u', 'subs']);
-function sharedRoutine(r) {
-  const out = {};
-  for (const k of ROUTINE_FIELDS) if (r[k] !== undefined) out[k] = r[k];
-  out.ex = records(r.ex).map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !SLOT_DROPPED.has(k))));
-  return out;
-}
-
 // What each side sees. The recipient never sees a declined or removed share; the sharer sees
 // every record they hold, with no state at all (epic AC12). An incoming item comes in two sizes
-// from the same resolution: `meta` (id, state, rev, unavailable: all the etag reads) for the
+// from the same resolution: `meta` (id, state, hash, unavailable: all the etag reads) for the
 // revision poll, and the full item, with the routine or the preview, for GET /api/shares and
 // accept. A share whose routine is gone is in neither.
+//
+// `hash` is a content hash of exactly what the item shows (shared-routine.js contentHash): of
+// `{ unit, routine }` for an accepted share, of `{ preview }` for a pending one, so a weight
+// changed while a share waits signals nothing to someone who has not accepted, and a rename does.
+// The meta form builds the body to hash it, and sends only the hash.
 function incomingItem(s, p, { meta = false } = {}) {
   const from = userRef(s.from);
   if (!from || p.gone) return null;
@@ -2186,19 +2183,23 @@ function incomingItem(s, p, { meta = false } = {}) {
     id: s.id, state: s.state, from, created: s.created, ...(s.acceptedAt ? { acceptedAt: s.acceptedAt } : {})
   };
   if (p.unavailable) return { ...item, unavailable: p.unavailable };
-  item.rev = p.rev;
-  if (meta) return item;
-  if (s.state === 'pending') return { ...item, preview: { name: String(p.routine.name ?? ''), exercises: records(p.routine.ex).length } };
-  return { ...item, unit: p.unit, routine: sharedRoutine(p.routine) };
+  if (s.state === 'pending') {
+    const preview = { name: String(p.routine.name ?? ''), exercises: records(p.routine.ex).length };
+    item.hash = contentHash({ preview });
+    return meta ? item : { ...item, preview };
+  }
+  const routine = sharedRoutine(p.routine);
+  item.hash = contentHash({ unit: p.unit, routine });
+  return meta ? item : { ...item, unit: p.unit, routine };
 }
 function outgoingItem(s) {
   const to = userRef(s.to);
   return to ? { id: s.id, to, routineId: s.routineId, created: s.created } : null;
 }
-// Both lists for `uid`. `meta` is the revision poll's cheap form: no routine body is built.
-// Read-only either way; GET /api/shares runs dropGoneShares first.
-function sharesOf(uid, { meta = false } = {}) {
-  const docs = new Map();
+// Both lists for `uid`. `meta` is the revision poll's form: no body in the answer. Read-only
+// either way; GET /api/shares runs dropGoneShares first, and passes its `docs` on so each
+// sharer's document is looked up once per request.
+function sharesOf(uid, { meta = false, docs = new Map() } = {}) {
   const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s))
     .map(s => incomingItem(s, resolveShare(s, docs), { meta })).filter(Boolean);
   const outgoing = db.shares.filter(s => s.from === uid)
@@ -2210,8 +2211,7 @@ function sharesOf(uid, { meta = false } = {}) {
 // sharer's document are deleted, each with a share.revoke line in the sharer's name (`act`
 // routine-gone). Only GET /api/shares calls it, never the revision poll. An unreadable document
 // deletes nothing.
-function dropGoneShares(req, uid) {
-  const docs = new Map();
+function dropGoneShares(req, uid, docs = new Map()) {
   const gone = db.shares.filter(s => s.to === uid && resolveShare(s, docs).gone);
   if (!gone.length) return;
   const drop = new Set(gone);
@@ -2219,8 +2219,10 @@ function dropGoneShares(req, uid) {
   saveDb();
   for (const s of gone) auditRoutineGone(req, s);
 }
+// The server initiates this one, whoever's request it rode on, so it carries no address: the
+// recipient's, on the GET /api/shares path, would read as the sharer acting from it.
 const auditRoutineGone = (req, s) =>
-  audit(req, 'share.revoke', { user: userRef(s.from) || { id: s.from, name: '' }, target: { id: s.to, name: userRef(s.to)?.name || '' }, msg: s.id, act: 'routine-gone' });
+  audit(req, 'share.revoke', { user: userRef(s.from) || { id: s.from, name: '' }, target: { id: s.to, name: userRef(s.to)?.name || '' }, msg: s.id, act: 'routine-gone', system: true });
 // The ids that count as a planned routine for `uid`'s reminders and nudge (api/queue.js
 // `extraIds`): `shared:<id>` of every accepted share addressed to them whose projection is
 // usable right now. Read-only, like the poll.
@@ -2261,13 +2263,14 @@ function sharedRoutineFor(uid, rid) {
   return s ? resolveShare(s).routine || null : null;
 }
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
-// ids alone, so a decline does not move it. The recipient's half moves with the sharer's
-// document revision (`rev`, pending items included) and with availability. It reads nothing a
-// meta item lacks, so the revision poll gets the same etag as GET /api/shares without a body.
+// ids alone, so a decline does not move it. The recipient's half moves with what each item shows
+// (`hash`, pending items included) and with availability, and with nothing else the sharer
+// syncs. It reads nothing a meta item lacks, so the revision poll gets the same etag as
+// GET /api/shares.
 function sharesEtag({ incoming, outgoing }) {
   const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const src = [
-    [...incoming].sort(byId).map(i => [i.id, i.state, i.rev ?? null, i.unavailable ?? null]),
+    [...incoming].sort(byId).map(i => [i.id, i.state, i.hash ?? null, i.unavailable ?? null]),
     [...outgoing].sort(byId).map(o => [o.id])
   ];
   return crypto.createHash('sha256').update(JSON.stringify(src)).digest('hex').slice(0, 16);
@@ -2384,8 +2387,9 @@ const shareRoutes = {
     // The one read that may write: the lazy cleanup of shares whose routine is gone lives here,
     // and never in the revision poll. Both answer the same etag, since a gone share is in
     // neither list.
-    dropGoneShares(req, user.id);
-    const lists = sharesOf(user.id);
+    const docs = new Map();
+    dropGoneShares(req, user.id, docs);
+    const lists = sharesOf(user.id, { docs });
     json(res, 200, { ...lists, etag: sharesEtag(lists) });
   },
 
@@ -2406,9 +2410,7 @@ const shareRoutes = {
     s.state = 'accepted';
     s.acceptedAt = new Date().toISOString();
     saveDb();
-    // A rest day the reminder tick settled for today may be a training day now.
-    const sum = stateSummaries.get(user.id);
-    if (sum) sum.settled = '';
+    clearSettled(user.id);   // a rest day the reminder tick settled for today may be a training day now
     auditShare(req, 'share.accept', user, s.from, s);
     json(res, 200, { ok: true, share: incomingItem(s, resolveShare(s)), etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   },
@@ -2949,6 +2951,9 @@ const routes = {
     // A routine the caller deleted takes its shares with it (epic AC10), in any state: a revoke in
     // the sharer's name, audited as such. Bookkeeping too, after the write.
     try { dropSharesOfGoneRoutines(req, user, body.state); } catch (e) { console.error('shares cleanup', e); }
+    // This write can make a shared routine usable or unusable for its recipients (a custom
+    // exercise added or taken out), which their reminder tick's settled rest day cannot see.
+    for (const x of db.shares) if (x.from === user.id && x.state === 'accepted') clearSettled(x.to);
     json(res, 200, { ok: true, ts: body.state._ts || null, rev: curRev + 1, wid: body.state._wid });
   },
 

@@ -14,6 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
+import { contentHash } from '../shared-routine.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -106,17 +107,19 @@ const tick = () => new Promise(r => setTimeout(r, 30));
 
 /* ---------- AC1: the projection ---------- */
 
-test('AC1: an accepted share carries the sharer\'s current whitelisted routine, their unit and rev; nothing else leaves', async t => {
+test('AC1: an accepted share carries the sharer\'s current whitelisted routine, their unit and its hash; nothing else leaves', async t => {
   const h = await startServer(t);
   const [s] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
   const acc = await h.accept(s.id, SAM);
   const item = (await h.incoming(SAM))[0];
   assert.deepEqual(acc.body.share, item, 'accept answers with the same item GET /api/shares lists');
-  assert.deepEqual(Object.keys(item).sort(), ['acceptedAt', 'created', 'from', 'id', 'rev', 'routine', 'state', 'unit']);
+  assert.deepEqual(Object.keys(item).sort(), ['acceptedAt', 'created', 'from', 'hash', 'id', 'routine', 'state', 'unit']);
   assert.equal(item.state, 'accepted');
   assert.deepEqual(item.from, { id: ALEX, name: 'Alex' });
   assert.equal(item.unit, 'lb', "the sharer's unit; the client converts on the way in");
-  assert.equal(item.rev, 7, "the sharer's document revision");
+  assert.match(item.hash, /^[0-9a-f]{16}$/);
+  assert.equal(item.hash, contentHash({ unit: item.unit, routine: item.routine }), 'a hash of exactly what the item shows');
+  assert.equal(JSON.stringify(item).includes('"rev"'), false, "the sharer's document revision is never exposed");
   // The plan export's routine fields, no sync bookkeeping, no planned backups, no private note.
   assert.deepEqual(item.routine, {
     id: 'r1', name: 'Push A', emoji: '💪', prog: { kind: 'linear' },
@@ -132,19 +135,20 @@ test('AC1: an accepted share carries the sharer\'s current whitelisted routine, 
   assert.equal((await h.incoming(SAM))[0].unit, 'kg');
 });
 
-test('AC1: a pending item carries only the name-and-count preview, with rev', async t => {
+test('AC1: a pending item carries only the name-and-count preview, with its hash', async t => {
   const h = await startServer(t);
   await h.share(ALEX, 'r1', [SAM]);
   const [p] = await h.incoming(SAM);
-  assert.deepEqual(Object.keys(p).sort(), ['created', 'from', 'id', 'preview', 'rev', 'state']);
+  assert.deepEqual(Object.keys(p).sort(), ['created', 'from', 'hash', 'id', 'preview', 'state']);
   assert.equal(p.state, 'pending');
   assert.deepEqual(p.preview, { name: 'Push A', exercises: 2 });
-  assert.equal(p.rev, 7);
+  assert.equal(p.hash, contentHash({ preview: p.preview }));
 });
 
 test('AC1: the projection follows the sharer\'s edits on the next read', async t => {
   const h = await startServer(t);
   await acceptedShare(h);
+  const before = (await h.incoming(SAM))[0].hash;
   const edited = alexState();
   edited.routines[0].name = 'Push B';
   edited.routines[0].ex.push({ id: '0005', sets: 4 });
@@ -152,8 +156,7 @@ test('AC1: the projection follows the sharer\'s edits on the next read', async t
   const item = (await h.incoming(SAM))[0];
   assert.equal(item.routine.name, 'Push B');
   assert.equal(item.routine.ex.length, 3);
-  assert.equal(item.rev, h.read(ALEX)._rev);
-  assert.ok(item.rev > 7);
+  assert.notEqual(item.hash, before);
 });
 
 /* ---------- AC2: the etag on the revision poll ---------- */
@@ -179,7 +182,7 @@ test('AC2: the etag moves when the sharer edits a shared routine and when the re
   const [s] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
   const e1 = await h.etag(SAM);
   assert.notEqual(e1, e0, 'a new share');
-  // A rename while the share waits moves it: pending items carry rev, so the preview never goes stale.
+  // A rename while the share waits moves it: pending items carry a hash of the preview.
   const renamed = alexState(); renamed.routines[0].name = 'Push renamed';
   await h.put(ALEX, renamed);
   const e2 = await h.etag(SAM);
@@ -203,8 +206,79 @@ test('AC2: the etag moves when the sharer edits a shared routine and when the re
   assert.notEqual(await h.etag(SAM), e4, 'revoked');
 });
 
-test('AC2: the revision poll never writes db.json, even when a share\'s routine is gone; GET /api/shares cleans up', async t => {
+// The NATG-487 review: the version tag is a hash of what the recipient sees, never the sharer's
+// document revision, so nothing else the sharer syncs reaches a recipient.
+test('AC2: the sharer logging a workout or editing a routine that is not shared moves neither the etag nor the hash', async t => {
   const h = await startServer(t);
+  await acceptedShare(h);
+  const etag = await h.etag(SAM);
+  const hash = (await h.incoming(SAM))[0].hash;
+  const trained = alexState({ workouts: [...alexState().workouts, { id: 'w2', d: '2026-09-02', name: 'Pull day', entries: [] }] });
+  assert.equal((await h.put(ALEX, trained)).status, 200);
+  const other = alexState({ workouts: trained.workouts });
+  other.routines[1].name = 'Pull B';
+  other.routines[1].ex[0].sets = 5;
+  assert.equal((await h.put(ALEX, other)).status, 200);
+  // The same routine with its keys written in another order (another client) is the same content.
+  const reordered = alexState({ workouts: trained.workouts, routines: [
+    { ex: alexState().routines[0].ex.map(e => Object.fromEntries(Object.entries(e).reverse())), prog: { kind: 'linear' }, emoji: '💪', name: 'Push A', id: 'r1' },
+    other.routines[1]
+  ] });
+  assert.equal((await h.put(ALEX, reordered)).status, 200);
+  assert.ok(h.read(ALEX)._rev > 9, "the sharer's revision moved three times");
+  assert.equal(await h.etag(SAM), etag, 'the etag did not move');
+  assert.equal((await h.incoming(SAM))[0].hash, hash, 'nor did the hash');
+});
+
+test('AC2: the sharer flipping their unit moves both the etag and the hash', async t => {
+  const h = await startServer(t);
+  await acceptedShare(h);
+  const etag = await h.etag(SAM);
+  const before = (await h.incoming(SAM))[0];
+  assert.equal((await h.put(ALEX, alexState({ unit: 'kg' }))).status, 200);
+  const after = (await h.incoming(SAM))[0];
+  assert.equal(after.unit, 'kg');
+  assert.notEqual(after.hash, before.hash);
+  assert.notEqual(await h.etag(SAM), etag);
+});
+
+test('AC2: while a share waits, a weight edit leaves the recipient\'s etag alone and a rename moves it', async t => {
+  const h = await startServer(t);
+  await h.share(ALEX, 'r1', [SAM]);
+  const etag = await h.etag(SAM);
+  const pending = (await h.incoming(SAM))[0];
+  const heavier = alexState();
+  heavier.routines[0].ex[0].weight = 135;
+  assert.equal((await h.put(ALEX, heavier)).status, 200);
+  assert.equal(await h.etag(SAM), etag, 'nothing a pending recipient can see changed');
+  assert.equal((await h.incoming(SAM))[0].hash, pending.hash);
+  heavier.routines[0].name = 'Push heavy';
+  assert.equal((await h.put(ALEX, heavier)).status, 200);
+  assert.notEqual(await h.etag(SAM), etag);
+  assert.equal((await h.incoming(SAM))[0].preview.name, 'Push heavy');
+});
+
+test('AC1: a routine or slot field that is not on the list stays on the server', async t => {
+  const alex = alexState();
+  alex.routines[0].owner = 'Alex Private';
+  alex.routines[0].ex = [
+    { id: '0001', sets: 3, reps: 8, weight: 60, note: 'Pause at the bottom', sg: 'a', sgName: 'Pair', sgRest: 90, warmupSets: 2,
+      intensifier: { kind: 'drop', drops: 1 }, restSec: 120, photo: 'f00d', painLog: 'left knee', _x: 1 },
+    { id: '0003', sets: 2, sg: 'a', sgName: 'Pair', sgRest: 90, mode: 'time', sec: 30, side: true, sideRestSec: 10 }
+  ];
+  const h = await startServer(t, { alex });
+  await acceptedShare(h);
+  const { routine } = (await h.incoming(SAM))[0];
+  assert.equal('owner' in routine, false);
+  assert.deepEqual(routine.ex, [
+    { id: '0001', sets: 3, reps: 8, weight: 60, note: 'Pause at the bottom', sg: 'a', sgName: 'Pair', sgRest: 90, warmupSets: 2,
+      intensifier: { kind: 'drop', drops: 1 }, restSec: 120 },
+    { id: '0003', sets: 2, sg: 'a', sgName: 'Pair', sgRest: 90, mode: 'time', sec: 30, side: true, sideRestSec: 10 }
+  ], 'the listed fields travel as stored; photo, painLog and _x do not');
+});
+
+test('AC2: the revision poll never writes db.json, even when a share\'s routine is gone; GET /api/shares cleans up', async t => {
+  const h = await startServer(t, { env: { AUDIT_IP: 'full' } });   // so a missing address means something
   const id = await acceptedShare(h);
   await h.share(ALEX, 'r2', [SAM]);
   const before = await h.etag(SAM);
@@ -227,6 +301,8 @@ test('AC2: the revision poll never writes db.json, even when a share\'s routine 
   assert.equal(h.db().shares.some(s => s.id === id), false, 'GET /api/shares deleted the record');
   const line = h.audit().find(a => a.ev === 'share.revoke' && a.msg === id);
   assert.deepEqual([line.uid, line.tgt, line.act], [ALEX, SAM, 'routine-gone'], 'audited as a revoke in the sharer\'s name');
+  assert.equal('ip' in line, false, "the server's own line carries no address: it would be the recipient's");
+  assert.ok(h.audit().find(a => a.ev === 'share.accept').ip, 'a line a request makes still does');
 });
 
 /* ---------- AC3: no recipient writes a shared routine ---------- */
@@ -464,6 +540,25 @@ test('AC6: no reminder for the same day while the share is still pending', async
   assert.doesNotMatch(h.log, /reminder firing/);
   // Accepting it inside the reminder's window makes the day a training day for the next tick.
   assert.equal((await h.accept('00000000000000aa', SAM)).status, 200);
+  await until(() => /reminder firing/.test(h.log));
+  assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:00000000000000aa`), h.log);
+});
+
+test('AC6: the sharer\'s PUT /api/data clears a rest day the tick settled for a recipient', async t => {
+  const now = new Date();
+  const time = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  const shares = [{ id: '00000000000000aa', from: ALEX, to: SAM, routineId: 'r1', state: 'accepted', created: now.toISOString(), acceptedAt: now.toISOString() }];
+  // The shared routine holds a custom exercise, so today reads as rest for Sam and is settled.
+  const withCustom = alexState();
+  withCustom.routines[0].ex.push({ id: 'c_mine', sets: 3 });
+  const h = await startServer(t, {
+    shares, alex: withCustom, subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
+    sam: onlyShared('shared:00000000000000aa', { on: true, time, tz: 'UTC', nudge: false })
+  });
+  await wait(1200);
+  assert.doesNotMatch(h.log, /reminder firing/);
+  // Alex takes the custom exercise out: Sam's file did not change, the share did.
+  assert.equal((await h.put(ALEX, alexState())).status, 200);
   await until(() => /reminder firing/.test(h.log));
   assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:00000000000000aa`), h.log);
 });
