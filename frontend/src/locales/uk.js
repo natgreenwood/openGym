@@ -2700,4 +2700,7 @@ export default {
   'Not available · it’s too large to open': 'Недоступна · завелика, щоб відкрити',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': 'У «{0}» більше підходів, дропів або вправ, ніж може відкрити застосунок. Вона лишається у твоєму плані й повернеться, щойно її зменшать.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': 'У «{0}» більше підходів, дропів або вправ, ніж може відкрити застосунок. Вона лишається у твоєму плані й повернеться, щойно {1} її зменшить.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Це більше, ніж вміщує одне тренування. Обери менше програм або програми з меншою кількістю підходів.',
+  '{0} is too much to add to this workout.': '«{0}» забагато, щоб додати до цього тренування.',
+  'too much for this workout': 'забагато для цього тренування',
 }

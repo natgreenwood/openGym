@@ -2782,4 +2782,7 @@ export default {
   'Not available · it’s too large to open': 'পাওয়া যাচ্ছে না · খোলার জন্য খুব বড়',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}-এ এই অ্যাপ যত সেট, ড্রপ বা ব্যায়াম খুলতে পারে তার চেয়ে বেশি আছে। এটি আপনার প্ল্যানে থাকবে আর ছোট করা হলেই ফিরে আসবে।',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}-এ এই অ্যাপ যত সেট, ড্রপ বা ব্যায়াম খুলতে পারে তার চেয়ে বেশি আছে। এটি আপনার প্ল্যানে থাকবে আর {1} ছোট করলেই ফিরে আসবে।',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'এটি একটি ওয়ার্কআউটে যতটা ধরে তার চেয়ে বেশি। কম রুটিন, বা কম সেটের রুটিন বেছে নিন।',
+  '{0} is too much to add to this workout.': '{0} এই ওয়ার্কআউটে যোগ করার জন্য খুব বেশি।',
+  'too much for this workout': 'এই ওয়ার্কআউটের জন্য খুব বেশি',
 }

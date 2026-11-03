@@ -2703,4 +2703,7 @@ export default {
   'Not available · it’s too large to open': '사용할 수 없음 · 너무 커서 열 수 없음',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}에는 이 앱이 열 수 있는 것보다 많은 세트, 드롭 또는 운동이 있습니다. 계획에 그대로 남아 있고 작아지면 돌아옵니다.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}에는 이 앱이 열 수 있는 것보다 많은 세트, 드롭 또는 운동이 있습니다. 계획에 그대로 남아 있고 {1}님이 줄이면 돌아옵니다.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '운동 하나에 담을 수 있는 양을 넘습니다. 루틴을 줄이거나 세트가 적은 루틴을 고르세요.',
+  '{0} is too much to add to this workout.': '{0}은(는) 이 운동에 추가하기에 너무 많습니다.',
+  'too much for this workout': '이 운동에는 너무 많음',
 }

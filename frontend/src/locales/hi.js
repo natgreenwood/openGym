@@ -2703,4 +2703,7 @@ export default {
   'Not available · it’s too large to open': 'उपलब्ध नहीं · खोलने के लिए बहुत बड़ा',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} में इतने सेट, ड्रॉप या एक्सरसाइज़ हैं जितने यह ऐप नहीं खोल सकता। यह आपकी योजना में बना रहेगा और छोटा होते ही वापस आ जाएगा।',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} में इतने सेट, ड्रॉप या एक्सरसाइज़ हैं जितने यह ऐप नहीं खोल सकता। यह आपकी योजना में बना रहेगा और {1} के इसे छोटा करते ही वापस आ जाएगा।',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'यह एक वर्कआउट की क्षमता से ज़्यादा है। कम रूटीन चुनें, या कम सेट वाले रूटीन।',
+  '{0} is too much to add to this workout.': '{0} इस वर्कआउट में जोड़ने के लिए बहुत ज़्यादा है।',
+  'too much for this workout': 'इस वर्कआउट के लिए बहुत ज़्यादा',
 }

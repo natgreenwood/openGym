@@ -2750,4 +2750,7 @@ export default {
   'Not available · it’s too large to open': 'Inte tillgänglig · för stor att öppna',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} har fler set, drops eller övningar än appen kan öppna. Den ligger kvar i din plan och kommer tillbaka när den har gjorts mindre.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} har fler set, drops eller övningar än appen kan öppna. Den ligger kvar i din plan och kommer tillbaka när {1} gör den mindre.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Det är mer än ett pass rymmer. Välj färre rutiner, eller rutiner med färre set.',
+  '{0} is too much to add to this workout.': '{0} är för mycket att lägga till i det här passet.',
+  'too much for this workout': 'för mycket för det här passet',
 }

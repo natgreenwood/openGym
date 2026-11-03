@@ -24,8 +24,8 @@ const workRowsForMode = (entry = {}, mode = 'reps') => {
 import { t } from './i18n-core.js'
 import { queueNext, pinState, queueLiveOn } from './queue.js'
 import { routineById } from './routine-lookup.js'
-import { MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS, clampCount } from './limits.js'
-import { isPyramid, pyramidLabel, pyramidTargetAt, pyramidWeightAt, PYRAMID_MAX } from './pyramid.js'
+import { MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS, MAX_TRIPLE_SETS, clampCount } from './limits.js'
+import { isPyramid, pyramidLabel, pyramidTargetAt, pyramidWeightAt, PYRAMID_MAX, MAX_PYRAMID_SETS } from './pyramid.js'
 
 // When a workout happened, as epoch ms: its own recorded start, else noon on its calendar day.
 // Noon rather than midnight because `new Date('2026-09-22')` parses as UTC midnight, which any
@@ -249,8 +249,8 @@ export function setsRepsOf(cfg) {
 // and the plan export so a mode is described the same way everywhere. `speedUnit` as setLabel.
 export function exLine(cfg, unit, speedUnit) {
   const mode = modeOf(cfg)
-  // A count that drives a loop is bounded wherever it is read (lib/limits.js, SEC-486-01).
-  const n = clampCount(cfg.sets || 1, MAX_WORK_SETS)
+  // A count that drives a loop is read through rowPlan, bounded (lib/limits.js, SEC-486-01).
+  const n = rowPlan(cfg).sets
   // Added weight reads as added: "+10 kg" on a dip belt, "60 kg" on a barbell.
   // Back-off sets read as the sequence they open at: "3 × 6 · 26 → 24 → 22 kg".
   const backoff = mode === 'reps' && cfg.weight > 0 ? backoffStepOf(cfg, unit) : 0
@@ -562,9 +562,42 @@ export function nextTrainingDay(S, iso, shared = null) {
  * (barFloor). `options.step` is the exercise's loading step, passed in by the caller (see
  * insertWarmupRow for why this module cannot read it itself).
  */
+/**
+ * The rows an exercise of a routine starts a session with, and the bounded counts that drive
+ * each loop building them (SEC-486-01). One estimate on purpose: buildWorkSets, buildSets,
+ * shapeRows and exLine read their counts from here, and routineRows (the routine and session
+ * budget, lib/limits.js MAX_ROUTINE_ROWS) adds up the same `rows`, so the two cannot drift.
+ * - `sets`: work sets as configured, 1 to MAX_WORK_SETS.
+ * - `work`: the most work sets a session can open with: `sets`, a triple progression's ceiling
+ *   (it adds sets up to `setsMax`), or a pyramid's length.
+ * - `side`: 2 for per-side work (a timed hold is an L and an R row, a reps row an L and an R half).
+ * - `warm`, `drops`, `totalReps`: the planned warm-ups, the drops on each drop set, a rest-pause
+ *   set's total reps; `bursts` the rest-pause bursts that total splits into.
+ * - `rows`: everything built, rows and their drops or bursts: a rest-pause exercise is one
+ *   warm-up and one work row with its bursts, whatever `sets` says.
+ */
+export function rowPlan(cfg) {
+  const mode = modeOf(cfg || {})
+  const sets = clampCount(cfg?.sets || 1, MAX_WORK_SETS)
+  const ceiling = mode === 'reps' && Number(cfg?.setsMax) > sets ? Math.min(MAX_TRIPLE_SETS, Math.round(Number(cfg.setsMax))) : sets
+  const pyramid = Array.isArray(cfg?.pyramid) ? Math.min(cfg.pyramid.length, MAX_PYRAMID_SETS) : 0
+  const work = Math.max(sets, ceiling, pyramid)
+  const side = mode !== 'cardio' && isPerSide(cfg) ? 2 : 1
+  const warm = Math.max(0, Math.min(MAX_PLANNED_WARMUPS, Math.round(Number(cfg?.warmupSets)) || 0))
+  const kind = cfg?.intensifier?.type
+  const drops = kind === 'dropset' ? clampCount(cfg.intensifier.count, MAX_DROPS) : 0
+  const totalReps = kind === 'restpause' ? clampCount(cfg.intensifier.totalReps, MAX_BURST_REPS) : 0
+  const bursts = totalReps ? splitBurstReps(totalReps).length : 0
+  const rows = kind === 'restpause' ? side * (2 + bursts) : side * (work + warm + work * drops)
+  return { sets, work, side, warm, drops, totalReps, bursts, rows }
+}
+
+/** The rows a whole routine starts a session with: rowPlan's `rows`, added up. */
+export const routineRows = r => (Array.isArray(r?.ex) ? r.ex : []).reduce((n, e) => n + (e && typeof e === 'object' ? rowPlan(e).rows : 0), 0)
+
 export function buildSets(S, cfg, options = {}) {
   const rows = buildWorkSets(S, cfg, options)
-  const warm = Math.max(0, Math.min(MAX_PLANNED_WARMUPS, Math.round(cfg.warmupSets) || 0))
+  const warm = rowPlan(cfg).warm
   if (!warm) return rows
   const mode = modeOf(cfg)
   let out = rows
@@ -591,7 +624,7 @@ function buildWorkSets(S, cfg, options = {}) {
   // *counting* session without this function pre-filtering the history itself. `options.rid`
   // is the routine the rows are for: its own last session of the exercise comes first (#216).
   const last = lastEntryFor(S, cfg.id, options.rid)
-  const n = clampCount(cfg.sets || 1, MAX_WORK_SETS)
+  const n = rowPlan(cfg).sets
   const mode = modeOf(cfg)
   const sets = []
   // A deload routine must use its own prescription instead of carrying regular-session values
@@ -719,7 +752,7 @@ function shapeRows(sets, cfg, grid) {
   const kind = cfg && cfg.intensifier && cfg.intensifier.type
   if (kind !== 'dropset' && kind !== 'restpause') return sets
   if (kind === 'dropset') {
-    const count = clampCount(cfg.intensifier.count, MAX_DROPS)
+    const count = rowPlan(cfg).drops
     const pct = cfg.intensifier.pct
     // Stamp a descending chain of drops onto a row (or one side of a per-side row): each drop is
     // pct% lighter than the last, at that row/side's own rep count.
@@ -745,7 +778,7 @@ function shapeRows(sets, cfg, grid) {
   // extraVolumeOf/setTonnage: a rest-pause row's `clusters` are read-only display of how `r`
   // breaks down, not extra volume on top of it, precisely so this doesn't double-count.
   const restSec = Math.max(5, cfg.intensifier.restSec || 15)
-  const totalReps = clampCount(cfg.intensifier.totalReps, MAX_BURST_REPS)
+  const totalReps = rowPlan(cfg).totalReps
   const w = (sets.find(s => !isWarmupRow(s)) || sets[0] || {}).w || 0
   const warmup = { w, r: Math.max(1, Math.round(cfg.reps) || 1), done: false, phase: 'warmup' }
   const work = { w, r: totalReps, done: false, type: 'restpause', clusters: splitBurstReps(totalReps).map(r => ({ r, restSec })) }

@@ -69,7 +69,7 @@ import { buildSessionEntries, buildPlannedEntry, buildSessionEntry, plannedConfi
 import { finishCompare, finishCardio } from './lib/finish-compare.js'
 import { workoutFit, fitFileName } from './lib/fit-export.js'
 import { joinSessionNoProg } from './lib/session-noprog.js'
-import { buildCombinedEntries, deriveSessionName } from './lib/session-merge.js'
+import { buildCombinedEntries, deriveSessionName, fitsSession, sessionRoutines } from './lib/session-merge.js'
 import { workoutsOn, backfillStart, backfillEnd, completeBackfill, historyAsOf, sessionHistory } from './lib/backfill.js'
 import { moveWorkout, sameWorkout, startTimeOf, durationMinOf, setWorkoutDuration, rebuildPrHistory, MAX_DURATION_MIN, endsInFuture } from './lib/workout-date.js'
 import { editCompletedSession, editLeftEmpty, editedRecord, editChangesNothing } from './lib/session-edit.js'
@@ -3168,6 +3168,8 @@ export function DayNoteRow({ iso, note }) {
 // `routineIds` accepts `string | string[] | null` — `[r.id]` for one routine,
 // `effectiveRoutineIds(...)` for today's planned session, `[]` / null for explicit freestyle.
 export function startFlow(routineIds) {
+  // More rows than one session holds (SEC-486-01): said before the weigh-in, nothing started.
+  if (!fitsSession(sessionRoutines(S(), routineIds, sharedNow()))) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
   // The weigh-in is a setting (Settings → During a workout, issue #137): off goes straight
   // into the session with no body weight on it, same as "Start without weighing in".
   if (S().weighIn === false) { beginWorkout(routineIds, null); return }
@@ -3178,7 +3180,10 @@ export function startFlow(routineIds) {
 export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
   const st = S()
   // A shared routine starts from the version this device last synced (NATG-486 AC4, AC8).
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(st, routineIds, sharedNow())
+  const built = buildCombinedEntries(st, routineIds, sharedNow())
+  // Refused, not started as a freestyle session in its place (SEC-486-01).
+  if (built.tooLarge) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
+  const { entries, routineIds: rids, routines } = built
   const startAt = Number.isFinite(start) && start > 0 ? start : Date.now()
   update(s => {
     s.active = {
@@ -3318,7 +3323,9 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
   const st = S()
   const start = backfillStart(iso, time)
   const past = historyAsOf(st, { d: iso, start, replaceId })
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(past, routineIds || [], sharedNow())
+  const built = buildCombinedEntries(past, routineIds || [], sharedNow())
+  if (built.tooLarge) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
+  const { entries, routineIds: rids, routines } = built
   update(s => {
     s.active = {
       id: uid(), d: iso, start,
@@ -3346,7 +3353,12 @@ function AddRoutineToSession({ close }) {
   const active = st.active
   if (!active) return null
   const inSession = new Set([].concat(active.routineIds || []))
+  // One session is held to MAX_ROUTINE_ROWS however its routines come together (SEC-486-01): a
+  // routine that would take it past that is offered disabled, with the reason, and refused
+  // before a row is built if the session grew meanwhile. Never a cut-down copy.
+  const fits = r => fitsSession([r], active.entries)
   const add = r => {
+    if (!fitsSession([r], S().active?.entries)) { toast(t('{0} is too much to add to this workout.', r.name)); return }
     const entries = buildSessionEntries(sessionHistory(st), r).map(e => ({ ...e, rid: r.id }))
     update(s => {
       if (!s.active) return
@@ -3368,12 +3380,14 @@ function AddRoutineToSession({ close }) {
       {[...st.routines, ...shared.routines].map(r => {
         const already = inSession.has(r.id)
         const empty = !(r.ex || []).length
-        const disabled = already || empty
+        const tooMuch = !already && !empty && !fits(r)
+        const disabled = already || empty || tooMuch
         return <div key={r.id} className={'item' + (disabled ? ' disabled' : '')} aria-disabled={disabled || undefined}
           {...tappable(disabled ? null : () => add(r))}>
           <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
           <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-          {already ? <span className="tag">{t('already added')}</span> : empty ? <span className="tag">{t('no exercises')}</span> : <Icon name="chevronRight" className="chev" />}
+          {already ? <span className="tag">{t('already added')}</span> : empty ? <span className="tag">{t('no exercises')}</span>
+            : tooMuch ? <span className="tag">{t('too much for this workout')}</span> : <Icon name="chevronRight" className="chev" />}
         </div>
       })}
     </div>

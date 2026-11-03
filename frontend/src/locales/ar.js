@@ -2758,4 +2758,7 @@ export default {
   'Not available · it’s too large to open': 'غير متاح · أكبر من أن يُفتح',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': 'يحتوي {0} على مجموعات أو تمارين تنازلية أو تمارين أكثر مما يمكن لهذا التطبيق فتحه. يبقى في خطتك ويعود بمجرد تصغيره.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': 'يحتوي {0} على مجموعات أو تمارين تنازلية أو تمارين أكثر مما يمكن لهذا التطبيق فتحه. يبقى في خطتك ويعود بمجرد أن يصغّره {1}.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'هذا أكثر مما يتسع له تمرين واحد. اختر روتينات أقل، أو روتينات بمجموعات أقل.',
+  '{0} is too much to add to this workout.': '{0} أكبر من أن يُضاف إلى هذا التمرين.',
+  'too much for this workout': 'أكثر مما يتسع له هذا التمرين',
 }

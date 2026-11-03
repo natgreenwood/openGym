@@ -2714,4 +2714,7 @@ export default {
   'Not available · it’s too large to open': 'ใช้ไม่ได้ · ใหญ่เกินกว่าจะเปิดได้',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} มีเซต ดรอป หรือท่ามากกว่าที่แอปนี้เปิดได้ รูทีนยังอยู่ในแผนของคุณและจะกลับมาเมื่อถูกทำให้เล็กลง',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} มีเซต ดรอป หรือท่ามากกว่าที่แอปนี้เปิดได้ รูทีนยังอยู่ในแผนของคุณและจะกลับมาเมื่อ {1} ทำให้เล็กลง',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'มากเกินกว่าที่การฝึกหนึ่งครั้งจะรับได้ เลือกรูทีนให้น้อยลง หรือรูทีนที่มีเซตน้อยลง',
+  '{0} is too much to add to this workout.': '{0} มากเกินกว่าจะเพิ่มในการฝึกนี้',
+  'too much for this workout': 'มากเกินไปสำหรับการฝึกนี้',
 }

@@ -2706,4 +2706,7 @@ export default {
   'Not available · it’s too large to open': 'Nem érhető el · túl nagy a megnyitáshoz',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} több sorozatot, dropot vagy gyakorlatot tartalmaz, mint amennyit ez az app meg tud nyitni. A tervedben marad, és visszatér, amint kisebb lesz.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} több sorozatot, dropot vagy gyakorlatot tartalmaz, mint amennyit ez az app meg tud nyitni. A tervedben marad, és visszatér, amint {1} kisebbre veszi.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Ez több, mint amennyi egy edzésbe belefér. Válassz kevesebb rutint, vagy kevesebb sorozatból állót.',
+  '{0} is too much to add to this workout.': '{0} túl sok ahhoz, hogy ehhez az edzéshez add.',
+  'too much for this workout': 'túl sok ehhez az edzéshez',
 }

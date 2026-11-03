@@ -2703,4 +2703,7 @@ export default {
   'Not available · it’s too large to open': '不可用 · 太大无法打开',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}的组数、递减组或动作超出了本应用能打开的范围。它仍留在你的计划中，缩小后就会回来。',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}的组数、递减组或动作超出了本应用能打开的范围。它仍留在你的计划中，{1}缩小后就会回来。',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '这超出了一次训练能容纳的量。请少选几个训练日，或选组数更少的。',
+  '{0} is too much to add to this workout.': '{0}太多了，无法加入这次训练。',
+  'too much for this workout': '对这次训练来说太多',
 }

@@ -2703,4 +2703,7 @@ export default {
   'Not available · it’s too large to open': 'Kullanılamıyor · açılamayacak kadar büyük',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}, bu uygulamanın açabileceğinden fazla set, drop ya da egzersiz içeriyor. Planında kalır ve küçültüldüğünde geri gelir.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}, bu uygulamanın açabileceğinden fazla set, drop ya da egzersiz içeriyor. Planında kalır ve {1} onu küçülttüğünde geri gelir.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Bu, bir antrenmanın alabileceğinden fazla. Daha az rutin ya da daha az setli rutinler seç.',
+  '{0} is too much to add to this workout.': '{0} bu antrenmana eklemek için fazla.',
+  'too much for this workout': 'bu antrenman için fazla',
 }

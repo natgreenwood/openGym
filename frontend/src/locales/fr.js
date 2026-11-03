@@ -2703,4 +2703,7 @@ export default {
   'Not available · it’s too large to open': 'Indisponible · trop grande pour être ouverte',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} compte plus de séries, de dégressives ou d’exercices que cette app ne peut en ouvrir. Elle reste dans ton plan et revient dès qu’elle est réduite.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} compte plus de séries, de dégressives ou d’exercices que cette app ne peut en ouvrir. Elle reste dans ton plan et revient dès que {1} la réduit.',
+  'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'C’est plus que ce qu’une séance peut contenir. Choisis moins de routines, ou des routines avec moins de séries.',
+  '{0} is too much to add to this workout.': '{0} est trop pour être ajoutée à cette séance.',
+  'too much for this workout': 'trop pour cette séance',
 }

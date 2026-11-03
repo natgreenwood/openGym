@@ -8,7 +8,7 @@ import { parsePlan } from './plan-share.js'
 import { EXIDX, isCustomEx } from './exercises.js'
 import { POLICIES, MAX_TRIPLE_SETS } from './progression.js'
 import { MAX_PYRAMID_SETS } from './pyramid.js'
-import { MAX_PLANNED_WARMUPS } from './history.js'
+import { MAX_PLANNED_WARMUPS, routineRows } from './history.js'
 import { MAX_WORK_SETS, MAX_BURST_REPS, MAX_DROPS, MAX_ROUTINE_ROWS, boundedCount } from './limits.js'
 import { DEMO } from './demo.js'
 import { isSharedId, sharedPointer, shareIdOf } from './routine-lookup.js'
@@ -39,25 +39,21 @@ export const shareText = text
 export function withinLimits(r) {
   const ex = Array.isArray(r?.ex) ? r.ex : []
   if (ex.length > MAX_ROUTINE_ROWS) return false
-  let rows = 0
+  // Each count that drives a loop, strictly: a whole number within its limit.
   for (const e of ex) {
     if (!isObj(e)) continue
-    let sets = 1
     // 0 is "not set" (the editor's stepper starts there, and the builders read it as 1).
-    if (e.sets !== undefined && e.sets !== 0) { sets = boundedCount(e.sets, MAX_WORK_SETS); if (sets == null) return false }
+    if (e.sets !== undefined && e.sets !== 0 && boundedCount(e.sets, MAX_WORK_SETS) == null) return false
     if (e.setsMax != null && e.setsMax !== 0 && boundedCount(e.setsMax, MAX_TRIPLE_SETS) == null) return false
     for (const k of ARR) if (Array.isArray(e[k]) && e[k].length > MAX_PYRAMID_SETS) return false
-    if (Array.isArray(e.pyramid) && e.pyramid.length > sets) sets = e.pyramid.length
     if (Array.isArray(e.warmupSets) && e.warmupSets.length > MAX_PLANNED_WARMUPS) return false
-    const warm = typeof e.warmupSets === 'number' && e.warmupSets > 0 ? Math.min(MAX_PLANNED_WARMUPS, Math.round(e.warmupSets)) : 0
-    let drops = 0
     const x = e.intensifier
-    if (isObj(x) && x.type === 'dropset') { drops = boundedCount(x.count, MAX_DROPS); if (drops == null) return false }
+    if (isObj(x) && x.type === 'dropset' && boundedCount(x.count, MAX_DROPS) == null) return false
     if (isObj(x) && x.type === 'restpause' && boundedCount(x.totalReps, MAX_BURST_REPS) == null) return false
-    rows += (sets + warm) * (1 + drops)
-    if (rows > MAX_ROUTINE_ROWS) return false
   }
-  return true
+  // Then the rows the builders would generate, counted the way they count them (rowPlan): per-
+  // side work twice, warm-ups, drops and bursts, a triple progression's ceiling.
+  return routineRows(r) <= MAX_ROUTINE_ROWS
 }
 
 function typedSlot(e) {
