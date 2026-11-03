@@ -271,3 +271,29 @@ test('queue: a crafted state of any shape is read in time linear in its size', (
   // a long weekday list against many routines
   assert.ok(within({ ...base, routines: ids(R).map(id => ({ id })), week: { 1: ids(R).map(i => i + 'x') } }, '2026-10-12') < 1000);
 });
+
+// EXTRA IDS (routine sharing, NATG-487). Mirrored in frontend/src/lib/history.test.js
+// ("effectiveRoutineIds — shared routines"): the same states, the same answers.
+test('extra ids: a day whose only routine is a shared one is a training day only when the set names it', () => {
+  const extra = new Set(['shared:aa']);
+  // 2026-09-08 is a Tuesday.
+  const S = { ...base, week: { 2: ['shared:aa'] }, dayPlan: { '2026-09-10': 'shared:aa', '2026-09-11': 'shared:bb' } };
+  assert.equal(effectiveRoutineId(S, '2026-09-08'), null, 'without the set the pointer is an unknown id: rest');
+  assert.equal(effectiveRoutineId(S, '2026-09-08', extra), 'shared:aa');
+  assert.equal(effectiveRoutineId(S, '2026-09-10', extra), 'shared:aa', 'a per-date override to a shared routine');
+  assert.equal(effectiveRoutineId(S, '2026-09-11', extra), null, 'a pointer the set does not name stays unknown');
+  // A combined day keeps its order; without the set only the own routine is left.
+  assert.equal(effectiveRoutineId({ ...S, week: { 2: ['shared:aa', 'r1'] } }, '2026-09-08', extra), 'shared:aa');
+  assert.equal(effectiveRoutineId({ ...S, week: { 2: ['shared:aa', 'r1'] } }, '2026-09-08'), 'r1');
+});
+
+test('extra ids: a shared session in a queue counts as known, and is done by the clock clause', () => {
+  const extra = new Set(['shared:aa']);
+  const S = { ...base, queue: { ids: ['shared:aa', 'r2'], since: 1000, startsOn: '2026-09-07' } };
+  assert.equal(effectiveRoutineId(S, '2026-09-08'), 'r2', 'without the set the shared session is dropped from the week');
+  assert.equal(effectiveRoutineId(S, '2026-09-08', extra), 'shared:aa');
+  const trained = { ...S, workouts: [{ d: '2026-09-07', start: 2000, routineId: 'shared:aa' }] };
+  assert.equal(effectiveRoutineId(trained, '2026-09-08', extra), 'r2');
+  assert.equal(pinState({ ...S, dayPlan: { '2026-09-09': 'shared:aa' } }, 'shared:aa', extra), 'open');
+  assert.equal(pinState({ ...S, dayPlan: { '2026-09-09': 'shared:aa' } }, 'shared:aa'), null);
+});

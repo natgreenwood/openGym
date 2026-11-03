@@ -3,6 +3,7 @@ import { nextTrainingDay, modeOf, isTimed, fmtSec, setLabel, defaultConfig, pick
 import { makeSideSet, setSideField, toggleSide, WEIGHT_ORIGIN_MANUAL } from './workout-model.js'
 import { EXDB } from './exercises.js'
 import { todayISO, isoOf } from './format.js'
+import { pinState } from './queue.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
 const CARDIO = EXDB.find(e => e.bp === 'cardio').id
@@ -1331,6 +1332,36 @@ describe('effectiveRoutineIds / effectiveRoutines', () => {
 })
 
 // ---- coach queue: the week's sessions in order, the first undone one is today's (lib/queue.js) ----
+// EXTRA IDS (routine sharing, NATG-487). Mirrored in api/test/queue.test.js ("extra ids: …"):
+// the same states, the same answers (the server's copy returns the first id).
+describe('effectiveRoutineIds — shared routines', () => {
+  const base = { routines: [{ id: 'r1', name: 'Push' }, { id: 'r2', name: 'Pull' }, { id: 'r3', name: 'Legs' }], dayPlan: {}, week: {}, workouts: [] }
+  const extra = new Set(['shared:aa'])
+  const at = iso => [iso, iso]   // ask each date as if it were today, as the reminder does
+
+  it('a day whose only routine is a shared one is a training day only when the set names it', () => {
+    // 2026-09-08 is a Tuesday.
+    const S = { ...base, week: { 2: ['shared:aa'] }, dayPlan: { '2026-09-10': 'shared:aa', '2026-09-11': 'shared:bb' } }
+    expect(effectiveRoutineIds(S, ...at('2026-09-08'))).toEqual([])
+    expect(effectiveRoutineIds(S, ...at('2026-09-08'), extra)).toEqual(['shared:aa'])
+    expect(effectiveRoutineIds(S, ...at('2026-09-10'), extra)).toEqual(['shared:aa'])
+    expect(effectiveRoutineIds(S, ...at('2026-09-11'), extra)).toEqual([])
+    const mixed = { ...S, week: { 2: ['shared:aa', 'r1'] } }
+    expect(effectiveRoutineIds(mixed, ...at('2026-09-08'), extra)).toEqual(['shared:aa', 'r1'])
+    expect(effectiveRoutineIds(mixed, ...at('2026-09-08'))).toEqual(['r1'])
+  })
+
+  it('a shared session in a queue counts as known, and is done by the clock clause', () => {
+    const S = { ...base, queue: { ids: ['shared:aa', 'r2'], since: 1000, startsOn: '2026-09-07' } }
+    expect(effectiveRoutineIds(S, ...at('2026-09-08'))).toEqual(['r2'])
+    expect(effectiveRoutineIds(S, ...at('2026-09-08'), extra)).toEqual(['shared:aa'])
+    const trained = { ...S, workouts: [{ d: '2026-09-07', start: 2000, routineId: 'shared:aa' }] }
+    expect(effectiveRoutineIds(trained, ...at('2026-09-08'), extra)).toEqual(['r2'])
+    expect(pinState({ ...S, dayPlan: { '2026-09-09': 'shared:aa' } }, 'shared:aa', extra)).toBe('open')
+    expect(pinState({ ...S, dayPlan: { '2026-09-09': 'shared:aa' } }, 'shared:aa')).toBe(null)
+  })
+})
+
 describe('effectiveRoutineIds — coach queue', () => {
   const routines = [
     { id: 'd1', name: 'US W1 D1', ex: [{ id: '1' }] }, { id: 'd2', name: 'US W1 D2', ex: [{ id: '1' }] },

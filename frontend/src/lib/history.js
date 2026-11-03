@@ -494,18 +494,23 @@ export function bestWeightFor(S, exId, as) {
  * An override naming a queue session is a PIN (queue.js): the session is that day's, with the
  * weekday's own routines riding along as on any queue day, and the floating rule skips it on
  * other days. Once the session is done the pin is fulfilled and the day reads as if unpinned.
+ *
+ * `extraIds` (optional Set, queue.js EXTRA IDS): further ids that count as routines that exist,
+ * the `shared:<id>` pointers of the shared routines the device can resolve. Kept with
+ * effectiveRoutineId in api/queue.js.
  */
-export function effectiveRoutineIds(S, iso, today = todayISO()) {
+export function effectiveRoutineIds(S, iso, today = todayISO(), extraIds = null) {
   const ov = S.dayPlan[iso]
   if (ov === 'rest') return []
-  const pin = pinState(S, ov)
-  if (!pin && ov && S.routines.some(r => r.id === ov)) return [ov]
+  const known = id => S.routines.some(r => r.id === id) || !!extraIds?.has(id)
+  const pin = pinState(S, ov, extraIds)
+  if (!pin && ov && known(ov)) return [ov]
   const wd = new Date(iso + 'T12:00:00').getDay()
-  const weekday = [].concat(S.week[wd] || []).filter(id => S.routines.some(r => r.id === id))
-  const q = pin === 'open' ? ov : queueNext(S, iso, today)
+  const weekday = [].concat(S.week[wd] || []).filter(known)
+  const q = pin === 'open' ? ov : queueNext(S, iso, today, extraIds)
   // The planner's weekday pointers stay hidden on the queue's day even when it has no session for
   // it (every remaining one pinned to another day): those sessions have their days.
-  const own = q || queueLiveOn(S, iso, today) ? weekday.filter(id => !S.queue.ids.includes(id)) : weekday
+  const own = q || queueLiveOn(S, iso, today, extraIds) ? weekday.filter(id => !S.queue.ids.includes(id)) : weekday
   return q ? [q, ...own] : own
 }
 export function effectiveRoutines(S, iso) {

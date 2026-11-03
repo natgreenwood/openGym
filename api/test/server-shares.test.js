@@ -294,6 +294,42 @@ test('AC3: the request shape is checked before anything else', async t => {
   assert.equal(h.db().shares.length, 0);
 });
 
+// Carried over from the NATG-484 review, landed with NATG-487.
+test('AC3: an entry of `to` longer than MAX_UID is a bad request; one at the bound is looked up', async t => {
+  const h = await startServer(t);
+  const long = await h.share(ALEX, 'r1', [SAM, 'u'.repeat(65)]);
+  assert.equal(long.status, 400);
+  assert.equal(long.body.code, 'bad-request');
+  const atBound = await h.share(ALEX, 'r1', ['u'.repeat(64)]);
+  assert.equal(atBound.status, 404, 'a 64-character id passes the shape check and is simply unknown');
+  assert.equal(atBound.body.code, 'user-missing');
+  assert.equal(h.db().shares.length, 0);
+});
+
+test('AC4: creation answers 503 when the caller\'s own document cannot be read, and writes nothing', async t => {
+  const h = await startServer(t);
+  fs.writeFileSync(path.join(h.dataDir, `state-${ALEX}.json`), '{ not json');
+  const r = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(r.status, 503);
+  assert.deepEqual(h.db().shares, []);
+  assert.equal(h.audit().some(a => a.ev === 'share.create'), false);
+  assert.match(h.log, /shares: state file unreadable for u_alex/);
+  assert.equal(h.stackFrames(), 0, h.log);
+});
+
+test('AC6: DELETE /api/shares/{id} from another site is refused and changes nothing', async t => {
+  const h = await startServer(t);
+  const [s] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
+  for (const headers of [{ Origin: 'https://evil.example' }, { 'Sec-Fetch-Site': 'cross-site' }]) {
+    for (const uid of [ALEX, SAM]) {
+      const r = await fetch(`${h.api}/api/shares/${s.id}`, { method: 'DELETE', headers: { ...as(uid), ...headers } });
+      assert.equal(r.status, 403, `${uid} ${JSON.stringify(headers)}`);
+    }
+  }
+  assert.deepEqual(h.db().shares.map(x => [x.id, x.state]), [[s.id, 'pending']]);
+  assert.equal(h.audit().some(a => a.ev === 'share.revoke' || a.ev === 'share.decline'), false);
+});
+
 /* ---------- AC4 and AC5: what creation refuses ---------- */
 
 test('AC4: a routine that is not in the caller\'s own document is refused, so a shared one cannot be passed on', async t => {

@@ -45,6 +45,16 @@ import { isoOf, weekKey, weekStartOf } from './format.js'
 const routineIdsOf = w => (Array.isArray(w.routineIds) ? w.routineIds : (w.routineId ? [w.routineId] : []))
 const nameParts = w => String(w.name || '').split(' + ')
 
+// EXTRA IDS — kept with api/queue.js: `extraIds`, an optional Set, names further routine ids that
+// count as known beside `S.routines`: the `shared:<id>` pointers of the shared routines (routine
+// sharing) the device can resolve right now. Without it a day whose only routine is a shared one
+// reads as rest. A shared routine's name is not in `S.routines`, so the DONE RULE's dated name
+// clause never matches one; the clock clause does. The functions that take it pass it on.
+const isKnown = (S, extraIds) => {
+  const routines = Array.isArray(S.routines) ? S.routines : []
+  return id => routines.some(r => r.id === id) || !!extraIds?.has(id)
+}
+
 // Tolerant reader: whole-state sync is last-writer-wins, so a half-written or older-shaped
 // queue can arrive from another client. A bad shape reads as "no queue" rather than taking
 // Home down with it. A session whose routine no longer exists (deleted in the editor — a
@@ -52,14 +62,14 @@ const nameParts = w => String(w.name || '').split(' + ')
 // is dropped from the week: it could never be started or logged,
 // and keeping it would pin the whole week on it; a queue left with no session at all reads as
 // no queue. A missing startsOn means active since the day of the apply.
-export const queueOf = S => {
+export const queueOf = (S, extraIds = null) => {
   const q = S?.queue
   if (!q || typeof q !== 'object' || !Array.isArray(q.ids)) return null
-  const routines = Array.isArray(S.routines) ? S.routines : []
+  const known = isKnown(S, extraIds)
   // First valid occurrence of each id: a queue is a set of sessions, and a repeated id would
   // otherwise show twice in the progress row and count twice in the week's tally. The persisted
   // payload is never rewritten — normalizing is a read, not a migration.
-  const ids = q.ids.filter((id, i) => q.ids.indexOf(id) === i && routines.some(r => r.id === id))
+  const ids = q.ids.filter((id, i) => q.ids.indexOf(id) === i && known(id))
   if (!ids.length) return null
   return { ...q, ids, startsOn: typeof q.startsOn === 'string' ? q.startsOn : isoOf(new Date(q.since || 0)) }
 }
@@ -71,14 +81,14 @@ const countsFor = (S, q, w, id) => routineIdsOf(w).includes(id)
 const isDone = (S, q, id) => S.workouts.some(w => countsFor(S, q, w, id))
 
 /** The week's sessions already done, in slot order. `[]` without a queue. */
-export function queueDone(S) {
-  const q = queueOf(S)
+export function queueDone(S, extraIds = null) {
+  const q = queueOf(S, extraIds)
   return q ? q.ids.filter(id => isDone(S, q, id)) : []
 }
 
 /** The sessions still to do, in slot order — the first is the next one. `[]` without a queue. */
-export function queueRemaining(S) {
-  const q = queueOf(S)
+export function queueRemaining(S, extraIds = null) {
+  const q = queueOf(S, extraIds)
   return q ? q.ids.filter(id => !isDone(S, q, id)) : []
 }
 
@@ -88,14 +98,14 @@ export function queueRemaining(S) {
  * null, so the calendar and the reminders do not paint the same session onto every day.
  * Dates are compared as ISO strings; `today` is passed in so callers and tests agree on it.
  */
-export function queueNext(S, iso, today) {
-  const q = queueOf(S)
+export function queueNext(S, iso, today, extraIds = null) {
+  const q = queueOf(S, extraIds)
   if (!q) return null
   // The one date the queue answers for is known before any workout is looked at — the calendar
   // asks for thirty dates in a row, so the done-scan runs only for the one that can match.
   const on = today > q.startsOn ? today : q.startsOn
   if (iso !== on) return null
-  return nextOn(S, queueRemaining(S), on, today)
+  return nextOn(S, queueRemaining(S, extraIds), on, today)
 }
 
 /** Active pins, `[{ iso, id }]`: dayPlan entries naming a session still to do, dated today or later. */
@@ -116,9 +126,9 @@ const nextOn = (S, remaining, on, today) => {
  * null there because every remaining session is pinned to another day: the planner's weekday
  * pointers stay hidden behind the queue on that day (history.js) whatever it answers.
  */
-export function queueLiveOn(S, iso, today) {
-  const q = queueOf(S)
-  return !!q && iso === (today > q.startsOn ? today : q.startsOn) && queueRemaining(S).length > 0
+export function queueLiveOn(S, iso, today, extraIds = null) {
+  const q = queueOf(S, extraIds)
+  return !!q && iso === (today > q.startsOn ? today : q.startsOn) && queueRemaining(S, extraIds).length > 0
 }
 
 /**
@@ -126,8 +136,8 @@ export function queueLiveOn(S, iso, today) {
  * still to do (its day's session, skipped elsewhere); 'done' — a fulfilled pin, to be read as no
  * override; null — not a queue session (or no queue), the plain override rules apply.
  */
-export function pinState(S, id) {
-  const q = queueOf(S)
+export function pinState(S, id, extraIds = null) {
+  const q = queueOf(S, extraIds)
   if (!q || !id || !q.ids.includes(id)) return null
   return isDone(S, q, id) ? 'done' : 'open'
 }

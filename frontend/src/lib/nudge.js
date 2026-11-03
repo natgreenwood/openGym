@@ -86,11 +86,11 @@ const norm = S => ({
 
 // The routine ids `iso` missed, or [] when it is not a missed day. Each date is asked as if it
 // were today, as the reminder does: a coach week's session is due every day until it is done.
-function missed(S, iso) {
+function missed(S, iso, extraIds) {
   if (logged(S, iso) || excusedOn(S, iso)) return []
-  const ids = effectiveRoutineIds(S, iso, iso)
+  const ids = effectiveRoutineIds(S, iso, iso, extraIds)
   if (!ids.length) return []
-  if (queueLiveOn(S, iso, iso) && logged(S, dayBefore(iso))) return []
+  if (queueLiveOn(S, iso, iso, extraIds) && logged(S, dayBefore(iso))) return []
   return ids
 }
 
@@ -98,16 +98,18 @@ function missed(S, iso) {
  * The routine ids to nudge about on `iso`, or null: not a missed day, or already 3 missed days in
  * a row since the last workout (back-off). Workouts dated after `iso` are not looked at, so the
  * phone can ask about future dates and get the back-off of a break that simply goes on.
+ * `extraIds`: further routine ids that count as planned, the usable shared routines (queue.js
+ * EXTRA IDS), kept with api/nudge.js; the ids returned can include them.
  */
-export function nudgeFor(state, iso) {
+export function nudgeFor(state, iso, extraIds = null) {
   const S = norm(state)
-  const ids = missed(S, iso)
+  const ids = missed(S, iso, extraIds)
   if (!ids.length) return null
   const last = S.workouts.reduce((m, w) => (typeof w.d === 'string' && w.d < iso && w.d > m ? w.d : m), '')
   let misses = 0
   let d = dayBefore(iso)
   for (let i = 0; i < NUDGE_LOOKBACK_DAYS && d > last; i++, d = dayBefore(d)) {
-    if (missed(S, d).length && ++misses >= NUDGE_MAX_MISSES) return null
+    if (missed(S, d, extraIds).length && ++misses >= NUDGE_MAX_MISSES) return null
   }
   return ids
 }
