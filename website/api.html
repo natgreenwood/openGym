@@ -5026,7 +5026,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">routine</span>
     <span class="p-type">object</span>
-    <span class="p-desc">The routine as the sharer has it now: <code>id</code>, <code>name</code>, <code>emoji</code>, <code>prog</code>, <code>excludeFromProgression</code> and <code>ex</code>. Each exercise carries only the fields the plan export keeps (api/shared-routine.js), less the planned backups (<code>subs</code>).</span>
+    <span class="p-desc">The routine as the sharer has it now: <code>id</code>, <code>name</code>, <code>emoji</code>, <code>prog</code>, <code>excludeFromProgression</code> and <code>ex</code>. Each exercise carries only the fields the plan export keeps (api/shared-routine.js), less the planned backups (<code>subs</code>). <code>name</code> is always a string (empty when the stored one is not text), <code>emoji</code> is left out when it is not text, and an exercise whose <code>id</code> is not a string is left out.</span>
   </div>
   <div class="prow">
     <span class="p-name">routine.id</span>

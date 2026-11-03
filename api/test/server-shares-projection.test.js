@@ -576,3 +576,82 @@ test('AC6: the missed-day nudge fires on the evening of a shared-only day', asyn
   assert.match(h.log, new RegExp(`nudge firing ${SAM} ${ptr}`), h.log);
   assert.equal(h.db().users.find(u => u.id === SAM).lastNudge, dateIn(tz));
 });
+
+/* ---------- SEC-01: a sharer's malformed routine costs one share, never the recipient's list ---------- */
+
+// The security review's payload: valid JSON that String() throws on. Stored through the sharer's
+// own PUT /api/data, which does not check a routine name's type.
+const crafted = () => alexState({ routines: [{ id: 'r1', name: { toString: 1 }, emoji: { toString: 1 }, ex: [] }, alexState().routines[1]] });
+
+test('SEC-01: a pending share of a routine whose name is not text answers 200 everywhere; the healthy one beside it is projected; the recipient declines it', async t => {
+  const h = await startServer(t);
+  assert.equal((await h.put(ALEX, crafted())).status, 200);
+  assert.deepEqual(h.read(ALEX).routines[0].name, { toString: 1 }, 'stored as sent');
+  const [bad] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
+  const [good] = (await h.share(ALEX, 'r2', [SAM])).body.shares;
+
+  const list = await h.get('/api/shares', SAM);
+  assert.equal(list.status, 200);
+  const byId = Object.fromEntries(list.body.incoming.map(i => [i.id, i]));
+  assert.deepEqual(byId[bad.id].preview, { name: '', exercises: 0 }, 'the name is text or nothing');
+  assert.deepEqual(byId[good.id].preview, { name: 'Pull A', exercises: 1 });
+  const poll = await h.get('/api/data/rev', SAM);
+  assert.equal(poll.status, 200);
+  assert.equal(poll.body.shares, list.body.etag);
+  assert.equal((await h.get('/api/data/rev', ALEX)).status, 200, "the sharer's own poll too");
+
+  assert.equal((await h.post(`/api/shares/${bad.id}/decline`, SAM)).status, 200);
+  assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [good.id]);
+  assert.equal(h.stackFrames(), 0, h.log);
+});
+
+test('SEC-01: the same routine after acceptance: the list, the poll, the nudge check and the reminder still answer; the recipient removes it', async t => {
+  const now = new Date();
+  const time = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+  const h = await startServer(t, { subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' } });
+  assert.equal((await h.put(ALEX, crafted())).status, 200);
+  const [bad] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
+  const acc = await h.accept(bad.id, SAM);
+  assert.equal(acc.status, 200);
+  assert.equal(acc.body.share.routine.name, '');
+  assert.equal('emoji' in acc.body.share.routine, false);
+  assert.equal(typeof acc.body.share.hash, 'string');
+  assert.equal((await h.get('/api/shares', SAM)).status, 200);
+  assert.equal((await h.get('/api/data/rev', SAM)).status, 200);
+  // Sam's day holds only this routine, and the reminder is due now: its push text reads the name.
+  assert.equal((await h.put(SAM, onlyShared(`shared:${bad.id}`, { on: true, time, tz: 'UTC', nudge: true }))).status, 200);
+  assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).status, 200);
+  await until(() => /reminder firing/.test(h.log));
+  assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:${bad.id}`), h.log);
+  assert.doesNotMatch(h.log, /reminder tick/, 'the push was built without throwing');
+  assert.equal((await h.del(`/api/shares/${bad.id}`, SAM)).status, 200);
+  assert.deepEqual(await h.incoming(SAM), []);
+  assert.equal(h.stackFrames(), 0, h.log);
+});
+
+test('SEC-01: a share the server cannot project at all is unreadable with its id, alone; the poll still writes nothing', async t => {
+  const h = await startServer(t);
+  const id = await acceptedShare(h, 'r1');
+  const keep = await acceptedShare(h, 'r2');
+  // A hand-edited file (PUT refuses one this deep): parses, but no hash can be taken of it.
+  const deep = '['.repeat(20000) + ']'.repeat(20000);
+  const raw = JSON.stringify(alexState()).replace('"weight":95', `"weight":${deep}`);
+  h.write(ALEX, raw);
+  await tick();
+  const before = h.dbBytes();
+  const list = await h.get('/api/shares', SAM);
+  assert.equal(list.status, 200);
+  const byId = Object.fromEntries(list.body.incoming.map(i => [i.id, i]));
+  assert.equal(byId[id].unavailable, 'unreadable');
+  assert.equal('routine' in byId[id], false);
+  assert.equal(byId[keep].routine.name, 'Pull A', 'the other share from the same document is untouched');
+  const poll = await h.get('/api/data/rev', SAM);
+  assert.equal(poll.status, 200);
+  assert.equal(poll.body.shares, list.body.etag);
+  assert.equal(h.dbBytes(), before, 'nothing written');
+  assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).status, 200);
+  assert.equal((await h.del(`/api/shares/${id}`, SAM)).status, 200, 'the recipient can still remove it');
+  assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [keep]);
+  assert.equal(h.log.match(/cannot project share/g)?.length, 1, 'logged once');
+  assert.equal(h.stackFrames(), 0, h.log);
+});

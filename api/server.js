@@ -37,7 +37,7 @@ import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
-import { sharedRoutine, contentHash } from './shared-routine.js';
+import { sharedRoutine, sharedPreview, contentHash, text as shareText } from './shared-routine.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -2184,7 +2184,7 @@ function incomingItem(s, p, { meta = false } = {}) {
   };
   if (p.unavailable) return { ...item, unavailable: p.unavailable };
   if (s.state === 'pending') {
-    const preview = { name: String(p.routine.name ?? ''), exercises: records(p.routine.ex).length };
+    const preview = sharedPreview(p.routine);
     item.hash = contentHash({ preview });
     return meta ? item : { ...item, preview };
   }
@@ -2196,12 +2196,28 @@ function outgoingItem(s) {
   const to = userRef(s.to);
   return to ? { id: s.id, to, routineId: s.routineId, created: s.created } : null;
 }
+// One incoming item, contained (SEC-01): the sharer's document is the sharer's to write, so
+// whatever in it the projection cannot handle (a value nested too deep to hash, a shape nothing
+// anticipated) costs that one share, never the recipient's whole list or poll. Such a share is
+// `unavailable: 'unreadable'` with its id, so the recipient can still decline or remove it.
+// Logged once per share; nothing is written.
+const unprojectable = new Set();
+function projectIncoming(s, docs, { meta = false } = {}) {
+  try {
+    const item = incomingItem(s, resolveShare(s, docs), { meta });
+    unprojectable.delete(s.id);
+    return item;
+  } catch (e) {
+    if (!unprojectable.has(s.id)) { unprojectable.add(s.id); console.error('shares: cannot project share', s.id, 'of', s.from, e?.name || 'error'); }
+    return incomingItem(s, { unavailable: 'unreadable' }, { meta });
+  }
+}
 // Both lists for `uid`. `meta` is the revision poll's form: no body in the answer. Read-only
 // either way; GET /api/shares runs dropGoneShares first, and passes its `docs` on so each
 // sharer's document is looked up once per request.
 function sharesOf(uid, { meta = false, docs = new Map() } = {}) {
   const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s))
-    .map(s => incomingItem(s, resolveShare(s, docs), { meta })).filter(Boolean);
+    .map(s => projectIncoming(s, docs, { meta })).filter(Boolean);
   const outgoing = db.shares.filter(s => s.from === uid)
     .map(s => (meta ? (userRef(s.to) ? { id: s.id } : null) : outgoingItem(s))).filter(Boolean);
   return { incoming, outgoing };
@@ -2232,7 +2248,9 @@ function sharedRoutineIds(uid) {
   const docs = new Map();
   for (const s of db.shares) {
     if (s.to !== uid || s.state !== 'accepted' || !userRef(s.from)) continue;
-    if (resolveShare(s, docs).routine) ids.add('shared:' + s.id);
+    // Usable exactly when the list would show it usable, contained the same way.
+    const item = projectIncoming(s, docs, { meta: true });
+    if (item && !item.unavailable) ids.add('shared:' + s.id);
   }
   return ids;
 }
@@ -2256,11 +2274,15 @@ function dropSharesOfGoneRoutines(req, user, state) {
   saveDb();
   for (const s of gone) auditRoutineGone(req, s);
 }
-// The shared routine a `shared:<id>` names for `uid`, for a reminder's title. Null otherwise.
+// What a reminder or nudge about a `shared:<id>` needs of the routine: its name and emoji, as
+// text (SEC-01: the push builders interpolate both). Null when there is no such shared routine
+// for `uid`, or it has no name, so the push falls back to its generic title.
 function sharedRoutineFor(uid, rid) {
   if (typeof rid !== 'string' || !rid.startsWith('shared:')) return null;
   const s = db.shares.find(x => x.id === rid.slice(7) && x.to === uid && x.state === 'accepted');
-  return s ? resolveShare(s).routine || null : null;
+  const r = s ? resolveShare(s).routine : null;
+  const name = r ? shareText(r.name) : '';
+  return name ? { name, emoji: shareText(r.emoji) } : null;
 }
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
 // ids alone, so a decline does not move it. The recipient's half moves with what each item shows
@@ -2412,7 +2434,7 @@ const shareRoutes = {
     saveDb();
     clearSettled(user.id);   // a rest day the reminder tick settled for today may be a training day now
     auditShare(req, 'share.accept', user, s.from, s);
-    json(res, 200, { ok: true, share: incomingItem(s, resolveShare(s)), etag: sharesEtag(sharesOf(user.id, { meta: true })) });
+    json(res, 200, { ok: true, share: projectIncoming(s, new Map()), etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   },
 
   'POST /api/shares/{id}/decline': async (req, res) => {
