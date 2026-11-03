@@ -142,11 +142,22 @@ export function routineFromSession(session, name = session?.name, routines = [])
  * Whether any of the session was trained from a routine shared with you (`shared:<id>`, NATG-486).
  * Such a session is never saved as a routine: that would be a copy of someone else's routine,
  * editable and outside their changes, which sharing doesn't allow (NATG-483 AC14, NATG-500).
+ * `sharedOrigin` (SEC-486-02) is what says so once the routine ids are gone: a repeat of the
+ * workout has none, and the share itself may have ended since. See markSharedOrigin.
  */
 export function fromSharedRoutine(session) {
-  return sessionEntries(session).some(e => isSharedId(entryRoutineId(session, e)))
+  return session?.sharedOrigin === true
+    || sessionEntries(session).some(e => isSharedId(entryRoutineId(session, e)))
     || [].concat(session?.routineIds ?? []).some(isSharedId) || isSharedId(session?.routineId)
 }
+
+/**
+ * The session field that says it came from a routine shared with you, independent of `rid` and
+ * `routineIds` (SEC-486-02): set when such a session starts, carried into the saved workout
+ * (finish-workout.js buildCompletedWorkout), into a repeat of it and a repeat of that, and kept
+ * for good, the share's end included. `{}` for a session that has none of it.
+ */
+export const markSharedOrigin = session => (fromSharedRoutine(session) ? { sharedOrigin: true } : {})
 
 /** Null, and nothing saved, for a session from a shared routine (fromSharedRoutine). */
 export function saveSessionAsRoutine(state, session, name) {

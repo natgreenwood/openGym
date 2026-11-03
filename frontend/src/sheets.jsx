@@ -54,7 +54,7 @@ import { buildCompletedWorkout, sessionEnd } from './lib/finish-workout.js'
 import { refillAfter } from './lib/rotation.js'
 import { isWarmupRow, hasCompletedWork } from './lib/workout-model.js'
 import { ownExerciseRest } from './lib/supersetFlow.js'
-import { saveSessionAsRoutine, routineAdditions, addToRoutine, fromSharedRoutine } from './lib/session-routines.js'
+import { saveSessionAsRoutine, routineAdditions, addToRoutine, fromSharedRoutine, markSharedOrigin } from './lib/session-routines.js'
 import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
@@ -3186,6 +3186,8 @@ export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
       // A session tracks its routines as a list; per-entry `rid` carries which one each
       // exercise came from. No top-level `excludeFromProgression` — per-entry `noProg` does it.
       routineIds: rids,
+      // From a routine shared with you: said on the session itself, for good (SEC-486-02).
+      ...markSharedOrigin({ routineIds: rids }),
       name: routines.length ? deriveSessionName(routines.map(r => r.name)) : t('Freestyle'),
       bw: bw || null, cur: 0, entries,
       // Snapshot the layout at start so the header ⋮ can change it for this session only —
@@ -3210,6 +3212,8 @@ export function repeatWorkout(w, close) {
     update(s => {
       s.active = {
         id: uid(), d: todayISO(), start: Date.now(), routineIds: [],
+        // A repeat has no routine ids, so a shared origin is carried over as it is (SEC-486-02).
+        ...markSharedOrigin(w),
         name: w.name || t('Freestyle'), bw: bw || null, cur: 0, entries,
         workoutView: s.workoutView || 'cards',
       }
@@ -3319,6 +3323,7 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
     s.active = {
       id: uid(), d: iso, start,
       routineIds: rids,
+      ...markSharedOrigin({ routineIds: rids }),
       name: routines.length ? deriveSessionName(routines.map(r => r.name)) : t('Freestyle'),
       bw: null, cur: 0, entries,
       backfill: { durationMin, replaceId: replaceId || null },
@@ -3349,6 +3354,7 @@ function AddRoutineToSession({ close }) {
       // exercises out too, the same as an exercise added on its own.
       s.active.entries.push(...entries.map(e => joinSessionNoProg(s.active, e)))
       s.active.routineIds = [...[].concat(s.active.routineIds || []), r.id]
+      if (markSharedOrigin({ routineIds: [r.id] }).sharedOrigin) s.active.sharedOrigin = true
       if (!s.active.customName) {
         s.active.name = deriveSessionName(s.active.routineIds.map(id => routineById(s, id, shared)?.name).filter(Boolean))
       }
