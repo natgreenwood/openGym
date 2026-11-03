@@ -110,3 +110,16 @@ test('push text: by tone, one line per date, routine name filled in, localized',
   // a name with $-patterns is inserted literally
   assert.match(nudgePush('en', 'friendly', { name: '$& $1' }, '2026-09-04').body + nudgePush('en', 'friendly', { name: '$& $1' }, '2026-09-05').body, /\$& \$1/);
 });
+
+// Routine sharing (NATG-487). Mirrored in frontend/src/lib/nudge.test.js.
+test('which: a day whose only routine is a shared one is missed when the shared ids name it', () => {
+  const shared = S({ week: { 1: ['shared:aa'] }, workouts: [w('2026-09-04')] });
+  assert.equal(nudgeFor(shared, '2026-09-07'), null, 'without the ids it reads as rest');
+  assert.equal(nudgeFor(shared, '2026-09-07', new Set(['shared:aa'])), 'shared:aa');
+  assert.equal(nudgeFor(shared, '2026-09-07', new Set(['shared:bb'])), null, 'an unavailable share is not in the set');
+  assert.equal(nudgeFor({ ...shared, workouts: [{ id: 'w7', d: '2026-09-07', routineId: 'shared:aa' }] }, '2026-09-07', new Set(['shared:aa'])), null);
+  // The back-off counts shared days like any other.
+  const ids = new Set(['shared:aa']);
+  const mwf = S({ week: { 1: ['shared:aa'], 3: ['shared:aa'], 5: ['shared:aa'] }, workouts: [w('2026-09-04')] });
+  assert.deepEqual(['2026-09-07', '2026-09-09', '2026-09-11', '2026-09-14'].map(d => !!nudgeFor(mwf, d, ids)), [true, true, true, false]);
+});

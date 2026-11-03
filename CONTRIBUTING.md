@@ -57,7 +57,7 @@ cd mcp && npm test
   to get subtly wrong and nearly impossible to check by clicking; the progression engine has had
   real bugs that only a test caught.
 - **Some rules exist twice on purpose**, once in `frontend/src/lib/` and once in `api/` (sync,
-  queue, nudge, routine icons), because the API image can't import the frontend. Change both in the
+  queue, nudge, routine icons, a shared routine's fields), because the API image can't import the frontend. Change both in the
   same pull request; [the list is here](docs/ARCHITECTURE.md#code-that-exists-twice-on-purpose).
 - **Leave CHANGELOG.md alone.** Release notes are written at release time, from the merged pull
   requests.

@@ -12,6 +12,20 @@ const S = (over = {}) => ({
 })
 const w = d => ({ id: 'w' + d, d, routineId: 'push' })
 
+// Routine sharing (NATG-487). Mirrored in api/test/nudge.test.js.
+describe('nudgeFor — shared routines', () => {
+  it('a day whose only routine is a shared one is missed when the shared ids name it', () => {
+    const shared = S({ week: { 1: ['shared:aa'] }, workouts: [w('2026-09-04')] })
+    expect(nudgeFor(shared, '2026-09-07')).toBeNull()
+    expect(nudgeFor(shared, '2026-09-07', new Set(['shared:aa']))).toEqual(['shared:aa'])
+    expect(nudgeFor(shared, '2026-09-07', new Set(['shared:bb']))).toBeNull()
+    expect(nudgeFor({ ...shared, workouts: [{ id: 'w7', d: '2026-09-07', routineId: 'shared:aa' }] }, '2026-09-07', new Set(['shared:aa']))).toBeNull()
+    const ids = new Set(['shared:aa'])
+    const mwf = S({ week: { 1: ['shared:aa'], 3: ['shared:aa'], 5: ['shared:aa'] }, workouts: [w('2026-09-04')] })
+    expect(['2026-09-07', '2026-09-09', '2026-09-11', '2026-09-14'].map(d => !!nudgeFor(mwf, d, ids))).toEqual([true, true, true, false])
+  })
+})
+
 describe('nudgeFor', () => {
   it('nudges a missed planned day, not a rest day or a trained one', () => {
     expect(nudgeFor(S({ workouts: [w('2026-09-04')] }), '2026-09-07')).toEqual(['push'])

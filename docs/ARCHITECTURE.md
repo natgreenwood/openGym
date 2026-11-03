@@ -119,8 +119,9 @@ imported. When you change one side, change the other in the same pull request:
 | `lib/glyphs.js` | `api/coach/core/glyphs.js` | `lib/coach-parity.test.js` |
 | `lib/nudge.js` | `api/nudge.js` | mirrored cases in `lib/nudge.test.js` and `api/test/nudge.test.js` |
 | `lib/queue.js` | `api/queue.js` | mirrored cases in `lib/queue.test.js` and `api/test/queue.test.js` |
+| `lib/plan-share.js` `cleanEx` (what a plan export keeps of a routine) | `api/shared-routine.js` (what a shared routine projects to its recipients) | `lib/shared-routine-parity.test.js` compares the field lists |
 
-The last two have no test that compares the code itself, so a change on one side only is not
+The nudge and queue rows have no test that compares the code itself, so a change on one side only is not
 caught automatically.
 
 The Coach goes the other way: `frontend/src/lib/coach-local.js` imports `api/coach/core/` directly,
