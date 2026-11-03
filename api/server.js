@@ -149,6 +149,8 @@ db.creds = db.creds || [];
 db.subs = db.subs || [];
 db.invites = db.invites || [];
 db.deviceLinks = db.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
+db.shares = db.shares || [];             // routine shares between profiles (see "routine sharing")
+db.settings = db.settings || {};         // instance options an admin sets in the app
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 // One owner per instance, any number of admins. Admins run the place day to day (users, invites,
 // the Coach); the owner is the one admin the others cannot act on: only the owner appoints or
@@ -1370,12 +1372,14 @@ async function removeEmail(req, res, user, body) {
 }
 
 // Everything of an account, gone for good: the user record, their passkeys, push subscriptions,
-// device links and live presence, and outside db.json their training history, any Coach
-// credential and their photos and videos. The admin's delete and the account's own both end here.
+// device links, routine shares in both directions and live presence, and outside db.json their
+// training history, any Coach credential and their photos and videos. The admin's delete and the
+// account's own both end here.
 function removeAccount(u) {
   db.users = db.users.filter(x => x.id !== u.id);
   db.creds = (db.creds || []).filter(c => c.userId !== u.id);
   db.subs = (db.subs || []).filter(x => x.userId !== u.id);
+  db.shares = db.shares.filter(x => x.from !== u.id && x.to !== u.id);
   dropDeviceLinks(db, u.id);
   presence.delete(u.id);
   // The training history and any Coach credential of theirs, both outside db.json.
@@ -2075,6 +2079,226 @@ const mediaRoutes = {
   }
 };
 
+/* ---------- routine sharing (NATG-483) ---------- */
+// A share is a small record in db.json (`shares`, next to `invites`) naming a sharer (`from`), a
+// recipient (`to`), a routine id in the sharer's own document and a state. The routine body is
+// never copied anywhere. Keyed by user id, never by name, so a rename cannot redirect a share.
+// One record per (from, to, routineId): a decline or a removal stays as a tombstone, so the
+// sharer's list of recipients never shrinks and says nothing about what a recipient did; sharing
+// again flips the tombstone back to pending. Only a revoke deletes a record.
+//
+// The whole feature is off until an admin switches it on (`settings.routineSharing`), and in v1
+// nothing switches it off: the recipient list shows every enabled account to every signed-in
+// user, and that is a decision for the admin to make once (ADR-001).
+const MAX_SHARES_PER_PROFILE = 50;     // outgoing records that are not tombstones
+const SHARE_CREATIONS_PER_HOUR = 30;   // POST /api/shares calls that create or reopen a record
+const MAX_SHARE_RECIPIENTS = 20;       // per request
+const MAX_ROUTINE_ID = 64;
+const SHARE_ID_RE = /^[0-9a-f]{16}$/;
+const SHARE_BURST = createWindow({ max: SHARE_CREATIONS_PER_HOUR, windowMs: 3600000 });
+setInterval(() => SHARE_BURST.sweep(), 60000).unref();
+const sharingOn = () => !!db.settings.routineSharing?.enabledAt;
+const SHARING_OFF = { error: 'routine sharing is not switched on on this server', code: 'sharing-off' };
+const SHARE_MISSING = { error: 'no such share', code: 'share-missing' };
+const SHARE_STATE = { error: 'this share is no longer waiting for an answer', code: 'share-state' };
+const isTombstone = s => s.state === 'declined' || s.state === 'removed';
+const userRef = id => { const u = db.users.find(x => x.id === id); return u ? { id: u.id, name: u.name } : null; };
+
+// What each side sees. The recipient never sees a declined or removed share; the sharer sees
+// every record they hold, with no state at all (epic AC12). No routine body in either yet: that
+// is the projection, NATG-487.
+function incomingItem(s) {
+  const from = userRef(s.from);
+  if (!from) return null;
+  return { id: s.id, state: s.state, from, created: s.created, ...(s.acceptedAt ? { acceptedAt: s.acceptedAt } : {}) };
+}
+function outgoingItem(s) {
+  const to = userRef(s.to);
+  return to ? { id: s.id, to, routineId: s.routineId, created: s.created } : null;
+}
+function sharesOf(uid) {
+  const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s)).map(incomingItem).filter(Boolean);
+  const outgoing = db.shares.filter(s => s.from === uid).map(outgoingItem).filter(Boolean);
+  return { incoming, outgoing };
+}
+// Moves whenever something either side can see changes, and only then: the sharer's half is the
+// ids alone, so a decline does not move it. `rev` and `unavailable` are null until the
+// projection fills them in.
+function sharesEtag({ incoming, outgoing }) {
+  const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+  const src = [
+    [...incoming].sort(byId).map(i => [i.id, i.state, i.rev ?? null, i.unavailable ?? null]),
+    [...outgoing].sort(byId).map(o => [o.id])
+  ];
+  return crypto.createHash('sha256').update(JSON.stringify(src)).digest('hex').slice(0, 16);
+}
+// Every state change is one audit line naming both profiles: the actor as `uid`, the other side
+// as `tgt`, the share id as `msg`.
+function auditShare(req, ev, actor, otherId, s) {
+  audit(req, ev, { user: actor, target: { id: otherId, name: userRef(otherId)?.name || '' }, msg: s.id });
+}
+function newShareId() {
+  let id;
+  do { id = crypto.randomBytes(8).toString('hex'); } while (db.shares.some(s => s.id === id));
+  return id;
+}
+// The share a path names, if the caller is one of its two sides. A malformed id, an unknown one
+// and someone else's all answer the same 404: an id is neither guessable nor useful to a third
+// party.
+function shareFor(req, uid) {
+  const id = req.shareId;
+  if (!id || !SHARE_ID_RE.test(id)) return null;
+  return db.shares.find(s => s.id === id && (s.from === uid || s.to === uid)) || null;
+}
+const badShareRequest = (res, error) => json(res, 400, { error, code: 'bad-request' });
+
+const shareRoutes = {
+  // One-way in v1: there is no route that removes the setting. A second call changes nothing and
+  // answers with the time it was first switched on.
+  'POST /api/admin/sharing/enable': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    if (!sharingOn()) {
+      db.settings.routineSharing = { enabledAt: new Date().toISOString(), by: admin.id };
+      saveDb();
+      audit(req, 'admin.sharing.enable', { user: admin });
+    }
+    json(res, 200, { ok: true, enabled: true, enabledAt: db.settings.routineSharing.enabledAt });
+  },
+
+  // Who a routine can be shared with: every enabled account on this server but the caller, ids
+  // and names only. Nothing here can address a user on another instance.
+  'GET /api/shares/recipients': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    if (!sharingOn()) return json(res, 403, SHARING_OFF);
+    const users = db.users.filter(u => !u.disabled && u.id !== user.id)
+      .map(u => ({ id: u.id, name: u.name }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)) || (a.id < b.id ? -1 : 1));
+    json(res, 200, { users });
+  },
+
+  // All or nothing: every recipient is checked before any record is written, and nothing below
+  // the last check awaits, so no other request can slip in between. Asking again for a share that
+  // is pending or accepted returns it as it is and spends no budget, so a retry is safe.
+  'POST /api/shares': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    if (!sharingOn()) return json(res, 403, SHARING_OFF);
+    const body = await readBody(req);
+    if (readSession(req) !== user) return notSignedIn(res);
+    const { routineId, to } = body;
+    if (typeof routineId !== 'string' || !routineId || routineId.length > MAX_ROUTINE_ID) {
+      return badShareRequest(res, `routineId must be a string of 1 to ${MAX_ROUTINE_ID} characters`);
+    }
+    if (!Array.isArray(to) || !to.length || to.length > MAX_SHARE_RECIPIENTS || !to.every(id => typeof id === 'string' && id)) {
+      return badShareRequest(res, `to must be a list of 1 to ${MAX_SHARE_RECIPIENTS} user ids`);
+    }
+    if (new Set(to).size !== to.length) return badShareRequest(res, 'to lists the same user twice');
+    // Only the caller's own document: a `shared:` pointer is never in `routines`, so this is also
+    // what stops a recipient sharing a shared routine on.
+    const S = readStateStrict(user.id);
+    if (S === UNREADABLE) { console.error('shares: state file unreadable for', user.id); return json(res, 503, { error: 'state unreadable' }); }
+    const routine = records(S?.routines).find(r => r.id === routineId);
+    if (!routine) return json(res, 404, { error: 'no routine with that id in your profile', code: 'routine-missing' });
+    // Custom exercises are not shareable in v1. The API has no exercise catalogue, so custom
+    // means what the sharer's own `customEx` lists.
+    const customIds = new Set(records(S.customEx).map(c => c.id));
+    if (records(routine.ex).some(e => customIds.has(e.id))) {
+      return json(res, 400, { error: 'a routine with a custom exercise cannot be shared', code: 'custom-exercise' });
+    }
+    if (to.includes(user.id)) return json(res, 400, { error: 'you cannot share a routine with yourself', code: 'self' });
+    const recipients = to.map(id => db.users.find(u => u.id === id && !u.disabled));
+    if (recipients.some(u => !u)) return json(res, 404, { error: 'no such user on this server', code: 'user-missing' });
+    // What this request would change: a new record, or a tombstone reopened.
+    const plan = recipients.map(r => ({ r, s: db.shares.find(s => s.from === user.id && s.to === r.id && s.routineId === routineId) }));
+    const changes = plan.filter(p => !p.s || isTombstone(p.s)).length;
+    if (changes) {
+      const active = db.shares.filter(s => s.from === user.id && !isTombstone(s)).length;
+      if (active + changes > MAX_SHARES_PER_PROFILE) {
+        return json(res, 409, { error: `a profile can have at most ${MAX_SHARES_PER_PROFILE} active shares`, code: 'share-limit' });
+      }
+      const wait = SHARE_BURST.take(user.id);
+      if (wait) return tooMany(res, wait);
+    }
+    const now = new Date().toISOString();
+    const written = [];
+    const shares = plan.map(({ r, s }) => {
+      if (!s) {
+        s = { id: newShareId(), from: user.id, to: r.id, routineId, state: 'pending', created: now };
+        db.shares.push(s);
+        written.push(s);
+      } else if (isTombstone(s)) {
+        s.state = 'pending'; s.created = now; delete s.acceptedAt;
+        written.push(s);
+      }
+      return outgoingItem(s);
+    });
+    if (written.length) {
+      saveDb();
+      for (const s of written) auditShare(req, 'share.create', user, s.to, s);
+    }
+    json(res, 200, { shares, etag: sharesEtag(sharesOf(user.id)) });
+  },
+
+  // Both halves of the caller's sharing, for the client to replace its copy with wholesale. Off
+  // answers empty rather than refusing, so the client has one code path.
+  'GET /api/shares': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    if (!sharingOn()) return json(res, 200, { incoming: [], outgoing: [], etag: 'off' });
+    const lists = sharesOf(user.id);
+    json(res, 200, { ...lists, etag: sharesEtag(lists) });
+  },
+
+  'POST /api/shares/{id}/accept': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    const s = shareFor(req, user.id);
+    if (!s || s.to !== user.id) return json(res, 404, SHARE_MISSING);
+    if (s.state !== 'pending') return json(res, 409, SHARE_STATE);
+    s.state = 'accepted';
+    s.acceptedAt = new Date().toISOString();
+    saveDb();
+    auditShare(req, 'share.accept', user, s.from, s);
+    json(res, 200, { ok: true, share: incomingItem(s), etag: sharesEtag(sharesOf(user.id)) });
+  },
+
+  'POST /api/shares/{id}/decline': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    const s = shareFor(req, user.id);
+    if (!s || s.to !== user.id) return json(res, 404, SHARE_MISSING);
+    if (s.state !== 'pending') return json(res, 409, SHARE_STATE);
+    s.state = 'declined';
+    delete s.acceptedAt;
+    saveDb();
+    auditShare(req, 'share.decline', user, s.from, s);
+    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id)) });
+  },
+
+  // The sharer revokes: the record goes, whatever its state. The recipient removes: an accepted
+  // share becomes `removed`, a pending one `declined`, and one already tombstoned stays as it is,
+  // so a retry is a 200 that changes nothing. Neither touches the sharer's routine.
+  'DELETE /api/shares/{id}': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return notSignedIn(res);
+    const s = shareFor(req, user.id);
+    if (!s) return json(res, 404, SHARE_MISSING);
+    if (s.from === user.id) {
+      db.shares = db.shares.filter(x => x !== s);
+      saveDb();
+      auditShare(req, 'share.revoke', user, s.to, s);
+    } else if (!isTombstone(s)) {
+      const ev = s.state === 'accepted' ? 'share.remove' : 'share.decline';
+      s.state = s.state === 'accepted' ? 'removed' : 'declined';
+      delete s.acceptedAt;
+      saveDb();
+      auditShare(req, ev, user, s.from, s);
+    }
+    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id)) });
+  }
+};
+
 /* ---------- routes ---------- */
 // A health check that only proves the port answers is the one that lies on the day it matters:
 // a full disk, or a bind mount that came back read-only, leaves every write path in here broken
@@ -2144,6 +2368,8 @@ const routes = {
       // Public like the two flags above: the caps are not a secret, and the absence of the
       // block is how the app knows this server does not take photos and videos at all.
       ...(MEDIA_ON ? { media: mediaConfig(MEDIA_LIMITS) } : {}),
+      // Only once an admin has switched routine sharing on; absent otherwise, like `media`.
+      ...(sharingOn() ? { shares: true } : {}),
       ...(readSession(req) ? { coach: coachConfig.publicConfig() } : {})
     });
   },
@@ -2915,6 +3141,9 @@ const routes = {
   // a cycle. Every one of them is inert while the feature is unconfigured.
   ...coachRoutes({ json, readBody, readSession, requireAdmin }),
 
+  /* ---------- routine sharing ---------- */
+  ...shareRoutes,
+
   /* ---------- photos & videos ---------- */
   // Absent, not refusing, when MEDIA_UPLOADS=0: a 404 is what a server from before the feature
   // answers, and the client already treats that as "this server does not store them".
@@ -3004,6 +3233,10 @@ const server = http.createServer(async (req, res) => {
   // above stays a plain lookup, and so csrfOk and the catch-all see one name for every file.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
   if (mm) { key = req.method + ' /api/media/{hash}'; req.mediaHash = mm[1]; }
+  // The share routes name one share. Any segment maps onto the template, so a malformed id gets
+  // the routes' own 404 (shareFor checks the shape before any lookup); /recipients is its own key.
+  const sm = !routes[key] && /^\/api\/shares\/([^/]+)(\/accept|\/decline)?$/.exec(url.pathname);
+  if (sm) { key = req.method + ' /api/shares/{id}' + (sm[2] || ''); req.shareId = sm[1]; }
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
   if (!csrfOk(req, key)) {
