@@ -379,7 +379,7 @@ export const useStore = create((set, get) => {
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
-  let sweepOwed = false    // a load landed before boot was through: its pointer clean-up runs at finishBoot
+  let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
   const saveShares = v => {
     try { localStorage.setItem(SHARED_KEY, JSON.stringify(v)) } catch { /* full: the lists in memory stand, and load again next time */ }
     if (MOBILE) writeJsonFile(SHARED_FILE, v)
@@ -699,7 +699,7 @@ export const useStore = create((set, get) => {
   // Boot's last step: from here on changes push, and one made during boot goes now.
   const finishBoot = (extra = {}) => {
     set({ ready: true, ...extra })
-    if (sweepOwed) { sweepOwed = false; get().sweepSharedPointers() }
+    if (sweepOwed) { const known = sweepOwed; sweepOwed = null; get().sweepSharedPointers(null, known) }
     if (pushPending && get().user) {
       clearTimeout(pushTm)
       pushTm = setTimeout(() => get().pushState(), 1500)
@@ -728,7 +728,7 @@ export const useStore = create((set, get) => {
       // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
-      if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadShares()
+      if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer()
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
@@ -1653,13 +1653,23 @@ export const useStore = create((set, get) => {
       const { config, user, shares } = get()
       if (sharingAvailable(config, user, { demo: DEMO }) && (sharesFresh !== user.id || !sharesOf(shares, user))) get().loadShares()
     },
-    async loadShares() {
+    // `newer`: the caller knows of a change the request in flight may predate (a `shares` etag
+    // the revision poll saw move, Sync now). That request is still joined, so its callers get
+    // their answer, but it is marked stale: what it lands is stored and never swept by (NATG-499),
+    // and a fresh request goes out the moment it lands (loadSharesNewer waits for that one).
+    async loadShares({ newer = false } = {}) {
       const user = get().user
       if (!user) return null
       // A request still out for someone else (a sign-in switch while it was in flight) is not this
       // user's answer: it stores nothing when it lands, so this user gets a request of their own.
-      if (sharesFetch?.uid === user.id) return sharesFetch.promise
-      const mine = { uid: user.id, promise: null }
+      if (sharesFetch?.uid === user.id) {
+        if (newer) sharesFetch.stale = true
+        return sharesFetch.promise
+      }
+      // The pointers in the document as the request leaves (NATG-499): the only ones its answer
+      // may sweep. One that arrives after it (a pull, a merge, another tab) may belong to a share
+      // accepted after the server answered, so this answer cannot judge it.
+      const mine = { uid: user.id, promise: null, stale: false, known: new Set(orphanPointers(get().S, [])) }
       sharesFetch = mine
       mine.promise = (async () => {
         try {
@@ -1682,9 +1692,14 @@ export const useStore = create((set, get) => {
           if (MOBILE) syncReminder(get().S)
           // "Off" is the answer while sharing is switched off on the server (it can't be in v1):
           // it says nothing about any one share, so no pointer is judged by it.
-          if (shares.etag !== 'off' && Array.isArray(r?.incoming)) {
-            if (get().ready && !adoptHold) get().sweepSharedPointers(before)
-            else sweepOwed = true
+          // This request is done: what follows may start the next one.
+          if (sharesFetch === mine) sharesFetch = null
+          if (mine.stale) {
+            // Older than a change the caller knew of: no sweep, and the lists load again now.
+            get().loadShares()
+          } else if (shares.etag !== 'off' && Array.isArray(r?.incoming)) {
+            if (get().ready && !adoptHold) get().sweepSharedPointers(before, mine.known)
+            else sweepOwed = mine.known
           }
           return shares
         } catch {
@@ -1694,18 +1709,30 @@ export const useStore = create((set, get) => {
       })()
       return mine.promise
     },
+    // The lists as the server has them now, not as a request already in flight will answer: joins
+    // that request (marked stale), then waits for the fresh one its landing starts.
+    async loadSharesNewer() {
+      const first = await get().loadShares({ newer: true })
+      const user = get().user
+      return sharesFetch && user && sharesFetch.uid === user.id ? sharesFetch.promise : first
+    },
     // A share that is gone from the lists (revoked, its routine deleted, removed or declined on
     // another device) leaves your schedule too, through the same delete your own routines use, so
     // the removal is stamped and your other devices agree after their own merge (NATG-486 AC6). A
     // share that is only not available right now keeps its days (AC9). Only after a load from the
     // server in this page: a saved copy can be older than a share accepted on another device.
     // `before` (the lists as they were) names, once, each accepted share that went.
-    sweepSharedPointers(before = null) {
+    // `known` (NATG-499): the pointers the document held when the request for these lists left.
+    // Only those are swept; a pointer that arrived later is left, and the lists load again so it
+    // is judged by an answer that is at least as new as it.
+    sweepSharedPointers(before = null, known = null) {
       const { shares, user } = get()
       const mine = sharesOf(shares, user)
       if (!mine || sharesFresh !== user.id) return
-      const gone = orphanPointers(get().S, mine.incoming)
+      const orphans = orphanPointers(get().S, mine.incoming)
+      const gone = known ? orphans.filter(id => known.has(id)) : orphans
       if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
+      if (gone.length < orphans.length && !sharesFetch) get().loadShares()
       const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id))
       if (!left.length) return
       import('./useUI.js').then(({ useUI }) => {
