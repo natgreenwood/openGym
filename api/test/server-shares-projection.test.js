@@ -655,3 +655,112 @@ test('SEC-01: a share the server cannot project at all is unreadable with its id
   assert.equal(h.log.match(/cannot project share/g)?.length, 1, 'logged once');
   assert.equal(h.stackFrames(), 0, h.log);
 });
+/* QA contract checks: the design and ShareIncoming require primitive text: a string, or a number
+   rendered as a string; anything else is empty for `name` and left out for `emoji`. */
+test('QA payload: a numeric pending routine name is rendered as a string', async t => {
+  const h = await startServer(t);
+  const state = alexState();
+  state.routines[0].name = 42;
+  assert.equal((await h.put(ALEX, state)).status, 200);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const list = await h.get('/api/shares', SAM);
+  assert.equal(list.status, 200);
+  assert.equal(list.body.incoming[0].preview.name, '42', 'a number is rendered as a string');
+});
+
+test('QA payload: a numeric accepted routine name is rendered as a string', async t => {
+  const h = await startServer(t);
+  const state = alexState();
+  state.routines[0].name = 42;
+  assert.equal((await h.put(ALEX, state)).status, 200);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const accepted = await h.accept(created.body.shares[0].id, SAM);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.share.routine.name, '42', 'a number is rendered as a string');
+});
+
+test('QA payload: a numeric accepted routine emoji is rendered as a string', async t => {
+  const h = await startServer(t);
+  const state = alexState();
+  state.routines[0].emoji = 7;
+  assert.equal((await h.put(ALEX, state)).status, 200);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const accepted = await h.accept(created.body.shares[0].id, SAM);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.share.routine.emoji, '7', 'a number is rendered as a string');
+});
+
+test('QA payload: preview count and accepted slots ignore non-string exercise ids', async t => {
+  const h = await startServer(t);
+  const state = alexState();
+  state.routines[0].ex = [{ id: '0001', sets: 3 }, { id: 7 }, { id: null }, { id: {} }, null, []];
+  assert.equal((await h.put(ALEX, state)).status, 200);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const pending = (await h.get('/api/shares', SAM)).body.incoming[0];
+  assert.deepEqual(pending.preview, { name: 'Push A', exercises: 1 });
+  const accepted = await h.accept(created.body.shares[0].id, SAM);
+  assert.equal(accepted.status, 200);
+  assert.deepEqual(accepted.body.share.routine.ex, [{ id: '0001', sets: 3 }]);
+});
+
+test('QA payload: hashes independently match canonical SHA-256 and invalid units use kg', async t => {
+  const h = await startServer(t);
+  const sortKeys = value => Array.isArray(value) ? value.map(sortKeys)
+    : value !== null && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().map(key => [key, sortKeys(value[key])])) : value;
+  const fingerprint = value => crypto.createHash('sha256').update(JSON.stringify(sortKeys(value))).digest('hex').slice(0, 16);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const pending = (await h.get('/api/shares', SAM)).body.incoming[0];
+  assert.equal(pending.hash, fingerprint({ preview: pending.preview }));
+  const id = created.body.shares[0].id;
+  assert.equal((await h.accept(id, SAM)).status, 200);
+  for (const unit of ['lb', 'kg', 'invalid', null, 7, {}]) {
+    assert.equal((await h.put(ALEX, alexState({ unit }))).status, 200);
+    const list = (await h.get('/api/shares', SAM)).body;
+    const item = list.incoming[0];
+    assert.equal(item.unit, unit === 'lb' ? 'lb' : 'kg');
+    assert.equal(item.hash, fingerprint({ unit: item.unit, routine: item.routine }));
+    assert.equal(list.etag, fingerprint([[[id, 'accepted', item.hash, null]], []]));
+    assert.equal((await h.get('/api/data/rev', SAM)).body.shares, list.etag);
+  }
+});
+
+test('QA payload: missing sharer file preserves pending records and heals after unreadable acceptance', async t => {
+  const h = await startServer(t);
+  const created = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(created.status, 200);
+  const id = created.body.shares[0].id;
+  const file = path.join(h.dataDir, `state-${ALEX}.json`);
+  const good = fs.readFileSync(file);
+  fs.unlinkSync(file);
+  const dbPath = path.join(h.dataDir, 'db.json');
+  const before = fs.statSync(dbPath);
+  const bytes = fs.readFileSync(dbPath);
+  const poll = await h.get('/api/data/rev', SAM);
+  assert.equal(poll.status, 200);
+  assert.deepEqual(fs.readFileSync(dbPath), bytes);
+  const after = fs.statSync(dbPath);
+  assert.deepEqual([after.ino, after.mtimeMs, after.size], [before.ino, before.mtimeMs, before.size]);
+  const list = await h.get('/api/shares', SAM);
+  const pending = list.body.incoming[0];
+  assert.equal(list.status, 200);
+  assert.equal(list.body.etag, poll.body.shares);
+  assert.deepEqual(Object.keys(pending).sort(), ['created', 'from', 'id', 'state', 'unavailable']);
+  assert.equal(pending.id, id);
+  assert.equal(pending.unavailable, 'unreadable');
+  assert.equal(h.db().shares.length, 1);
+  const accepted = await h.accept(id, SAM);
+  assert.equal(accepted.status, 200);
+  assert.equal(accepted.body.share.unavailable, 'unreadable');
+  fs.writeFileSync(file, good);
+  await tick();
+  const healed = (await h.get('/api/shares', SAM)).body.incoming[0];
+  assert.equal(healed.id, id);
+  assert.equal(healed.routine.name, 'Push A');
+  assert.equal(healed.state, 'accepted');
+});

@@ -4313,9 +4313,10 @@ components:
           description: >-
             The routine as the sharer has it now: `id`, `name`, `emoji`, `prog`,
             `excludeFromProgression` and `ex`. Each exercise carries only the fields the plan
-            export keeps (api/shared-routine.js), less the planned backups (`subs`). `name` is
-            always a string (empty when the stored one is not text), `emoji` is left out when it
-            is not text, and an exercise whose `id` is not a string is left out.
+            export keeps (api/shared-routine.js), less the planned backups (`subs`). `name` and
+            `emoji` are the stored value when it is a string, or a number rendered as a string;
+            anything else becomes `""` for `name` and is left out for `emoji`. An exercise whose
+            `id` is not a string is left out.
           properties:
             id: { type: string }
             name: { type: string }
@@ -4328,7 +4329,8 @@ components:
           description: >-
             Pending only. `exercises` counts the exercises `routine.ex` would carry once
             accepted (those with a string `id`), and `name` follows the same rule as
-            `routine.name`: always a string, empty when the stored one is not text.
+            `routine.name`: a string, or a number rendered as a string; anything else becomes
+            `""`.
           properties:
             name: { type: string }
             exercises: { type: integer }
