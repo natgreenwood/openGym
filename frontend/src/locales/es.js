@@ -2641,4 +2641,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'Cambia los ejercicios propios por otros de la biblioteca para compartir esta rutina.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} está compartida con {0} persona. Los ejercicios propios no pueden ir en una rutina compartida, así que deja de compartirla antes de añadir {2}.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} está compartida con {0} personas. Los ejercicios propios no pueden ir en una rutina compartida, así que deja de compartirla antes de añadir {2}.',
+  'Shared, unshare first': 'Compartida, deja de compartir primero',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'Los ejercicios propios no pueden ir en «{0}» mientras esté compartida: {1}. Deja de compartirla primero para añadirlos.',
 }

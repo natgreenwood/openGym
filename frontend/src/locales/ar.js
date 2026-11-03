@@ -2696,4 +2696,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'استبدل التمارين المخصصة بتمارين من المكتبة لمشاركة هذا الروتين.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} مُشارك مع {0} شخص. لا يمكن إضافة تمارين مخصصة إلى روتين مُشارك، لذا أوقف المشاركة قبل إضافة {2}.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} مُشارك مع {0} أشخاص. لا يمكن إضافة تمارين مخصصة إلى روتين مُشارك، لذا أوقف المشاركة قبل إضافة {2}.',
+  'Shared, unshare first': 'مشترك، أوقف المشاركة أولًا',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'لا يمكن إضافة التمارين المخصصة إلى «{0}» ما دام مشتركًا: {1}. أوقف المشاركة أولًا لإضافتها.',
 }

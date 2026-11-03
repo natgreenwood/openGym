@@ -6,6 +6,7 @@ import { registerCustom, healCustomEx } from '../lib/exercises.js'
 import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { rememberDefaultLang } from '../lib/default-lang.js'
 import { guestAllowed } from '../lib/guest.js'
+import { sharingAvailable, sharesOf } from '../lib/shares.js'
 import { stateJson } from '../lib/state-json.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth, readHealth } from '../lib/health-sync.js'
@@ -1599,7 +1600,7 @@ export const useStore = create((set, get) => {
     async refreshConfig() {
       if (configFetch) return configFetch
       configFetch = (async () => {
-        try { const c = await api('/api/config'); rememberDefaultLang(c); set({ config: c }); return c }
+        try { const c = await api('/api/config'); rememberDefaultLang(c); set({ config: c }); get().sharesIfAvailable(); return c }
         catch { return null }
         finally { configFetch = null }
       })()
@@ -1613,6 +1614,13 @@ export const useStore = create((set, get) => {
     // previous profile's list. `sharesError` is set while the last load failed.
     shares: null,
     sharesError: false,
+    // Loads the lists once, the moment sharing becomes available for this user (a config that
+    // says `shares`, a sign-in), so every guard against a custom exercise in a shared routine
+    // reads the same answer wherever it is asked, not only on the screens that load it themselves.
+    sharesIfAvailable() {
+      const { config, user, shares } = get()
+      if (sharingAvailable(config, user, { demo: DEMO }) && !sharesOf(shares, user)) get().loadShares()
+    },
     async loadShares() {
       const user = get().user
       if (!user) return null
@@ -1702,6 +1710,7 @@ export const useStore = create((set, get) => {
       } else { rejoined = false; adoptHold = false; localStorage.removeItem('gym_user') }
       set({ user: u })
       setSync({ held: adoptHold })
+      if (u) get().sharesIfAvailable()
     },
 
     // One PUT at a time: a push asked for while one is in flight runs after it (once, however

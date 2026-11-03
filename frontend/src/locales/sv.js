@@ -2688,4 +2688,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'Byt ut de egna övningarna mot några från biblioteket för att dela den här rutinen.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} är delad med {0} person. Egna övningar kan inte ligga i en delad rutin, så sluta dela den innan du lägger till {2}.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} är delad med {0} personer. Egna övningar kan inte ligga i en delad rutin, så sluta dela den innan du lägger till {2}.',
+  'Shared, unshare first': 'Delad, sluta dela först',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'Egna övningar kan inte läggas i ”{0}” medan den är delad: {1}. Sluta dela den först för att lägga till dem.',
 }

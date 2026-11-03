@@ -2641,4 +2641,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'Bu rutini paylaşmak için özel egzersizleri kütüphaneden egzersizlerle değiştir.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}, {0} kişiyle paylaşılıyor. Paylaşılan bir rutine özel egzersiz eklenemez, bu yüzden {2} eklemeden önce paylaşımı kaldır.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}, {0} kişiyle paylaşılıyor. Paylaşılan bir rutine özel egzersiz eklenemez, bu yüzden {2} eklemeden önce paylaşımı kaldır.',
+  'Shared, unshare first': 'Paylaşılıyor, önce paylaşımı kaldır',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'Özel egzersizler, paylaşıldığı sürece “{0}” içine eklenemez: {1}. Eklemek için önce paylaşımı kaldır.',
 }

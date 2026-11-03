@@ -2641,4 +2641,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'इस रूटीन को साझा करने के लिए कस्टम एक्सरसाइज़ को लाइब्रेरी की एक्सरसाइज़ से बदलें।',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} {0} व्यक्ति के साथ साझा है। साझा रूटीन में कस्टम एक्सरसाइज़ नहीं जा सकती, इसलिए {2} जोड़ने से पहले साझा करना बंद करें।',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} {0} लोगों के साथ साझा है। साझा रूटीन में कस्टम एक्सरसाइज़ नहीं जा सकती, इसलिए {2} जोड़ने से पहले साझा करना बंद करें।',
+  'Shared, unshare first': 'साझा है, पहले साझा करना बंद करें',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': '“{0}” साझा रहने तक कस्टम एक्सरसाइज़ उसमें नहीं जा सकतीं: {1}. इन्हें जोड़ने के लिए पहले साझा करना बंद करें।',
 }

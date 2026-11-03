@@ -2720,4 +2720,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'এই রুটিন শেয়ার করতে কাস্টম ব্যায়ামগুলো লাইব্রেরির ব্যায়াম দিয়ে বদলান।',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} {0} জনের সাথে শেয়ার করা আছে। শেয়ার করা রুটিনে কাস্টম ব্যায়াম রাখা যায় না, তাই {2} যোগ করার আগে শেয়ার বন্ধ করুন।',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} {0} জনের সাথে শেয়ার করা আছে। শেয়ার করা রুটিনে কাস্টম ব্যায়াম রাখা যায় না, তাই {2} যোগ করার আগে শেয়ার বন্ধ করুন।',
+  'Shared, unshare first': 'শেয়ার করা, আগে শেয়ার বন্ধ করুন',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': '“{0}” শেয়ার করা থাকা অবস্থায় কাস্টম ব্যায়াম যোগ করা যায় না: {1}। যোগ করতে আগে শেয়ার বন্ধ করুন।',
 }

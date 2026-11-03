@@ -2634,4 +2634,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': '把自訂動作換成動作庫裡的動作，就能分享這個課表。',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}已分享給 {0} 人。已分享的課表不能包含自訂動作，請先取消分享再新增{2}。',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}已分享給 {0} 人。已分享的課表不能包含自訂動作，請先取消分享再新增{2}。',
+  'Shared, unshare first': '已分享，請先取消分享',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': '「{0}」正在分享，不能加入自訂動作：{1}。請先取消分享再新增。',
 }

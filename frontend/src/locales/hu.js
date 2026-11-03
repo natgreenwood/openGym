@@ -2644,4 +2644,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'A rutin megosztásához cseréld le az egyéni gyakorlatokat könyvtárbeliekre.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': 'A(z) {1} rutin {0} emberrel van megosztva. Megosztott rutinba nem kerülhet egyéni gyakorlat, ezért vond vissza a megosztást, mielőtt hozzáadod ezt: {2}.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': 'A(z) {1} rutin {0} emberrel van megosztva. Megosztott rutinba nem kerülhet egyéni gyakorlat, ezért vond vissza a megosztást, mielőtt hozzáadod ezt: {2}.',
+  'Shared, unshare first': 'Megosztva, előbb szüntesd meg',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'Saját gyakorlat nem kerülhet a(z) „{0}” edzésbe, amíg meg van osztva: {1}. Előbb szüntesd meg a megosztást, hogy hozzáadhasd őket.',
 }

@@ -390,6 +390,8 @@ h4.sec{
    select check and the alert are the design's three new pieces. */
 .routine-sharing{margin-top:22px;outline:none}
 .lrow.share-off{cursor:default}
+.item.add-blocked{cursor:default}
+.item.add-blocked .tt{color:var(--label-3)}
 .lrow.share-off .lrow-t{color:var(--label-3)}
 .lrow.share-off .lrow-i{color:var(--label-2)}
 .share-avatar{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;

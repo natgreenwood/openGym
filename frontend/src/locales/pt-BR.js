@@ -1723,6 +1723,8 @@ export const PT_BR_OVERRIDES = {
   'Swap the custom exercises for ones from the library to share this routine.': 'Troque os exercícios personalizados por outros da biblioteca para compartilhar esta rotina.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} está compartilhada com {0} pessoa. Exercícios personalizados não podem entrar numa rotina compartilhada, então pare de compartilhar antes de adicionar {2}.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} está compartilhada com {0} pessoas. Exercícios personalizados não podem entrar numa rotina compartilhada, então pare de compartilhar antes de adicionar {2}.',
+  'Shared, unshare first': 'Compartilhada, pare de compartilhar antes',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'Exercícios personalizados não podem entrar em “{0}” enquanto ela estiver compartilhada: {1}. Pare de compartilhar antes para adicioná-los.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

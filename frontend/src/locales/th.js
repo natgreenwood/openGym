@@ -2652,4 +2652,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': 'เปลี่ยนท่าที่สร้างเองเป็นท่าจากคลังท่าเพื่อแชร์รูทีนนี้',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} แชร์กับ {0} คนอยู่ รูทีนที่แชร์ใส่ท่าที่สร้างเองไม่ได้ ให้ยกเลิกแชร์ก่อนเพิ่ม {2}',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1} แชร์กับ {0} คนอยู่ รูทีนที่แชร์ใส่ท่าที่สร้างเองไม่ได้ ให้ยกเลิกแชร์ก่อนเพิ่ม {2}',
+  'Shared, unshare first': 'แชร์อยู่ ยกเลิกการแชร์ก่อน',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': 'ใส่ท่าที่สร้างเองใน “{0}” ไม่ได้ขณะที่แชร์อยู่: {1} ยกเลิกการแชร์ก่อนเพื่อเพิ่มท่าเหล่านี้',
 }

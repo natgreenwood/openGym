@@ -2641,4 +2641,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': '把自定义动作换成动作库里的动作，就可以分享这个训练日。',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}已分享给 {0} 人。已分享的训练日不能包含自定义动作，请先取消分享再添加{2}。',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}已分享给 {0} 人。已分享的训练日不能包含自定义动作，请先取消分享再添加{2}。',
+  'Shared, unshare first': '已分享，请先取消分享',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': '“{0}”正在分享，不能加入自定义动作：{1}。请先取消分享再添加。',
 }

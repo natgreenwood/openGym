@@ -2641,4 +2641,6 @@ export default {
   'Swap the custom exercises for ones from the library to share this routine.': '이 루틴을 공유하려면 커스텀 운동을 라이브러리의 운동으로 바꾸세요.',
   '{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}은(는) {0}명과 공유 중입니다. 공유된 루틴에는 커스텀 운동을 넣을 수 없으니, {2}을(를) 추가하기 전에 공유를 취소하세요.',
   '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.': '{1}은(는) {0}명과 공유 중입니다. 공유된 루틴에는 커스텀 운동을 넣을 수 없으니, {2}을(를) 추가하기 전에 공유를 취소하세요.',
+  'Shared, unshare first': '공유 중, 먼저 공유 해제',
+  'Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.': '“{0}”을(를) 공유하는 동안에는 커스텀 운동을 넣을 수 없어요: {1}. 추가하려면 먼저 공유를 해제하세요.',
 }
