@@ -32,11 +32,11 @@ let root, host
 const ME = { id: 'u1', name: 'Sam Keller' }
 const CUSTOM = { id: 'c-yraise', n: 'Cable Y-raise', custom: true, bp: 'shoulders', eq: 'cable' }
 
-async function mount({ shares = null } = {}) {
+async function mount({ shares = null, config = { shares: true } } = {}) {
   const S = JSON.parse(JSON.stringify(DEF))
   S.routines = [{ id: 'r1', name: 'Push Day', emoji: 'dumbbell', ex: [{ id: '0025', sets: 3, mode: 'reps', reps: 5, weight: 80 }] }]
   S.customEx = [CUSTOM]
-  useStore.setState({ S, user: ME, config: { shares: true }, shares, sharesError: false })
+  useStore.setState({ S, user: ME, config, shares, sharesError: false })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -59,6 +59,22 @@ describe('turnAway with no list from the server', () => {
     pickCustom()
     expect(exIds()).toEqual(['0025'])
     expect(confirmSheet.mock.calls[0][0].title).toBe('Unshare first')
+  })
+
+  it('goes by the kept list while the config is unknown, as on a phone that starts offline', async () => {
+    net.mode = 'fail'
+    await mount({ config: null, shares: { uid: 'u1', incoming: [], outgoing: [{ id: 's1', routineId: 'r1', to: { id: 'u2', name: 'Jo' } }], etag: 'old' } })
+    pickCustom()
+    expect(exIds()).toEqual(['0025'])
+    expect(confirmSheet.mock.calls[0][0].title).toBe('Unshare first')
+  })
+
+  it('lets a custom exercise in with no config and no kept list: nothing says this routine is shared', async () => {
+    net.mode = 'fail'
+    await mount({ config: null })
+    pickCustom()
+    expect(confirmSheet).not.toHaveBeenCalled()
+    expect(exIds()).toEqual(['0025', CUSTOM.id])
   })
 
   it('turns a custom exercise away when the list couldn’t be loaded, and says it couldn’t check', async () => {

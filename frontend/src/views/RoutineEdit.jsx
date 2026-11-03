@@ -412,7 +412,7 @@ function OwnRoutineEdit() {
   // it is shared with (NATG-486, closing the gap NATG-485 left).
   const sharedCount = shares.list?.length || 0
   const turnAway = (picker, ex) => {
-    if (!isCustomEx(ex) || !shares.available) return false
+    if (!isCustomEx(ex) || !shares.guarded) return false
     if (!shares.list) {
       picker?.close()
       confirmSheet({

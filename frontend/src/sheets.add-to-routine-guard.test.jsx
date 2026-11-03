@@ -70,4 +70,20 @@ describe('Add to routine with no share list known (NATG-485 gap)', () => {
     openLast()
     expect(rowOf('Push Day').getAttribute('aria-disabled')).toBeNull()
   })
+
+  it('goes by the kept list while the config is unknown, as on a phone that starts offline', () => {
+    install({ config: null, shares: { uid: 'u2', incoming: [], outgoing: [{ id: 'o1', routineId: 'r1', to: { id: 'u3', name: 'Alex' } }], etag: 'old' } })
+    act(() => addToRoutineSheet(EXIDX.cx1))
+    openLast()
+    const push = rowOf('Push Day')
+    expect(push.getAttribute('aria-disabled')).toBe('true')
+    expect(host.querySelector('#' + push.getAttribute('aria-describedby')).textContent).toBe('Shared, unshare first')
+  })
+
+  it('with the config unknown, leaves a routine the kept list doesn’t name open to it', () => {
+    install({ config: null, shares: { uid: 'u2', incoming: [], outgoing: [], etag: 'old' } })
+    act(() => addToRoutineSheet(EXIDX.cx1))
+    openLast()
+    expect(rowOf('Push Day').getAttribute('aria-disabled')).toBeNull()
+  })
 })
