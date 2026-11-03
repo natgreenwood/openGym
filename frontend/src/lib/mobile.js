@@ -12,6 +12,8 @@
 import { t, tn } from './i18n-core.js'
 import { isoOf, todayISO } from './format.js'
 import { effectiveRoutineIds } from './history.js'
+import { routineById } from './routine-lookup.js'
+import { sharedFor } from './shared-source.js'
 import { NUDGE_COPY, lineIndex, nudgeFor, nudgeMinute, toneOf } from './nudge.js'
 import { excusedOn } from './day-notes.js'
 import { stateJson } from './state-json.js'
@@ -155,7 +157,9 @@ const LEGACY_REMINDER_IDS = Array.from({ length: 7 }, (_, d) => ({ id: 100 + d }
 
 // Pure date expansion for the native reminder. `now` is injectable so the calendar boundary,
 // completed-day suppression, and today's past-time rule stay deterministic in tests.
-export function buildReminderNotifications(S, now = new Date()) {
+// `shared`: the routines shared with you (lib/shared-routines.js sharedViewOf), so a day whose
+// only routine is a shared one is a training day for the reminder and the nudge (NATG-483).
+export function buildReminderNotifications(S, now = new Date(), shared = sharedFor()) {
   const r = S?.reminder
   if (!r?.on) return []
   const routines = Array.isArray(S.routines) ? S.routines : []
@@ -174,7 +178,7 @@ export function buildReminderNotifications(S, now = new Date()) {
     // A weekday can hold several routines; name them all, or fall back to a count. Each day is
     // asked as if it were today: a coach week's next session is due every day until it is done,
     // so it is reminded every day (the app re-syncs these after every workout and on open).
-    const dayRoutines = effectiveRoutineIds(state, iso, iso).map(id => routines.find(x => x.id === id)).filter(Boolean)
+    const dayRoutines = effectiveRoutineIds(state, iso, iso, shared?.ids ?? null).map(id => routineById(state, id, shared)).filter(Boolean)
     if (!dayRoutines.length) continue
     const label = dayRoutines.length <= 2 ? dayRoutines.map(r => r.name).join(' + ') : tn('{0} routine', '{0} routines', dayRoutines.length)
     const at = new Date(day)
@@ -197,7 +201,7 @@ export function buildReminderNotifications(S, now = new Date()) {
 // resyncs (every persist does), which drops the day and resets the count.
 export const NUDGE_WINDOW_DAYS = 7
 const NUDGE_ID_BASE = 2000
-export function buildNudgeNotifications(S, now = new Date()) {
+export function buildNudgeNotifications(S, now = new Date(), shared = sharedFor()) {
   const r = S?.reminder
   if (!r?.on || !r.nudge) return []
   const at = nudgeMinute(r.time || '08:00')
@@ -212,9 +216,9 @@ export function buildNudgeNotifications(S, now = new Date()) {
     const iso = isoOf(day)
     // a session on screen right now is today's workout in the making, not a miss
     if (offset === 0 && S.active) continue
-    const ids = nudgeFor(S, iso)
+    const ids = nudgeFor(S, iso, shared?.ids ?? null)
     if (!ids) continue
-    const names = ids.map(id => routines.find(x => x.id === id)?.name).filter(Boolean)
+    const names = ids.map(id => routineById({ routines }, id, shared)?.name).filter(Boolean)
     const label = names.length && names.length <= 2 ? names.join(' + ') : tn('{0} routine', '{0} routines', ids.length)
     const when = new Date(day)
     when.setHours(Math.floor(at / 60), at % 60, 0, 0)

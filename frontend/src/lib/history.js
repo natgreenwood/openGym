@@ -23,6 +23,7 @@ const workRowsForMode = (entry = {}, mode = 'reps') => {
 // gets dragged along behind it.
 import { t } from './i18n-core.js'
 import { queueNext, pinState, queueLiveOn } from './queue.js'
+import { routineById } from './routine-lookup.js'
 import { isPyramid, pyramidLabel, pyramidTargetAt, pyramidWeightAt, PYRAMID_MAX } from './pyramid.js'
 
 // When a workout happened, as epoch ms: its own recorded start, else noon on its calendar day.
@@ -513,8 +514,13 @@ export function effectiveRoutineIds(S, iso, today = todayISO(), extraIds = null)
   const own = q || queueLiveOn(S, iso, today, extraIds) ? weekday.filter(id => !S.queue.ids.includes(id)) : weekday
   return q ? [q, ...own] : own
 }
-export function effectiveRoutines(S, iso) {
-  return effectiveRoutineIds(S, iso).map(id => S.routines.find(r => r.id === id)).filter(Boolean)
+/**
+ * The routines planned for a date, resolved. `shared` (optional, lib/shared-routines.js
+ * sharedViewOf): the routines shared with you, so a day that holds one (`shared:<id>`) plans it
+ * like one of your own; without it such a day reads as it always did, rest.
+ */
+export function effectiveRoutines(S, iso, shared = null, today = todayISO()) {
+  return effectiveRoutineIds(S, iso, today, shared?.ids ?? null).map(id => routineById(S, id, shared)).filter(Boolean)
 }
 export const effectiveRoutineId = (S, iso) => effectiveRoutineIds(S, iso)[0] ?? null
 export const effectiveRoutine = (S, iso) => effectiveRoutines(S, iso)[0] ?? null
@@ -531,12 +537,12 @@ export const effectiveRoutine = (S, iso) => effectiveRoutines(S, iso)[0] ?? null
  * Return shape carries `routines` (the whole day) plus `routine` = `routines[0]` for the
  * "what's next" label.
  */
-export function nextTrainingDay(S, iso) {
+export function nextTrainingDay(S, iso, shared = null) {
   for (let i = 1; i <= 7; i++) {
     const d = new Date(iso + 'T12:00:00')
     d.setDate(d.getDate() + i)
     const nextIso = isoOf(d)
-    const routines = effectiveRoutines(S, nextIso)
+    const routines = effectiveRoutines(S, nextIso, shared)
     if (routines.some(r => (r.ex || []).length)) {
       return { iso: nextIso, weekday: d.getDay(), routines, routine: routines[0] }
     }

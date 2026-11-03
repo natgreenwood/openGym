@@ -7,6 +7,10 @@ import { DEMO, DEMO_SEEDED } from '../lib/demo.js'
 import { rememberDefaultLang } from '../lib/default-lang.js'
 import { guestAllowed } from '../lib/guest.js'
 import { sharingAvailable, sharesOf } from '../lib/shares.js'
+import { orphanPointers, shareNameOf, sharedNames, sharedViewOf } from '../lib/shared-routines.js'
+import { sharedPointer } from '../lib/routine-lookup.js'
+import { deleteRoutine } from '../lib/routines.js'
+import { setSharedSource } from '../lib/shared-source.js'
 import { stateJson } from '../lib/state-json.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth, readHealth } from '../lib/health-sync.js'
@@ -55,6 +59,14 @@ const SYNCED_FP_KEY = 'gym_synced_fp'  // a fingerprint of that copy (lib/sync-c
 // reaches that server as that account again. On a phone also a file beside the state mirror.
 const STASH_KEY = 'gym_stash'
 const STASH_FILE = 'opengym-stash.json'
+// The share lists as GET /api/shares last answered (routine sharing, NATG-486), `{ uid, incoming,
+// outgoing, etag, fetchedAt }`: never part of `S` and never pushed, kept so the routines shared
+// with you stay usable offline at their last-synced version, and so the custom-exercise guards on
+// your own shared routines have a last-known list to go by. On a phone also a file, since WebView
+// storage can be evicted. Replaced whole on every successful load; wiped on sign-out.
+export const SHARED_KEY = 'gym_shared_v1'
+const SHARED_FILE = 'opengym-shared.json'
+const readSharedSaved = () => { try { const v = JSON.parse(localStorage.getItem(SHARED_KEY)); return v && typeof v === 'object' && v.uid ? v : null } catch { return null } }
 // A browser sign-out whose request never reached the server. The session cookie is HttpOnly, so
 // only the server's answer to /api/logout takes it out of the browser; until that answer comes,
 // boot sends the logout again instead of asking /api/me, which would sign the browser straight
@@ -366,6 +378,12 @@ export const useStore = create((set, get) => {
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
+  let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
+  let sweepOwed = false    // a load landed before boot was through: its pointer clean-up runs at finishBoot
+  const saveShares = v => {
+    try { localStorage.setItem(SHARED_KEY, JSON.stringify(v)) } catch { /* full: the lists in memory stand, and load again next time */ }
+    if (MOBILE) writeJsonFile(SHARED_FILE, v)
+  }
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
   let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
@@ -681,6 +699,7 @@ export const useStore = create((set, get) => {
   // Boot's last step: from here on changes push, and one made during boot goes now.
   const finishBoot = (extra = {}) => {
     set({ ready: true, ...extra })
+    if (sweepOwed) { sweepOwed = false; get().sweepSharedPointers() }
     if (pushPending && get().user) {
       clearTimeout(pushTm)
       pushTm = setTimeout(() => get().pushState(), 1500)
@@ -705,7 +724,11 @@ export const useStore = create((set, get) => {
     const { base } = metaOf()
     if (!base || owes()) return get().pullState()
     try {
-      const { rev, wid } = await api('/api/data/rev')
+      const { rev, wid, shares: sharesEtag } = await api('/api/data/rev')
+      // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
+      // shared with you): loaded before the document, so a pointer the document gains from
+      // another device is checked against lists at least as new as it (sweepSharedPointers).
+      if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadShares()
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
@@ -1006,6 +1029,10 @@ export const useStore = create((set, get) => {
     localStorage.removeItem(KEY)
     localStorage.removeItem('gym_owner_name')
     localStorage.removeItem('gym_owner')
+    // The account's share lists go with it: a shared device keeps nothing of whom it shared with.
+    try { localStorage.removeItem(SHARED_KEY) } catch { /* nothing to keep */ }
+    sharesFresh = null
+    set({ shares: null, sharesError: false })
     seenOwner = null   // a guest's tab now: it joins what other signed-out tabs save (as setUser)
     handedOver = false
     // Signed out, this device is nobody's: the sign-in screen is in the instance's language.
@@ -1014,7 +1041,9 @@ export const useStore = create((set, get) => {
     // On a phone the file is wiped with it, now rather than after the usual wait: a start in
     // between would open in local mode on the signed-out account's data, since that boot takes
     // the file whenever storage holds nothing.
-    const wiped = MOBILE ? nativePersist(true) : null
+    // The share lists' file goes too, after the state file and as part of the same wait: the
+    // state file is the write a sign-out must not race.
+    const wiped = MOBILE ? Promise.resolve(nativePersist(true)).then(() => writeJsonFile(SHARED_FILE, null)) : null
     // The account's photos and videos go with its copy (a shared device keeps nothing of it),
     // except the ones a stash still refers to — whatever was pending is in a stash by now
     // (signOut refuses otherwise) and comes back with it. A file picked from here on is kept.
@@ -1608,18 +1637,21 @@ export const useStore = create((set, get) => {
     },
 
     // Routine sharing (GET /api/shares): the caller's two lists as the server last answered,
-    // `{ uid, outgoing, incoming, etag }`, or null before the first answer. Never part of `S`: a
-    // share is a record on the server, not something this profile's document holds, and it must
-    // not sync or merge. Tagged with whose it is, so a sign-in as someone else never shows the
-    // previous profile's list. `sharesError` is set while the last load failed.
-    shares: null,
+    // `{ uid, outgoing, incoming, etag, fetchedAt }`, or null before the first answer. Never part
+    // of `S`: a share is a record on the server, not something this profile's document holds, and
+    // it must not sync or merge. Tagged with whose it is, so a sign-in as someone else never shows
+    // the previous profile's list. Saved on this device (SHARED_KEY) and read back at start, so a
+    // shared routine stays usable offline at its last-synced version (NATG-486 AC8).
+    // `sharesError` is set while the last load failed.
+    shares: (() => { const v = readSharedSaved(); return v && v.uid === user0?.id ? v : null })(),
     sharesError: false,
-    // Loads the lists once, the moment sharing becomes available for this user (a config that
-    // says `shares`, a sign-in), so every guard against a custom exercise in a shared routine
-    // reads the same answer wherever it is asked, not only on the screens that load it themselves.
+    // Loads the lists once per page for this user, the moment sharing becomes available (a config
+    // that says `shares`, a sign-in), so every guard against a custom exercise in a shared routine
+    // reads the same answer wherever it is asked. A saved copy from an earlier visit is what the
+    // screens show meanwhile; it is not the server's answer, so it does not count as loaded.
     sharesIfAvailable() {
       const { config, user, shares } = get()
-      if (sharingAvailable(config, user, { demo: DEMO }) && !sharesOf(shares, user)) get().loadShares()
+      if (sharingAvailable(config, user, { demo: DEMO }) && (sharesFresh !== user.id || !sharesOf(shares, user))) get().loadShares()
     },
     async loadShares() {
       const user = get().user
@@ -1633,8 +1665,27 @@ export const useStore = create((set, get) => {
         try {
           const r = await api('/api/shares')
           if (get().user?.id !== user.id) return null
-          const shares = { uid: user.id, outgoing: Array.isArray(r?.outgoing) ? r.outgoing : [], incoming: Array.isArray(r?.incoming) ? r.incoming : [], etag: r?.etag || null }
+          const before = sharesOf(get().shares, user)
+          const incoming = Array.isArray(r?.incoming) ? r.incoming : []
+          const shares = {
+            uid: user.id, outgoing: Array.isArray(r?.outgoing) ? r.outgoing : [], incoming,
+            etag: r?.etag || null, fetchedAt: Date.now(),
+            // The last name each share showed, for one that is not available right now: the
+            // server sends it without its routine, and its row still has to say which it is.
+            names: sharedNames(incoming, before?.names),
+          }
           set({ shares, sharesError: false })
+          sharesFresh = user.id
+          saveShares(shares)
+          // A shared routine accepted, changed or gone can make a day a training day or a rest
+          // day: the phone's reminders and nudges are scheduled again from the new lists.
+          if (MOBILE) syncReminder(get().S)
+          // "Off" is the answer while sharing is switched off on the server (it can't be in v1):
+          // it says nothing about any one share, so no pointer is judged by it.
+          if (shares.etag !== 'off' && Array.isArray(r?.incoming)) {
+            if (get().ready && !adoptHold) get().sweepSharedPointers(before)
+            else sweepOwed = true
+          }
           return shares
         } catch {
           if (get().user?.id === user.id) set({ sharesError: true })
@@ -1642,6 +1693,58 @@ export const useStore = create((set, get) => {
         } finally { if (sharesFetch === mine) sharesFetch = null }
       })()
       return mine.promise
+    },
+    // A share that is gone from the lists (revoked, its routine deleted, removed or declined on
+    // another device) leaves your schedule too, through the same delete your own routines use, so
+    // the removal is stamped and your other devices agree after their own merge (NATG-486 AC6). A
+    // share that is only not available right now keeps its days (AC9). Only after a load from the
+    // server in this page: a saved copy can be older than a share accepted on another device.
+    // `before` (the lists as they were) names, once, each accepted share that went.
+    sweepSharedPointers(before = null) {
+      const { shares, user } = get()
+      const mine = sharesOf(shares, user)
+      if (!mine || sharesFresh !== user.id) return
+      const gone = orphanPointers(get().S, mine.incoming)
+      if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
+      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id))
+      if (!left.length) return
+      import('./useUI.js').then(({ useUI }) => {
+        for (const i of left) {
+          const name = shareNameOf(i) || t('A shared routine')
+          useUI.getState().toast(gone.includes(sharedPointer(i.id))
+            ? t('{0} is no longer shared with you. It’s off your schedule too.', name)
+            : t('{0} is no longer shared with you.', name))
+        }
+      }).catch(() => {})
+    },
+    // The recipient's three answers (POST accept or decline, DELETE to remove). Each needs the
+    // server; a failure is thrown for the screen to say why. The lists load again afterwards, and
+    // a removal takes the share off your schedule at once, the way deleting a routine does.
+    async acceptShare(id) {
+      try { return await api('/api/shares/' + encodeURIComponent(id) + '/accept', { method: 'POST', body: '{}' }) }
+      finally { await get().loadShares() }
+    },
+    async declineShare(id) {
+      try { return await api('/api/shares/' + encodeURIComponent(id) + '/decline', { method: 'POST', body: '{}' }) }
+      finally { await get().loadShares() }
+    },
+    async removeShare(id) {
+      try {
+        await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
+      } catch (e) {
+        // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
+        if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadShares(); throw e }
+      }
+      const user = get().user
+      const mine = sharesOf(get().shares, user)
+      if (mine) {
+        const shares = { ...mine, incoming: mine.incoming.filter(i => i?.id !== id) }
+        set({ shares })
+        saveShares(shares)
+      }
+      get().update(s => { deleteRoutine(s, sharedPointer(id)) })
+      get().loadShares()
+      return true
     },
 
     // `adopt` (a sign-in, a pairing — { alwaysAsk } for a device link): adoptProfile follows and
@@ -2016,6 +2119,12 @@ export const useStore = create((set, get) => {
           pairedBase = remote.base || null
           setSync({ server: pairedBase })
           await restoreFromMirror(remote)
+          // The share lists' file, when WebView storage lost its copy: this account's only.
+          if (!get().shares) {
+            const saved = await readJsonFile(SHARED_FILE)
+            const who = get().user?.id || readOwner()
+            if (saved && typeof saved === 'object' && saved.uid && saved.uid === who) set({ shares: saved })
+          }
           try {
             const me = await api('/api/me')   // also catches a token revoked elsewhere (sign out everywhere)
             if (!me.user?.id) throw Object.assign(new Error('no user'), { status: 200, code: 'bad-response' })
@@ -2146,5 +2255,8 @@ export const useStore = create((set, get) => {
     }
   }
 })
+
+// The phone's reminders and nudges count the routines shared with you (lib/mobile.js).
+setSharedSource(() => sharedViewOf(useStore.getState()))
 
 export { hasData }

@@ -9,21 +9,26 @@
 // Imported only by sheets.jsx and views/Workout.jsx; imports session-start.js (which pulls in
 // history.js + progression.js). Nothing in that chain imports this file, so there is no cycle.
 import { buildSessionEntries } from './session-start.js'
+import { routineById } from './routine-lookup.js'
 
 /**
  * Build a session's entries from an ordered list of routine ids.
- * - resolves + filters to still-existing routines, de-duplicates by id (first wins)
+ * - resolves + filters to still-existing routines, de-duplicates by id (first wins); `shared`
+ *   (optional, lib/shared-routines.js sharedViewOf) resolves the routines shared with you too
  * - concatenates each routine's entries in list order
  * - stamps `entry.rid` = that routine's id on every entry
  *
  * Returns `{ entries, routineIds, routines }` — `routineIds` / `routines` are the resolved,
  * de-duplicated list, so a caller stores exactly what was built.
  */
-export function buildCombinedEntries(st, routineIds) {
+export function buildCombinedEntries(st, routineIds, shared = null) {
   const seen = new Set()
   const routines = [].concat(routineIds ?? [])
     .filter(id => id && !seen.has(id) && seen.add(id))
-    .map(id => (st.routines || []).find(r => r.id === id))
+    // A routine shared with you (`shared:<id>`) starts like one of your own, from the version
+    // this device last synced. The entries are a snapshot: a later edit by the sharer changes
+    // the next session, never the one already running (NATG-486 AC8).
+    .map(id => routineById(st, id, shared))
     .filter(Boolean)
   const entries = routines.flatMap(r =>
     buildSessionEntries(st, r).map(e => ({ ...e, rid: r.id }))
