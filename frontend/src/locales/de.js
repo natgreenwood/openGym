@@ -2720,4 +2720,7 @@ export default {
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Außerdem endet das Teilen mit {0} Person endgültig: Teilst du später wieder, geht eine neue Einladung raus.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Außerdem endet das Teilen mit {0} Personen endgültig: Teilst du später wieder, geht eine neue Einladung raus.',
   'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Dieses Training stammt aus einer Routine, die mit dir geteilt wurde, und kann deshalb nicht als eigene Routine gespeichert werden.',
+  'Not available · it’s too large to open': 'Nicht verfügbar · zu groß zum Öffnen',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} hat mehr Sätze, Drops oder Übungen, als diese App öffnen kann. Sie bleibt in deinem Plan und kommt zurück, sobald sie kleiner ist.',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} hat mehr Sätze, Drops oder Übungen, als diese App öffnen kann. Sie bleibt in deinem Plan und kommt zurück, sobald {1} sie verkleinert.',
 }

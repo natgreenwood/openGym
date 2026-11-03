@@ -157,6 +157,13 @@ describe('routines shared with you', () => {
     expect(nav).toHaveBeenCalledWith('/plan/r/' + encodeURIComponent('shared:s1'))
     expect(host.textContent).toContain('These follow the owner’s changes and can’t be edited.')
   })
+  it('one too large to open (SEC-486-01) is not available, says why, and keeps its day', () => {
+    mocks.shares = { ...mocks.shares, incoming: [accepted('s1', { ...LEG, ex: [{ id: '0025', sets: 100000000, reps: 5, weight: 100, backoff: true }] }, { hash: 'h-huge' })], names: { s1: 'Leg Day' } }
+    render()
+    const row = host.querySelector('[data-shared-row="shared:s1"]')
+    expect(row.querySelector('.ss').textContent).toBe('Not available · it’s too large to open')
+    expect(mocks.S.week[1]).toEqual(['shared:s1'])
+  })
   it('one not available right now says why, under its last known name (AC9)', () => {
     mocks.shares = { ...mocks.shares, incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable: 'custom-exercise' }], names: { s1: 'Leg Day' } }
     render()

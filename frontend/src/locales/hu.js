@@ -2703,4 +2703,7 @@ export default {
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Emellett végleg megszűnik a megosztás {0} személlyel: ha később újra megosztod, új meghívó megy ki.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Emellett végleg megszűnik a megosztás {0} személlyel: ha később újra megosztod, új meghívó megy ki.',
   'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Ez az edzés egy veled megosztott rutinból származik, ezért nem menthető el saját rutinként.',
+  'Not available · it’s too large to open': 'Nem érhető el · túl nagy a megnyitáshoz',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} több sorozatot, dropot vagy gyakorlatot tartalmaz, mint amennyit ez az app meg tud nyitni. A tervedben marad, és visszatér, amint kisebb lesz.',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} több sorozatot, dropot vagy gyakorlatot tartalmaz, mint amennyit ez az app meg tud nyitni. A tervedben marad, és visszatér, amint {1} kisebbre veszi.',
 }

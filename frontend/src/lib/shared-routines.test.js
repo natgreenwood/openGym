@@ -70,7 +70,7 @@ describe('sharedRoutineOf: the routine as this device trains it', () => {
     expect(sharedRoutineOf(accepted('s2', LEG, { unit: 'lb' }), 'lb').ex[0].weight).toBe(100)
   })
   it('keeps only values of the type the app reads them as (SEC-01)', () => {
-    const odd = { ...LEG, name: { toString: 1 }, emoji: 7, prog: 'nonsense', ex: [{ id: '0025', sets: '5', reps: 5, weight: 100, note: { evil: true }, side: 'yes' }, { id: 12 }, null] }
+    const odd = { ...LEG, name: { toString: 1 }, emoji: 7, prog: 'nonsense', ex: [{ id: '0025', reps: 5, weight: 100, note: { evil: true }, side: 'yes' }, { id: 12 }, null] }
     const r = sharedRoutineOf(accepted('s3', odd), 'kg')
     expect(r.name).toBe('')
     expect(r.emoji).toBeUndefined()

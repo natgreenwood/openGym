@@ -11,6 +11,7 @@
 // Imports nothing from history.js or progression.js — both import this module.
 import { isWarmupRow, isSideSet, syncSideAggregate } from './workout-model.js'
 import { defaultIncrement, isAssisted } from './exercises.js'
+import { MAX_WORK_SETS } from './limits.js'
 
 const round1 = v => Math.round(v * 10) / 10
 
@@ -49,7 +50,9 @@ export function backoffStepOf(cfg, unit) {
 
 /** The planned weights for `n` work sets: "26 → 24 → 22". */
 export function backoffWeights(top, n, step) {
-  return Array.from({ length: Math.max(0, n) }, (_, k) => backoffAt(top, k, step))
+  // Bounded like every count that drives a loop (lib/limits.js, SEC-486-01).
+  const len = Math.min(MAX_WORK_SETS, Math.max(0, Math.floor(Number(n)) || 0))
+  return Array.from({ length: len }, (_, k) => backoffAt(top, k, step))
 }
 
 /**

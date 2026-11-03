@@ -44,7 +44,8 @@ export function daysOn(S, id) {
 /** The line under a shared routine that is not available right now. */
 export const unavailableLine = u => u.reason === 'custom-exercise'
   ? t('Not available · {0} added a custom exercise', firstName(u.from))
-  : t('Not available · it can’t be read right now')
+  : u.reason === 'too-large' ? t('Not available · it’s too large to open')
+    : t('Not available · it can’t be read right now')
 
 /** The glyph tile of a shared routine: its own glyph with the people badge, or a warning. */
 export function SharedGlyph({ routine, unavailable }) {

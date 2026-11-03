@@ -80,7 +80,11 @@ export default function SharedRoutineView({ id }) {
       ? (days.length
         ? t('{0} added a custom exercise to {1}, and shared routines can’t include those. It stays on {2} in your schedule and comes back as soon as {3} removes it.', from, name, days.join(', '), first)
         : t('{0} added a custom exercise to {1}, and shared routines can’t include those. It comes back as soon as {2} removes it.', from, name, first))
-      : t('{0} can’t be read on the server right now. It stays in your plan and comes back once it can be read.', name)
+      : off.reason === 'too-large'
+        ? (first
+          ? t('{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.', name, first)
+          : t('{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.', name))
+        : t('{0} can’t be read on the server right now. It stays in your plan and comes back once it can be read.', name)
     return <div className="narrow">
       {header}
       <div className="shared-notice warn" role="status"><Icon name="warning" /><div><b>{t('Not available right now')}</b><span>{why}</span></div></div>

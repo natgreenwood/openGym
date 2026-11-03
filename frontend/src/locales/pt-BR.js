@@ -1782,6 +1782,9 @@ export const PT_BR_OVERRIDES = {
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Também para de compartilhar com {0} pessoa para sempre: compartilhar de novo depois envia um novo convite.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Também para de compartilhar com {0} pessoas para sempre: compartilhar de novo depois envia um novo convite.',
   'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Este treino é de uma rotina compartilhada com você, então não pode ser salvo como uma rotina sua.',
+  'Not available · it’s too large to open': 'Indisponível · é grande demais para abrir',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} tem mais séries, drops ou exercícios do que este app consegue abrir. Ela continua no seu plano e volta assim que for reduzida.',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} tem mais séries, drops ou exercícios do que este app consegue abrir. Ela continua no seu plano e volta assim que {1} a reduzir.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

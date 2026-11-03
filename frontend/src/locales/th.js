@@ -2711,4 +2711,7 @@ export default {
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'และจะเลิกแชร์กับ {0} คนอย่างถาวร: ถ้าแชร์อีกครั้งภายหลังจะส่งคำเชิญใหม่',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'และจะเลิกแชร์กับ {0} คนอย่างถาวร: ถ้าแชร์อีกครั้งภายหลังจะส่งคำเชิญใหม่',
   'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'การฝึกนี้มาจากรูทีนที่มีคนแชร์ให้คุณ จึงบันทึกเป็นรูทีนของคุณเองไม่ได้',
+  'Not available · it’s too large to open': 'ใช้ไม่ได้ · ใหญ่เกินกว่าจะเปิดได้',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} มีเซต ดรอป หรือท่ามากกว่าที่แอปนี้เปิดได้ รูทีนยังอยู่ในแผนของคุณและจะกลับมาเมื่อถูกทำให้เล็กลง',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} มีเซต ดรอป หรือท่ามากกว่าที่แอปนี้เปิดได้ รูทีนยังอยู่ในแผนของคุณและจะกลับมาเมื่อ {1} ทำให้เล็กลง',
 }

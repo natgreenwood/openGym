@@ -6,7 +6,10 @@
 // lib/routine-lookup.js).
 import { parsePlan } from './plan-share.js'
 import { EXIDX, isCustomEx } from './exercises.js'
-import { POLICIES } from './progression.js'
+import { POLICIES, MAX_TRIPLE_SETS } from './progression.js'
+import { MAX_PYRAMID_SETS } from './pyramid.js'
+import { MAX_PLANNED_WARMUPS } from './history.js'
+import { MAX_WORK_SETS, MAX_BURST_REPS, MAX_DROPS, MAX_ROUTINE_ROWS, boundedCount } from './limits.js'
 import { DEMO } from './demo.js'
 import { isSharedId, sharedPointer, shareIdOf } from './routine-lookup.js'
 import { sharesOf } from './shares.js'
@@ -24,6 +27,38 @@ const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = v => (typeof v === 'string' ? v : '')
 /** A share's value as text: a string as it is, anything else empty. Never String() a share value. */
 export const shareText = text
+
+/**
+ * Whether a shared routine's counts are ones this app can build rows from (SEC-486-01): every
+ * count that drives a loop is a whole number within lib/limits.js, and the rows the whole routine
+ * would start a session with stay within MAX_ROUTINE_ROWS. Judged on the routine as it came,
+ * before anything is copied or built from it, so a sharer's "100,000,000 sets" costs nothing. A
+ * routine outside them is not available, like one with a custom exercise: shown with the reason,
+ * never started, its days kept.
+ */
+export function withinLimits(r) {
+  const ex = Array.isArray(r?.ex) ? r.ex : []
+  if (ex.length > MAX_ROUTINE_ROWS) return false
+  let rows = 0
+  for (const e of ex) {
+    if (!isObj(e)) continue
+    let sets = 1
+    // 0 is "not set" (the editor's stepper starts there, and the builders read it as 1).
+    if (e.sets !== undefined && e.sets !== 0) { sets = boundedCount(e.sets, MAX_WORK_SETS); if (sets == null) return false }
+    if (e.setsMax != null && e.setsMax !== 0 && boundedCount(e.setsMax, MAX_TRIPLE_SETS) == null) return false
+    for (const k of ARR) if (Array.isArray(e[k]) && e[k].length > MAX_PYRAMID_SETS) return false
+    if (Array.isArray(e.pyramid) && e.pyramid.length > sets) sets = e.pyramid.length
+    if (Array.isArray(e.warmupSets) && e.warmupSets.length > MAX_PLANNED_WARMUPS) return false
+    const warm = typeof e.warmupSets === 'number' && e.warmupSets > 0 ? Math.min(MAX_PLANNED_WARMUPS, Math.round(e.warmupSets)) : 0
+    let drops = 0
+    const x = e.intensifier
+    if (isObj(x) && x.type === 'dropset') { drops = boundedCount(x.count, MAX_DROPS); if (drops == null) return false }
+    if (isObj(x) && x.type === 'restpause' && boundedCount(x.totalReps, MAX_BURST_REPS) == null) return false
+    rows += (sets + warm) * (1 + drops)
+    if (rows > MAX_ROUTINE_ROWS) return false
+  }
+  return true
+}
 
 function typedSlot(e) {
   if (!isObj(e) || typeof e.id !== 'string' || !e.id) return null
@@ -62,6 +97,7 @@ export function sharedRoutineOf(item, toUnit = 'kg') {
   const key = JSON.stringify([item.id, item.hash || '', to, text(item.from?.name)])
   if (projected.has(key)) return projected.get(key)
   const r = item.routine
+  if (!withinLimits(r)) { projected.set(key, null); return null }
   const typed = {
     id: sharedPointer(item.id),
     name: text(r.name),
@@ -89,6 +125,11 @@ export function sharedRoutineOf(item, toUnit = 'kg') {
   return out
 }
 
+// Why an accepted share gives no routine: the server's reason, else too large (outside the limits),
+// else unreadable (a shape nothing here can use).
+const reasonOf = item => item.unavailable === 'custom-exercise' ? 'custom-exercise'
+  : !item.unavailable && isObj(item.routine) && !withinLimits(item.routine) ? 'too-large' : 'unreadable'
+
 const EMPTY = Object.freeze({ routines: [], byId: new Map(), ids: new Set(), pending: [], unavailable: [], items: [], fetchedAt: 0, known: false })
 
 /**
@@ -110,7 +151,7 @@ export function sharedView(shares, user, unit = 'kg') {
     if (item.state !== 'accepted') continue
     const r = sharedRoutineOf(item, unit)
     if (r) routines.push(r)
-    else unavailable.push({ id: sharedPointer(item.id), item, name: shareNameOf(item) || text(mine.names?.[item.id]), reason: item.unavailable === 'custom-exercise' ? 'custom-exercise' : 'unreadable', from: text(item.from?.name) })
+    else unavailable.push({ id: sharedPointer(item.id), item, name: shareNameOf(item) || text(mine.names?.[item.id]), reason: reasonOf(item), from: text(item.from?.name) })
   }
   const byName = (a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1)
   routines.sort(byName)

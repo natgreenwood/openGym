@@ -24,6 +24,7 @@ const workRowsForMode = (entry = {}, mode = 'reps') => {
 import { t } from './i18n-core.js'
 import { queueNext, pinState, queueLiveOn } from './queue.js'
 import { routineById } from './routine-lookup.js'
+import { MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS, clampCount } from './limits.js'
 import { isPyramid, pyramidLabel, pyramidTargetAt, pyramidWeightAt, PYRAMID_MAX } from './pyramid.js'
 
 // When a workout happened, as epoch ms: its own recorded start, else noon on its calendar day.
@@ -248,7 +249,8 @@ export function setsRepsOf(cfg) {
 // and the plan export so a mode is described the same way everywhere. `speedUnit` as setLabel.
 export function exLine(cfg, unit, speedUnit) {
   const mode = modeOf(cfg)
-  const n = cfg.sets || 1
+  // A count that drives a loop is bounded wherever it is read (lib/limits.js, SEC-486-01).
+  const n = clampCount(cfg.sets || 1, MAX_WORK_SETS)
   // Added weight reads as added: "+10 kg" on a dip belt, "60 kg" on a barbell.
   // Back-off sets read as the sequence they open at: "3 × 6 · 26 → 24 → 22 kg".
   const backoff = mode === 'reps' && cfg.weight > 0 ? backoffStepOf(cfg, unit) : 0
@@ -589,7 +591,7 @@ function buildWorkSets(S, cfg, options = {}) {
   // *counting* session without this function pre-filtering the history itself. `options.rid`
   // is the routine the rows are for: its own last session of the exercise comes first (#216).
   const last = lastEntryFor(S, cfg.id, options.rid)
-  const n = Math.max(1, cfg.sets || 1)
+  const n = clampCount(cfg.sets || 1, MAX_WORK_SETS)
   const mode = modeOf(cfg)
   const sets = []
   // A deload routine must use its own prescription instead of carrying regular-session values
@@ -717,7 +719,7 @@ function shapeRows(sets, cfg, grid) {
   const kind = cfg && cfg.intensifier && cfg.intensifier.type
   if (kind !== 'dropset' && kind !== 'restpause') return sets
   if (kind === 'dropset') {
-    const count = Math.max(1, Math.round(cfg.intensifier.count) || 1)
+    const count = clampCount(cfg.intensifier.count, MAX_DROPS)
     const pct = cfg.intensifier.pct
     // Stamp a descending chain of drops onto a row (or one side of a per-side row): each drop is
     // pct% lighter than the last, at that row/side's own rep count.
@@ -743,7 +745,7 @@ function shapeRows(sets, cfg, grid) {
   // extraVolumeOf/setTonnage: a rest-pause row's `clusters` are read-only display of how `r`
   // breaks down, not extra volume on top of it, precisely so this doesn't double-count.
   const restSec = Math.max(5, cfg.intensifier.restSec || 15)
-  const totalReps = Math.max(1, Math.round(cfg.intensifier.totalReps) || 1)
+  const totalReps = clampCount(cfg.intensifier.totalReps, MAX_BURST_REPS)
   const w = (sets.find(s => !isWarmupRow(s)) || sets[0] || {}).w || 0
   const warmup = { w, r: Math.max(1, Math.round(cfg.reps) || 1), done: false, phase: 'warmup' }
   const work = { w, r: totalReps, done: false, type: 'restpause', clusters: splitBurstReps(totalReps).map(r => ({ r, restSec })) }

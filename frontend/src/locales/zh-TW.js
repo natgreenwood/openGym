@@ -2693,4 +2693,7 @@ export default {
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': '也會永久停止與{0}人的分享：之後再次分享會寄出新的邀請。',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': '也會永久停止與{0}人的分享：之後再次分享會寄出新的邀請。',
   'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': '這次訓練來自別人分享給你的課表，因此無法儲存為你自己的課表。',
+  'Not available · it’s too large to open': '無法使用 · 太大無法開啟',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}的組數、遞減組或動作超出了本應用程式能開啟的範圍。它仍留在你的計畫中，縮小後就會回來。',
+  '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}的組數、遞減組或動作超出了本應用程式能開啟的範圍。它仍留在你的計畫中，{1}縮小後就會回來。',
 }
