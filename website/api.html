@@ -2236,8 +2236,8 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </summary>
   <div class="ep-body">
 <p>One pending share per recipient, all or nothing: every recipient is checked before any record is written. The routine has to be in your own document, so a routine shared with you cannot be passed on. A routine with a custom exercise cannot be shared.</p>
-<p>Asking again for a share that is pending or accepted returns it as it is; one that was declined or removed goes back to pending with the same id. A request that changes nothing spends no budget, so it is safe to retry.</p>
-<p>Limits: at most 50 shares per profile that are pending or accepted (409 <code>share-limit</code>), and at most 30 requests an hour per profile that create or reopen a share (429 <code>locked</code>). Each record created or reopened is recorded in the activity log as <code>share.create</code>, with the share id and both profiles.</p>
+<p>Your answers never depend on what a recipient did with a share. Asking again for a recipient who already has a share of this routine returns it as it is, with the same id and <code>created</code>, whether they accepted, declined, removed it or never looked; a declined or removed share is not offered to them again. To offer it again, revoke it (<code>DELETE /api/shares/{id}</code>) and share again, which makes a new share with a new id. A request that creates nothing spends no budget, so it is safe to retry.</p>
+<p>Limits: at most 50 shares per profile, counting every share you have not revoked whatever its state, so only a revoke frees a place (409 <code>share-limit</code>); and at most 30 requests an hour per profile that create at least one new share (429 <code>locked</code>). Each record created is recorded in the activity log as <code>share.create</code>, with the share id and both profiles.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
@@ -2282,7 +2282,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <div class="prow rrow">
     <span class="r-code s4">409</span>
-    <span class="p-desc"><code>share-limit</code>: this would take you past 50 active shares.</span>
+    <span class="p-desc"><code>share-limit</code>: this would take you past 50 shares. Revoke one first.</span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">429</span>

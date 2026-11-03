@@ -2084,14 +2084,20 @@ const mediaRoutes = {
 // recipient (`to`), a routine id in the sharer's own document and a state. The routine body is
 // never copied anywhere. Keyed by user id, never by name, so a rename cannot redirect a share.
 // One record per (from, to, routineId): a decline or a removal stays as a tombstone, so the
-// sharer's list of recipients never shrinks and says nothing about what a recipient did; sharing
-// again flips the tombstone back to pending. Only a revoke deletes a record.
+// sharer's list of recipients never shrinks and says nothing about what a recipient did. Only a
+// revoke deletes a record.
+//
+// Nothing the sharer can do may tell a tombstone from a live share either (NATG-489): creating
+// again for a recipient who holds a record changes nothing whatever its state, a tombstone counts
+// against the cap like any other record, and only a new record spends the hourly budget. To offer
+// a declined routine again, the sharer revokes and shares again, which makes a new id. The cost
+// is that a recipient who declined by mistake needs the sharer to do that.
 //
 // The whole feature is off until an admin switches it on (`settings.routineSharing`), and in v1
 // nothing switches it off: the recipient list shows every enabled account to every signed-in
 // user, and that is a decision for the admin to make once (ADR-001).
-const MAX_SHARES_PER_PROFILE = 50;     // outgoing records that are not tombstones
-const SHARE_CREATIONS_PER_HOUR = 30;   // POST /api/shares calls that create or reopen a record
+const MAX_SHARES_PER_PROFILE = 50;     // outgoing records in any state: only a revoke frees one
+const SHARE_CREATIONS_PER_HOUR = 30;   // POST /api/shares calls that create at least one record
 const MAX_SHARE_RECIPIENTS = 20;       // per request
 const MAX_ROUTINE_ID = 64;
 const SHARE_ID_RE = /^[0-9a-f]{16}$/;
@@ -2178,8 +2184,9 @@ const shareRoutes = {
   },
 
   // All or nothing: every recipient is checked before any record is written, and nothing below
-  // the last check awaits, so no other request can slip in between. Asking again for a share that
-  // is pending or accepted returns it as it is and spends no budget, so a retry is safe.
+  // the last check awaits, so no other request can slip in between. Asking again for a recipient
+  // who already holds a record returns it as it is, in whatever state, and spends no budget: a
+  // retry is safe, and the answer is the same whether they accepted, declined or never looked.
   'POST /api/shares': async (req, res) => {
     const user = readSession(req);
     if (!user) return notSignedIn(res);
@@ -2209,13 +2216,13 @@ const shareRoutes = {
     if (to.includes(user.id)) return json(res, 400, { error: 'you cannot share a routine with yourself', code: 'self' });
     const recipients = to.map(id => db.users.find(u => u.id === id && !u.disabled));
     if (recipients.some(u => !u)) return json(res, 404, { error: 'no such user on this server', code: 'user-missing' });
-    // What this request would change: a new record, or a tombstone reopened.
+    // The recipients who hold no record for this routine yet. Nothing here reads a state.
     const plan = recipients.map(r => ({ r, s: db.shares.find(s => s.from === user.id && s.to === r.id && s.routineId === routineId) }));
-    const changes = plan.filter(p => !p.s || isTombstone(p.s)).length;
-    if (changes) {
-      const active = db.shares.filter(s => s.from === user.id && !isTombstone(s)).length;
-      if (active + changes > MAX_SHARES_PER_PROFILE) {
-        return json(res, 409, { error: `a profile can have at most ${MAX_SHARES_PER_PROFILE} active shares`, code: 'share-limit' });
+    const fresh = plan.filter(p => !p.s).length;
+    if (fresh) {
+      const held = db.shares.filter(s => s.from === user.id).length;
+      if (held + fresh > MAX_SHARES_PER_PROFILE) {
+        return json(res, 409, { error: `a profile can have at most ${MAX_SHARES_PER_PROFILE} shares: unshare one first`, code: 'share-limit' });
       }
       const wait = SHARE_BURST.take(user.id);
       if (wait) return tooMany(res, wait);
@@ -2226,9 +2233,6 @@ const shareRoutes = {
       if (!s) {
         s = { id: newShareId(), from: user.id, to: r.id, routineId, state: 'pending', created: now };
         db.shares.push(s);
-        written.push(s);
-      } else if (isTombstone(s)) {
-        s.state = 'pending'; s.created = now; delete s.acceptedAt;
         written.push(s);
       }
       return outgoingItem(s);

@@ -72,6 +72,15 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState() 
   h.post = (route, uid, body) => h.call('POST', route, uid, body);
   h.del = (route, uid) => h.call('DELETE', route, uid);
   h.share = (uid, routineId, to) => h.post('/api/shares', uid, { routineId, to });
+  // The status and the body exactly as sent, for "the sharer sees the same bytes" (NATG-489).
+  h.raw = async (method, route, uid, body) => {
+    const r = await fetch(`${h.api}${route}`, { method, headers: as(uid), ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    return `${r.status} ${await r.text()}`;
+  };
+  h.sharerView = async (uid, routineId, to) => ({
+    post: await h.raw('POST', '/api/shares', uid, { routineId, to }),
+    get: await h.raw('GET', '/api/shares', uid)
+  });
   h.db = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
   h.audit = () => {
     try { return fs.readFileSync(path.join(dataDir, 'audit.log'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); }
@@ -225,15 +234,49 @@ test('AC3: each recipient answers their own record, and the sharer cannot tell a
   assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
 });
 
-test('AC3: sharing again with someone who declined reopens the same record as pending', async t => {
+test('AC3: sharing again changes nothing whatever the recipient did; to offer it again the sharer revokes and shares', async t => {
   const h = await startServer(t);
   const [first] = (await h.share(ALEX, 'r1', [SAM])).body.shares;
   await h.post(`/api/shares/${first.id}/decline`, SAM);
+  const before = h.db().shares;
   const again = await h.share(ALEX, 'r1', [SAM]);
   assert.equal(again.status, 200);
-  assert.equal(again.body.shares[0].id, first.id);
-  assert.deepEqual(h.db().shares.map(s => s.state), ['pending']);
-  assert.equal((await h.get('/api/shares', SAM)).body.incoming[0].state, 'pending');
+  assert.deepEqual(again.body.shares, [first], 'same id, same created');
+  assert.deepEqual(h.db().shares, before, 'no reopen: the declined record is left as it is');
+  assert.deepEqual((await h.get('/api/shares', SAM)).body.incoming, [], 'the recipient is not asked again');
+  assert.equal(h.audit().filter(a => a.ev === 'share.create').length, 1);
+
+  // Revoke and share again: a new record with a new id, pending for the recipient.
+  await h.del(`/api/shares/${first.id}`, ALEX);
+  const fresh = await h.share(ALEX, 'r1', [SAM]);
+  assert.equal(fresh.status, 200);
+  assert.notEqual(fresh.body.shares[0].id, first.id);
+  assert.deepEqual((await h.get('/api/shares', SAM)).body.incoming.map(i => [i.id, i.state]), [[fresh.body.shares[0].id, 'pending']]);
+});
+
+// NATG-489: the Tester's repro. Two recipients; one declines, the other removes after accepting.
+// The sharer repeats the identical create and reads the list, and gets the same bytes as when
+// both were still pending.
+test('AC3: an identical re-share after a decline or a removal answers the sharer byte for byte as when pending', async t => {
+  const h = await startServer(t);
+  const created = (await h.share(ALEX, 'r1', [SAM, KIM])).body.shares;
+  const idFor = uid => created.find(s => s.to.id === uid).id;
+  const one = uid => h.raw('POST', '/api/shares', ALEX, { routineId: 'r1', to: [uid] });
+  const pending = await h.sharerView(ALEX, 'r1', [SAM, KIM]);
+  const pendingOne = { [SAM]: await one(SAM), [KIM]: await one(KIM) };
+  assert.match(pending.post, /^200 /);
+
+  await h.post(`/api/shares/${idFor(SAM)}/decline`, SAM);
+  await h.post(`/api/shares/${idFor(KIM)}/accept`, KIM);
+  await h.del(`/api/shares/${idFor(KIM)}`, KIM);
+  assert.deepEqual(h.db().shares.map(s => s.state), ['declined', 'removed']);
+
+  const answered = await h.sharerView(ALEX, 'r1', [SAM, KIM]);
+  assert.equal(answered.post, pending.post);
+  assert.equal(answered.get, pending.get);
+  // One recipient at a time too, which is the narrower form of the repro.
+  for (const uid of [SAM, KIM]) assert.equal(await one(uid), pendingOne[uid], uid);
+  assert.deepEqual(h.db().shares.map(s => s.state), ['declined', 'removed'], 'still not reopened');
 });
 
 test('AC3: the request shape is checked before anything else', async t => {
@@ -359,18 +402,34 @@ test('AC6: deleting an account, through the admin delete or its own, removes its
 
 /* ---------- AC7: caps, window, audit ---------- */
 
-test('AC7: at most 50 active outgoing shares per profile; tombstones do not count', async t => {
+test('AC7: at most 50 outgoing shares per profile, declined and removed ones included; only a revoke frees one', async t => {
   const created = new Date().toISOString();
-  const row = (i, state) => ({ id: i.toString(16).padStart(16, '0'), from: ALEX, to: SAM, routineId: `old${i}`, state, created });
-  const full = Array.from({ length: 50 }, (_, i) => row(i + 1, i % 2 ? 'pending' : 'accepted'));
-  const h = await startServer(t, { shares: [...full, row(99, 'declined'), row(100, 'removed')] });
+  const row = (i, state, to = SAM) => ({ id: i.toString(16).padStart(16, '0'), from: ALEX, to, routineId: `old${i}`, state, created });
+  const full = Array.from({ length: 50 }, (_, i) => row(i + 1, ['pending', 'accepted', 'declined', 'removed'][i % 4]));
+  const h = await startServer(t, { shares: full });
   const r = await h.share(ALEX, 'r1', [KIM]);
   assert.equal(r.status, 409);
   assert.equal(r.body.code, 'share-limit');
-  assert.equal(h.db().shares.length, 52);
+  assert.equal(h.db().shares.length, 50);
   // One revoke makes room.
-  await h.del(`/api/shares/${full[0].id}`, ALEX);
+  await h.del(`/api/shares/${full[2].id}`, ALEX);
   assert.equal((await h.share(ALEX, 'r1', [KIM])).status, 200);
+});
+
+// NATG-489: at the cap, a recipient's decline must not free a place the sharer could probe for.
+test('AC7: at the cap, a decline changes none of the sharer\'s answers', async t => {
+  const created = new Date().toISOString();
+  const old = Array.from({ length: 49 }, (_, i) => ({ id: (i + 1).toString(16).padStart(16, '0'), from: ALEX, to: SAM, routineId: `old${i}`, state: 'pending', created }));
+  const h = await startServer(t, { shares: old });
+  const [mine] = (await h.share(ALEX, 'r1', [SAM])).body.shares;   // the 50th
+  const pending = { over: await h.sharerView(ALEX, 'r1', [KIM]), retry: await h.sharerView(ALEX, 'r1', [SAM]) };
+  assert.match(pending.over.post, /^409 .*share-limit/);
+  assert.match(pending.retry.post, /^200 /);
+
+  assert.equal((await h.post(`/api/shares/${mine.id}/decline`, SAM)).status, 200);
+  const declined = { over: await h.sharerView(ALEX, 'r1', [KIM]), retry: await h.sharerView(ALEX, 'r1', [SAM]) };
+  assert.deepEqual(declined, pending);
+  assert.equal(h.db().shares.length, 50);
 });
 
 test('AC7: 30 creating requests an hour per profile; a retry that creates nothing spends nothing', async t => {
@@ -386,6 +445,31 @@ test('AC7: 30 creating requests an hour per profile; a retry that creates nothin
   assert.equal(h.db().shares.length, 30);
   // Per profile: Sam's budget is their own.
   assert.equal((await h.share(SAM, 's1', [KIM])).status, 200);
+});
+
+// NATG-489: with the window spent, a retry for a recipient who has since declined is still free.
+test('AC7: with the hourly budget spent, a retry after a decline answers as it did while pending', async t => {
+  const routines = Array.from({ length: 31 }, (_, i) => ({ id: `w${i}`, name: `W${i}`, ex: [] }));
+  const h = await startServer(t, { alex: alexState({ routines }) });
+  let first;
+  for (let i = 0; i < 30; i++) {
+    const r = await h.share(ALEX, `w${i}`, [SAM]);
+    assert.equal(r.status, 200, `call ${i + 1}`);
+    first ??= r.body.shares[0];
+  }
+  const over = () => h.share(ALEX, 'w30', [SAM]);
+  assert.equal((await over()).status, 429, 'the budget is spent');
+  const pending = await h.sharerView(ALEX, 'w0', [SAM]);
+  assert.match(pending.post, /^200 /);
+
+  await h.post(`/api/shares/${first.id}/decline`, SAM);
+  assert.deepEqual(await h.sharerView(ALEX, 'w0', [SAM]), pending);
+  // A request that would create a record is still refused, as before the decline. Its
+  // retryAfter counts down, so the status and code are what is compared.
+  const after = await over();
+  assert.equal(after.status, 429);
+  assert.equal(after.body.code, 'locked');
+  assert.equal(h.db().shares.length, 30);
 });
 
 test('AC7: every create, accept, decline, revoke and remove writes an audit line with the share id and both user ids', async t => {

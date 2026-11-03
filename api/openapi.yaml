@@ -2823,14 +2823,18 @@ paths:
         shared with you cannot be passed on. A routine with a custom exercise cannot be
         shared.
 
-        Asking again for a share that is pending or accepted returns it as it is; one that
-        was declined or removed goes back to pending with the same id. A request that
-        changes nothing spends no budget, so it is safe to retry.
+        Your answers never depend on what a recipient did with a share. Asking again for a
+        recipient who already has a share of this routine returns it as it is, with the same
+        id and `created`, whether they accepted, declined, removed it or never looked; a
+        declined or removed share is not offered to them again. To offer it again, revoke it
+        (`DELETE /api/shares/{id}`) and share again, which makes a new share with a new id. A
+        request that creates nothing spends no budget, so it is safe to retry.
 
-        Limits: at most 50 shares per profile that are pending or accepted (409
-        `share-limit`), and at most 30 requests an hour per profile that create or reopen a
-        share (429 `locked`). Each record created or reopened is recorded in the activity
-        log as `share.create`, with the share id and both profiles.
+        Limits: at most 50 shares per profile, counting every share you have not revoked
+        whatever its state, so only a revoke frees a place (409 `share-limit`); and at most
+        30 requests an hour per profile that create at least one new share (429 `locked`).
+        Each record created is recorded in the activity log as `share.create`, with the
+        share id and both profiles.
       requestBody:
         required: true
         content:
@@ -2880,7 +2884,7 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: "no such user on this server", code: "user-missing" }
         '409':
-          description: '`share-limit`: this would take you past 50 active shares.'
+          description: '`share-limit`: this would take you past 50 shares. Revoke one first.'
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
