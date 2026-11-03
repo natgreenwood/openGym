@@ -8,7 +8,7 @@ import { auditCat, auditLine, fmtWhen } from '../lib/audit.js'
 import { workoutVolume, setsDone } from '../lib/history.js'
 import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
-import { Button } from '../components/ui.jsx'
+import { Button, Switch } from '../components/ui.jsx'
 import AdminCoach from './AdminCoach.jsx'
 import '../admin.css'
 
@@ -248,6 +248,54 @@ function InvitesCard({ invites, reload, inviteOnly }) {
   </div>
 }
 
+// Routine sharing (NATG-483): off until an admin turns it on, and in this version it cannot be
+// turned off again (the server has no route for that). So the switch asks first, and once on it is
+// replaced by a plain "On" with a lock, not a disabled switch, which would read as "can be changed
+// later". The state is GET /api/config's `shares` flag, the same one every share action reads.
+function SharingCard() {
+  const toast = useUI(s => s.toast)
+  const [state, setState] = useState('loading')   // loading | off | on | error
+  const [busy, setBusy] = useState(false)
+  const check = () => {
+    setState('loading')
+    return Promise.resolve(useStore.getState().refreshConfig?.())
+      .then(c => setState(!c ? 'error' : c.shares === true ? 'on' : 'off'))
+      .catch(() => setState('error'))
+  }
+  useEffect(() => { check() }, [])
+  const enable = () => confirmSheet({
+    title: 'Turn on routine sharing?',
+    message: 'Everyone on this server will be able to share routines and see each other’s display names. You can’t turn this off again in this version.',
+    confirmText: 'Turn on',
+    onConfirm: () => {
+      setBusy(true)
+      api('/api/admin/sharing/enable', { method: 'POST', body: '{}' })
+        .then(() => { setState('on'); toast('Routine sharing is on'); useStore.getState().refreshConfig?.() })
+        .catch(e => toast('Could not turn on routine sharing: ' + (e.message || 'no answer from the server') + '. Try again.'))
+        .finally(() => setBusy(false))
+    }
+  })
+  const on = state === 'on'
+  return <div className="card">
+    <h2 style={{ margin: 0 }}>Routine sharing</h2>
+    <div className="adm-status" role="status">
+      {state === 'loading' ? 'Checking…'
+        : state === 'error' ? <>Could not check whether sharing is on. <Button size="sm" icon="reset" onClick={check}>Try again</Button></>
+          : <><span className={'adm-pill' + (on ? ' acc' : '')}>{on ? 'On' : 'Off'}</span><span className="adm-status-t">{on ? 'People can share routines with each other.' : 'Nobody can share routines yet.'}</span></>}
+    </div>
+    <div className="adm-lead">Lets people share a routine with other users on this server, from the routine’s page. To pick who to share with, everyone sees the display names of everyone else on the server.</div>
+    <div className="adm-toggle">
+      <div className="adm-toggle-t">
+        <b id="adm-share-t">Allow Users to Share Routines</b>
+        <span>{on ? 'Can’t be turned off in this version.' : 'Once on, it stays on in this version.'}</span>
+      </div>
+      {on
+        ? <span className="adm-locked">On<Icon name="lock" /></span>
+        : <Switch checked={false} disabled={state !== 'off' || busy} onChange={enable} aria-labelledby="adm-share-t" />}
+    </div>
+  </div>
+}
+
 // Who signed in, who tried and failed, what an admin changed. A card rather than its own route:
 // the dashboard is deliberately one page of cards, and the 95 % use of this is a glance at the
 // last twenty events. Paging follows Library.jsx's house style — "Show more", not page numbers.
@@ -390,6 +438,8 @@ export default function Admin() {
     <div ref={coachRef} className="adm-coach-anchor"><AdminCoach /></div>
 
     <InvitesCard invites={invites} reload={loadInvites} inviteOnly={inviteOnly} />
+
+    <SharingCard />
 
     <div className="card">
       <h2 style={{ margin: 0 }}>Users</h2>
