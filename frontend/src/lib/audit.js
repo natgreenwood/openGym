@@ -72,6 +72,14 @@ const LABELS = {
   // FIRST_USER_ADMIN=1: the first profile on a fresh instance is made admin as it signs up.
   'admin.first-user': 'Became admin as the first profile',
   'admin.denied': 'Blocked from an admin action',
+  // Routine sharing (NATG-483): the admin option, which only ever switches on in v1, and each step
+  // of a share. `msg` is the share's id and the target the other side of it.
+  'admin.sharing.enable': 'Turned on routine sharing',
+  'share.create': 'Shared a routine',
+  'share.accept': 'Accepted a shared routine',
+  'share.decline': 'Turned down a shared routine',
+  'share.revoke': 'Stopped sharing a routine',
+  'share.remove': 'Removed a shared routine',
   // Photos and videos of custom exercises: "Reset everything" clearing a profile's files, and the
   // upload or clean-up throttle pausing a profile (`msg` says which).
   'media.sweep': 'Cleared unused photos and videos',
@@ -139,7 +147,8 @@ export function auditLine(e) {
   if (e.tname) parts.push('→ ' + e.tname)
   if (e.act) parts.push(auditAct(e.act))
   // The reason codes and the invite codes share the msg field; only failures read as a reason.
-  if (e.msg) parts.push(e.ok ? e.msg : auditReason(e.msg))
+  // A share event's msg is the share's id, said as one so it does not read as a code.
+  if (e.msg) parts.push(!e.ok ? auditReason(e.msg) : auditCat(e.ev) === 'share' ? 'share ' + e.msg : e.msg)
   if (e.ip) parts.push(e.ip)
   return { title: auditLabel(e.ev), sub: parts.join(' · ') }
 }
