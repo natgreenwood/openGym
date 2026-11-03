@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { finishCompare, trendOf } from './finish-compare.js'
+import { sharedView } from './shared-routines.js'
 
 const set = (w, r, extra = {}) => ({ w, r, done: true, ...extra })
 const routine = { id: 'r1', name: 'A', prog: 'linear', ex: [{ id: 'bench', sets: 3, reps: 5, weight: 60, mode: 'reps' }] }
@@ -29,5 +30,24 @@ describe('last time and next time on the finish summary (#324)', () => {
     expect(row.last).toBeNull()
     expect(row.trend).toBeNull()
     expect(row.next).toBeNull()
+  })
+})
+
+// NATG-486: an exercise from a routine shared with you gets its "next time" like one of your own.
+describe('the finish summary for a routine shared with you', () => {
+  const shared = sharedView({ uid: 'u2', outgoing: [], etag: 'e', incoming: [{
+    id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h',
+    routine: { id: 'r9', name: 'Leg Day', prog: 'linear', ex: [{ id: '0025', sets: 3, reps: 5, weight: 60, mode: 'reps' }] },
+  }] }, { id: 'u2' }, 'kg')
+  const now = { id: 'w1', d: '2026-10-03', start: Date.parse('2026-10-03T10:00:00'), end: Date.parse('2026-10-03T11:00:00'),
+    entries: [{ id: '0025', rid: 'shared:s1', target: { sets: 3, reps: 5, weight: 60, mode: 'reps' }, sets: [set(60, 5), set(60, 5), set(60, 5)] }] }
+  const st = { unit: 'kg', routines: [], workouts: [now], exWeights: {} }
+  it('resolves the shared rid and says what the next session opens at', () => {
+    const [row] = finishCompare(st, now, shared)
+    expect(row.next).toBeTruthy()
+    expect(row.next.w).toBeGreaterThanOrEqual(60)
+  })
+  it('without the shared routines it has no next, as before', () => {
+    expect(finishCompare(st, now)[0].next).toBeNull()
   })
 })

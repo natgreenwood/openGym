@@ -3663,7 +3663,7 @@ export function setsLine(sets, unit) {
 }
 const TREND = { 1: ['arrowUp', 'var(--green)'], 0: ['minus', 'var(--text-2)'], [-1]: ['arrowDown', 'var(--orange)'] }
 function LastAndNext({ st, w }) {
-  const rows = finishCompare(st, w)
+  const rows = finishCompare(st, w, sharedNow())
   if (!rows.length) return null
   const nextWord = { up: t('step up'), hold: t('same again'), down: t('lighter'), deload: t('deload') }
   return <div style={{ textAlign: 'start', marginBottom: 14 }}>

@@ -22,6 +22,8 @@ const ARR = ['pyramid', 'pyramidRest', 'pyramidWeight']
 const OBJ = ['warmupSets', 'intensifier']
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = v => (typeof v === 'string' ? v : '')
+/** A share's value as text: a string as it is, anything else empty. Never String() a share value. */
+export const shareText = text
 
 function typedSlot(e) {
   if (!isObj(e) || typeof e.id !== 'string' || !e.id) return null
@@ -55,7 +57,9 @@ const projected = new Map()
 export function sharedRoutineOf(item, toUnit = 'kg') {
   if (!isObj(item) || item.state !== 'accepted' || item.unavailable || !isObj(item.routine) || typeof item.id !== 'string' || !item.id) return null
   const to = toUnit === 'lb' ? 'lb' : 'kg'
-  const key = item.id + '|' + (item.hash || '') + '|' + to
+  // The sharer's name is not in the hash (it isn't the routine's content): a rename of their
+  // account must still reach "From …".
+  const key = JSON.stringify([item.id, item.hash || '', to, text(item.from?.name)])
   if (projected.has(key)) return projected.get(key)
   const r = item.routine
   const typed = {

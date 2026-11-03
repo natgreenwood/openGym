@@ -86,6 +86,10 @@ describe('sharedRoutineOf: the routine as this device trains it', () => {
     const r = sharedRoutineOf(accepted('s4', { ...LEG, ex: [{ id: 'nope-123', sets: 3 }, { id: 'cx-mine', sets: 3 }, { id: '0025', sets: 3 }] }), 'kg')
     expect(r.ex.map(e => e.id)).toEqual(['0025'])
   })
+  it('follows a rename of the sharer’s account, which doesn’t move the routine’s hash', () => {
+    expect(sharedRoutineOf(accepted('s8', LEG), 'kg').shared.from.name).toBe('Sam Keller')
+    expect(sharedRoutineOf(accepted('s8', LEG, { from: { id: 'u1', name: 'Sam K.' } }), 'kg').shared.from.name).toBe('Sam K.')
+  })
   it('is null for anything that is not an accepted, usable share', () => {
     expect(sharedRoutineOf({ id: 's5', state: 'pending', preview: { name: 'Leg Day', exercises: 2 } })).toBeNull()
     expect(sharedRoutineOf({ id: 's6', state: 'accepted', unavailable: 'custom-exercise' })).toBeNull()

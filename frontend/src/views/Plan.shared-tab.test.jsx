@@ -130,6 +130,15 @@ describe('waiting shares (AC2)', () => {
     expect(host.querySelector('[aria-label="Accept Mobility Flow from Alex Morgan"]').disabled).toBe(false)
     expect(host.textContent).toContain('It has a custom exercise right now, so it can’t be trained until Alex swaps it out.')
   })
+  it('renders no share value it hasn’t type-checked (SEC-01)', () => {
+    mocks.shares = { ...mocks.shares, incoming: [pending('s5', { from: { id: 'u3', name: { toString: 1 } }, preview: { name: 42, exercises: '8' } })] }
+    render()
+    const card = host.querySelector('.shared-pending')
+    expect(card.querySelector('.tt').textContent).toBe('Shared routine')
+    expect(card.querySelector('.ss')).toBeNull()
+    expect(card.querySelector('[aria-label="Accept Shared routine"]')).toBeTruthy()
+    expect(host.textContent).not.toContain('[object Object]')
+  })
   it('is never offered as a routine: not in the accepted list, not on a day', () => {
     mocks.shares = { ...mocks.shares, incoming: [pending('s2')] }
     render()

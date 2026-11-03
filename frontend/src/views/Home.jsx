@@ -185,7 +185,8 @@ export default function Home() {
       </div>
     )}
 
-    {!S.routines.length && !S.active && (
+    {/* A plan made only of routines shared with you is a plan: no welcome card (NATG-486). */}
+    {!S.routines.length && !shared.routines.length && !S.active && (
       <div className="card">
         <div className="row" style={{ gap: 10, marginBottom: 6 }}>
           <span className="lrow-i"><Icon name="calendar" /></span>

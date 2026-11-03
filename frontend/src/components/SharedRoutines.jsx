@@ -14,12 +14,18 @@ import { tappable } from '../lib/use-sheet-keyboard.js'
 import { sharingAvailable } from '../lib/shares.js'
 import { sharedPointer } from '../lib/routine-lookup.js'
 import { useSharedRoutines } from '../lib/use-shared-routines.js'
+import { shareNameOf, shareText } from '../lib/shared-routines.js'
 import { confirmSheet } from '../sheets.jsx'
 import Icon from './Icon.jsx'
 import { Button } from './ui.jsx'
 import MiniBodyMap from './MiniBodyMap.jsx'
 
-const firstName = name => String(name || '').trim().split(/\s+/)[0] || String(name || '')
+const firstName = name => shareText(name).trim().split(/\s+/)[0] || shareText(name)
+// What a pending card shows, type-checked as sharedRoutineOf does for a routine (SEC-01): the
+// server checks these too, and the client renders no share value unchecked all the same.
+const pendingName = item => shareNameOf(item) || t('Shared routine')
+const senderOf = item => shareText(item?.from?.name)
+const countOf = item => (Number.isInteger(item?.preview?.exercises) && item.preview.exercises >= 0 ? item.preview.exercises : null)
 
 /** Whether Plan shows the Shared tab: sharing is on for you, or this device holds shares already. */
 export function useSharedTab() {
@@ -89,7 +95,7 @@ export default function SharedRoutines({ S }) {
   const offline = !online || !!offlineSync
 
   const answer = async (item, accepting) => {
-    const name = item.preview?.name || t('Shared routine')
+    const name = pendingName(item)
     setBusy(item.id)
     try {
       if (accepting) { await useStore.getState().acceptShare(item.id); setFocusId(sharedPointer(item.id)) }
@@ -100,10 +106,10 @@ export default function SharedRoutines({ S }) {
     } finally { setBusy(null) }
   }
   const decline = item => {
-    const name = item.preview?.name || t('Shared routine')
+    const name = pendingName(item)
     confirmSheet({
       title: t('Decline {0}?', name),
-      message: t('It won’t be added to your plan. {0} isn’t told, and can share it with you again later.', firstName(item.from?.name)),
+      message: t('It won’t be added to your plan. {0} isn’t told, and can share it with you again later.', firstName(senderOf(item))),
       confirmText: t('Decline'), danger: true,
       onConfirm: () => answer(item, false),
     })
@@ -144,12 +150,12 @@ export default function SharedRoutines({ S }) {
     {shared.pending.length > 0 && <>
       <h4 className="sec" id="shared-waiting">{t('Waiting for you')}</h4>
       <div role="list" aria-labelledby="shared-waiting">{shared.pending.map(item => {
-        const name = item.preview?.name || t('Shared routine')
-        const from = item.from?.name || ''
+        const name = pendingName(item)
+        const from = senderOf(item)
         // A pending share that can't be read has no preview: accepting it would be accepting
         // something you can't see, so only Decline is offered (NATG-487).
         const blind = !item.preview
-        const sub = [from ? t('From {0}', from) : '', item.preview ? exCount(item.preview.exercises) : ''].filter(Boolean).join(' · ')
+        const sub = [from ? t('From {0}', from) : '', countOf(item) != null ? exCount(countOf(item)) : ''].filter(Boolean).join(' · ')
         const reason = item.unavailable === 'custom-exercise'
           ? t('It has a custom exercise right now, so it can’t be trained until {0} swaps it out.', firstName(from))
           : blind ? t('It can’t be read right now, so it can’t be accepted yet. You can still decline it.') : ''
