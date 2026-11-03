@@ -164,6 +164,18 @@ describe('routines shared with you', () => {
     expect(row.querySelector('.ss').textContent).toBe('Not available · it’s too large to open')
     expect(mocks.S.week[1]).toEqual(['shared:s1'])
   })
+  it('one holding a value of the wrong type (SEC-486-03) is not available, and the share beside it still opens', () => {
+    const bad = { ...LEG, name: 'Arm Day', ex: [{ id: '0025', sets: 3, reps: 5, warmupSets: { toString: 1 } }] }
+    mocks.S = { ...mocks.S, week: { 1: ['shared:s1'], 3: ['shared:s4'] } }
+    mocks.shares = { ...mocks.shares, incoming: [accepted('s1'), accepted('s4', bad, { hash: 'h-bad' })] }
+    render()
+    const good = host.querySelector('[data-shared-row="shared:s1"]')
+    expect(good.querySelector('.tt').textContent).toBe('Leg Day')
+    expect(good.textContent).not.toContain('Not available')
+    const row = host.querySelector('[data-shared-row="shared:s4"]')
+    expect(row.querySelector('.ss').textContent).toBe('Not available · it can’t be read right now')
+    expect(mocks.S.week[3]).toEqual(['shared:s4'])
+  })
   it('one not available right now says why, under its last known name (AC9)', () => {
     mocks.shares = { ...mocks.shares, incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable: 'custom-exercise' }], names: { s1: 'Leg Day' } }
     render()

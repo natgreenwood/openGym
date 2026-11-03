@@ -69,17 +69,26 @@ describe('sharedRoutineOf: the routine as this device trains it', () => {
     // Already in the right unit: nothing moves.
     expect(sharedRoutineOf(accepted('s2', LEG, { unit: 'lb' }), 'lb').ex[0].weight).toBe(100)
   })
-  it('keeps only values of the type the app reads them as (SEC-01)', () => {
-    const odd = { ...LEG, name: { toString: 1 }, emoji: 7, prog: 'nonsense', ex: [{ id: '0025', reps: 5, weight: 100, note: { evil: true }, side: 'yes' }, { id: 12 }, null] }
-    const r = sharedRoutineOf(accepted('s3', odd), 'kg')
-    expect(r.name).toBe('')
-    expect(r.emoji).toBeUndefined()
+  it('keeps a known progression rule only, and an exercise’s fields as they came (SEC-01)', () => {
+    const r = sharedRoutineOf(accepted('s3', { ...LEG, prog: 'nonsense', ex: [{ id: '0025', reps: 5, weight: 100, note: 'slow down', side: true }] }), 'kg')
     expect(r.prog).toBeUndefined()
     expect(r.ex).toHaveLength(1)
     expect(r.ex[0].sets).toBeUndefined()
-    expect(r.ex[0].note).toBeUndefined()
-    expect(r.ex[0].side).toBeUndefined()
+    expect(r.ex[0].note).toBe('slow down')
     expect(r.ex[0].reps).toBe(5)
+  })
+  it('gives no routine for a share holding a value of another type than the app reads (SEC-486-03)', () => {
+    // Before SEC-486-03 these were left out one by one and the rest trained; now a share that
+    // holds one is not available, so no code ever reads a value of the wrong type from a share.
+    const odd = [
+      { ...LEG, name: { toString: 1 } },
+      { ...LEG, emoji: 7 },
+      { ...LEG, ex: [{ id: '0025', reps: 5, weight: 100, note: { evil: true } }] },
+      { ...LEG, ex: [{ id: '0025', reps: 5, weight: 100, side: 'yes' }] },
+      { ...LEG, ex: [{ id: '0025', sets: 3 }, { id: 12 }] },
+      { ...LEG, ex: [{ id: '0025', sets: 3 }, null] },
+    ]
+    odd.forEach((r, i) => expect(sharedRoutineOf(accepted('odd' + i, r), 'kg')).toBeNull())
   })
   it('leaves out an exercise this device doesn’t know, and any of the recipient’s own custom ones', () => {
     registerCustom([{ id: 'cx-mine', n: 'My own move', custom: true, bp: 'back', tg: 'lats', eq: 'cable', sm: [], st: [] }])

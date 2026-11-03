@@ -8,7 +8,7 @@ import { parsePlan } from './plan-share.js'
 import { EXIDX, isCustomEx } from './exercises.js'
 import { POLICIES, MAX_TRIPLE_SETS } from './progression.js'
 import { MAX_PYRAMID_SETS } from './pyramid.js'
-import { MAX_PLANNED_WARMUPS, routineRows } from './history.js'
+import { routineRows } from './history.js'
 import { MAX_WORK_SETS, MAX_BURST_REPS, MAX_DROPS, MAX_ROUTINE_ROWS, boundedCount } from './limits.js'
 import { DEMO } from './demo.js'
 import { isSharedId, sharedPointer, shareIdOf } from './routine-lookup.js'
@@ -16,45 +16,95 @@ import { sharesOf } from './shares.js'
 
 // The server sends a shared routine's fields as the sharer stored them (api/shared-routine.js),
 // checking type only where it turns a value into text. Everything else is the sharer's word, so
-// each field is checked here for the type the app reads it as, and a value of another type is
-// left out rather than rendered or computed with (SEC-01: never String() a value from a share).
+// each field is checked here for the type the app reads it as (slotWellTyped), and a share holding
+// a value of another type is not available: nothing renders or computes with it (SEC-01: never
+// String() a value from a share; SEC-486-03: never Number() one either).
 const NUM = ['sets', 'min', 'speed', 'incline', 'sec', 'weight', 'reps', 'inc', 'deloadFactor', 'repsMin', 'setsMax', 'repsMax', 'restSec', 'warmupRestSec', 'sideRestSec', 'sgRest']
 const BOOL = ['bodyweight', 'side', 'backoff', 'lastToFailure', 'restOff', 'warmupRestOff', 'sideRestOff']
 const STR = ['id', 'mode', 'dbLoad', 'sg', 'sgName', 'note']
 const ARR = ['pyramid', 'pyramidRest', 'pyramidWeight']
-const OBJ = ['warmupSets', 'intensifier']
 const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v)
 const text = v => (typeof v === 'string' ? v : '')
 /** A share's value as text: a string as it is, anything else empty. Never String() a share value. */
 export const shareText = text
 
+const isNum = v => typeof v === 'number' && Number.isFinite(v)
+// Absent, as the plan export leaves it, or null, as JSON keeps a cleared field: either is "not
+// set", and no reader goes past `?.` or `!= null` with it.
+const unset = v => v === undefined || v === null
+const INTENSIFIER_NUM = ['count', 'pct', 'totalReps', 'restSec']
+// A pyramid step is a rep count or 'Max'; its rest and weight lists are numbers.
+const stepOk = x => isNum(x) || typeof x === 'string'
+
 /**
- * Whether a shared routine's counts are ones this app can build rows from (SEC-486-01): every
- * count that drives a loop is a whole number within lib/limits.js, and the rows the whole routine
- * would start a session with stay within MAX_ROUTINE_ROWS. Judged on the routine as it came,
- * before anything is copied or built from it, so a sharer's "100,000,000 sets" costs nothing. A
- * routine outside them is not available, like one with a custom exercise: shown with the reason,
- * never started, its days kept.
+ * Whether every field a shared slot can carry (the server's allowlist, api/shared-routine.js
+ * SLOT_FIELDS) is the primitive the app reads it as (SEC-486-03). This is the one boundary for
+ * share data: nothing reads a slot's counts, warm-ups, intensifier or progression fields before
+ * it has passed, so no `Number()` or `.length` ever runs on an object, an array or text a sharer
+ * put where a number goes. A list longer than its limit is not walked here; judgeRoutine rejects
+ * it on its length.
  */
-export function withinLimits(r) {
-  const ex = Array.isArray(r?.ex) ? r.ex : []
-  if (ex.length > MAX_ROUTINE_ROWS) return false
+function slotWellTyped(e) {
+  if (!isObj(e) || typeof e.id !== 'string' || !e.id) return false
+  for (const k of NUM) if (!unset(e[k]) && !isNum(e[k])) return false
+  if (!unset(e.warmupSets) && !isNum(e.warmupSets)) return false
+  for (const k of BOOL) if (!unset(e[k]) && typeof e[k] !== 'boolean') return false
+  for (const k of STR) if (!unset(e[k]) && typeof e[k] !== 'string') return false
+  if (!unset(e.prog) && typeof e.prog !== 'string') return false
+  for (const k of ARR) {
+    const v = e[k]
+    if (unset(v)) continue
+    if (!Array.isArray(v)) return false
+    if (v.length <= MAX_PYRAMID_SETS && !v.every(stepOk)) return false
+  }
+  const x = e.intensifier
+  if (!unset(x)) {
+    if (!isObj(x) || (!unset(x.type) && typeof x.type !== 'string')) return false
+    for (const k of INTENSIFIER_NUM) if (!unset(x[k]) && !isNum(x[k])) return false
+  }
+  return true
+}
+
+/**
+ * What a shared routine is, judged on it as it came and before anything is copied or built from
+ * it: 'ok', 'unreadable' (a field that is not the primitive the app reads it as, SEC-486-03) or
+ * 'too-large' (a count outside lib/limits.js, or more rows than MAX_ROUTINE_ROWS, SEC-486-01).
+ * The order matters: a list too long to walk is turned away on its length, then every field's
+ * type is checked, and only then are counts read, so nothing here can throw on a sharer's data.
+ */
+export function judgeRoutine(r) {
+  if (!isObj(r)) return 'unreadable'
+  if (!unset(r.ex) && !Array.isArray(r.ex)) return 'unreadable'
+  const ex = r.ex || []
+  if (ex.length > MAX_ROUTINE_ROWS) return 'too-large'
+  if (typeof r.name !== 'string' && !unset(r.name)) return 'unreadable'
+  if (!unset(r.emoji) && typeof r.emoji !== 'string') return 'unreadable'
+  if (!unset(r.prog) && typeof r.prog !== 'string') return 'unreadable'
+  if (!unset(r.excludeFromProgression) && typeof r.excludeFromProgression !== 'boolean') return 'unreadable'
+  for (const k of ARR) for (const e of ex) if (isObj(e) && Array.isArray(e[k]) && e[k].length > MAX_PYRAMID_SETS) return 'too-large'
+  if (!ex.every(slotWellTyped)) return 'unreadable'
   // Each count that drives a loop, strictly: a whole number within its limit.
   for (const e of ex) {
-    if (!isObj(e)) continue
     // 0 is "not set" (the editor's stepper starts there, and the builders read it as 1).
-    if (e.sets !== undefined && e.sets !== 0 && boundedCount(e.sets, MAX_WORK_SETS) == null) return false
-    if (e.setsMax != null && e.setsMax !== 0 && boundedCount(e.setsMax, MAX_TRIPLE_SETS) == null) return false
-    for (const k of ARR) if (Array.isArray(e[k]) && e[k].length > MAX_PYRAMID_SETS) return false
-    if (Array.isArray(e.warmupSets) && e.warmupSets.length > MAX_PLANNED_WARMUPS) return false
+    if (!unset(e.sets) && e.sets !== 0 && boundedCount(e.sets, MAX_WORK_SETS) == null) return 'too-large'
+    if (!unset(e.setsMax) && e.setsMax !== 0 && boundedCount(e.setsMax, MAX_TRIPLE_SETS) == null) return 'too-large'
     const x = e.intensifier
-    if (isObj(x) && x.type === 'dropset' && boundedCount(x.count, MAX_DROPS) == null) return false
-    if (isObj(x) && x.type === 'restpause' && boundedCount(x.totalReps, MAX_BURST_REPS) == null) return false
+    if (isObj(x) && x.type === 'dropset' && boundedCount(x.count, MAX_DROPS) == null) return 'too-large'
+    if (isObj(x) && x.type === 'restpause' && boundedCount(x.totalReps, MAX_BURST_REPS) == null) return 'too-large'
   }
   // Then the rows the builders would generate, counted the way they count them (rowPlan): per-
   // side work twice, warm-ups, drops and bursts, a triple progression's ceiling.
-  return routineRows(r) <= MAX_ROUTINE_ROWS
+  return routineRows(r) <= MAX_ROUTINE_ROWS ? 'ok' : 'too-large'
 }
+
+/**
+ * Whether a shared routine is one this app can build rows from (SEC-486-01, SEC-486-03): every
+ * field the type the app reads it as, every count that drives a loop a whole number within
+ * lib/limits.js, and the rows the whole routine would start a session with within
+ * MAX_ROUTINE_ROWS. A routine that isn't is not available, like one with a custom exercise: shown
+ * with the reason, never started, its days kept.
+ */
+export const withinLimits = r => judgeRoutine(r) === 'ok'
 
 function typedSlot(e) {
   if (!isObj(e) || typeof e.id !== 'string' || !e.id) return null
@@ -65,16 +115,70 @@ function typedSlot(e) {
   // A pyramid step is a rep count or 'Max'; its rest and weight lists are numbers. The plan
   // import's normalisers below clamp the lengths and values.
   for (const k of ARR) if (Array.isArray(e[k])) out[k] = e[k].filter(x => (typeof x === 'number' && Number.isFinite(x)) || typeof x === 'string')
-  // Warm-up sets come as a number or a list of rows, an intensifier as an object; the plan
-  // import's cleaners (cleanWarmupSets, cleanIntensifier) keep only a shape they know.
-  for (const k of OBJ) if (isObj(e[k]) || Array.isArray(e[k]) || (typeof e[k] === 'number' && Number.isFinite(e[k]))) out[k] = e[k]
+  // Warm-up sets come as a number, an intensifier as an object (slotWellTyped checked both); the
+  // plan import's cleaners (cleanWarmupSets, cleanIntensifier) keep only a shape they know.
+  if (isNum(e.warmupSets)) out.warmupSets = e.warmupSets
+  if (isObj(e.intensifier)) out.intensifier = e.intensifier
   if (typeof e.prog === 'string' && POLICIES.includes(e.prog)) out.prog = e.prog
   return out
 }
 
-// One projection per share version and unit: the hash moves only when what the share shows does
-// (api/shared-routine.js contentHash), so the same answer converts once, not on every render.
+// One answer per share version and unit: the hash moves only when what the share shows does
+// (api/shared-routine.js contentHash), so the same answer is judged and converted once, not on
+// every render.
 const projected = new Map()
+const UNREADABLE = Object.freeze({ routine: null, reason: 'unreadable' })
+
+// The routine an accepted share holds, judged and projected; may throw on data no check foresaw,
+// which is why the only caller is shareOutcome.
+function evaluateShare(item, toUnit) {
+  if (!isObj(item) || typeof item.id !== 'string' || !item.id || item.state !== 'accepted') return UNREADABLE
+  if (item.unavailable === 'custom-exercise') return { routine: null, reason: 'custom-exercise' }
+  if (item.unavailable || !isObj(item.routine)) return UNREADABLE
+  const to = toUnit === 'lb' ? 'lb' : 'kg'
+  // The sharer's name is not in the hash (it isn't the routine's content): a rename of their
+  // account must still reach "From …".
+  const key = JSON.stringify([item.id, item.hash || '', to, text(item.from?.name)])
+  if (projected.has(key)) return projected.get(key)
+  const r = item.routine
+  const verdict = judgeRoutine(r)
+  let out = UNREADABLE
+  if (verdict !== 'ok') out = { routine: null, reason: verdict }
+  else {
+    const typed = {
+      id: sharedPointer(item.id),
+      name: text(r.name),
+      ...(text(r.emoji) ? { emoji: text(r.emoji) } : {}),
+      ...(typeof r.prog === 'string' && POLICIES.includes(r.prog) ? { prog: r.prog } : {}),
+      ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
+      ex: (r.ex || []).map(typedSlot).filter(Boolean),
+    }
+    const from = item.unit === 'lb' ? 'lb' : 'kg'
+    const got = parsePlan({ opengym_plan: 1, unit: from, routines: [typed] }, to).routines[0]
+    if (got) {
+      out = { routine: {
+        ...got,
+        id: typed.id,
+        ex: got.ex.filter(e => !isCustomEx(EXIDX[e.id])),
+        shared: { id: item.id, from: { id: text(item.from?.id), name: text(item.from?.name) } },
+      }, reason: null }
+    }
+  }
+  if (projected.size > 200) projected.clear()
+  projected.set(key, out)
+  return out
+}
+
+/**
+ * Everything about one incoming share that decides whether it can be trained: `{ routine,
+ * reason }`, the routine when it is usable, else null and why not ('custom-exercise', 'too-large'
+ * or 'unreadable'). The one containment point per share (SEC-486-03): whatever a share holds,
+ * judging it can't throw past here, so a malformed share is only that share not being available,
+ * never the Shared tab, the schedule or another share failing with it.
+ */
+export function shareOutcome(item, toUnit = 'kg') {
+  try { return evaluateShare(item, toUnit) } catch { return UNREADABLE }
+}
 
 /**
  * The routine an accepted, usable incoming share holds, as this device trains it: its id is the
@@ -85,46 +189,7 @@ const projected = new Map()
  * custom exercise (NATG-483 AC11). Null for anything else: pending, not available, malformed.
  * `shared` says where it came from, for the read-only screens.
  */
-export function sharedRoutineOf(item, toUnit = 'kg') {
-  if (!isObj(item) || item.state !== 'accepted' || item.unavailable || !isObj(item.routine) || typeof item.id !== 'string' || !item.id) return null
-  const to = toUnit === 'lb' ? 'lb' : 'kg'
-  // The sharer's name is not in the hash (it isn't the routine's content): a rename of their
-  // account must still reach "From …".
-  const key = JSON.stringify([item.id, item.hash || '', to, text(item.from?.name)])
-  if (projected.has(key)) return projected.get(key)
-  const r = item.routine
-  if (!withinLimits(r)) { projected.set(key, null); return null }
-  const typed = {
-    id: sharedPointer(item.id),
-    name: text(r.name),
-    ...(text(r.emoji) ? { emoji: text(r.emoji) } : {}),
-    ...(typeof r.prog === 'string' && POLICIES.includes(r.prog) ? { prog: r.prog } : {}),
-    ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-    ex: (Array.isArray(r.ex) ? r.ex : []).map(typedSlot).filter(Boolean),
-  }
-  let out = null
-  try {
-    const from = item.unit === 'lb' ? 'lb' : 'kg'
-    const bundle = parsePlan({ opengym_plan: 1, unit: from, routines: [typed] }, to)
-    const got = bundle.routines[0]
-    if (got) {
-      out = {
-        ...got,
-        id: typed.id,
-        ex: got.ex.filter(e => !isCustomEx(EXIDX[e.id])),
-        shared: { id: item.id, from: { id: text(item.from?.id), name: text(item.from?.name) } },
-      }
-    }
-  } catch { out = null }
-  if (projected.size > 200) projected.clear()
-  projected.set(key, out)
-  return out
-}
-
-// Why an accepted share gives no routine: the server's reason, else too large (outside the limits),
-// else unreadable (a shape nothing here can use).
-const reasonOf = item => item.unavailable === 'custom-exercise' ? 'custom-exercise'
-  : !item.unavailable && isObj(item.routine) && !withinLimits(item.routine) ? 'too-large' : 'unreadable'
+export const sharedRoutineOf = (item, toUnit = 'kg') => shareOutcome(item, toUnit).routine
 
 const EMPTY = Object.freeze({ routines: [], byId: new Map(), ids: new Set(), pending: [], unavailable: [], items: [], fetchedAt: 0, known: false })
 
@@ -145,9 +210,9 @@ export function sharedView(shares, user, unit = 'kg') {
   for (const item of items) {
     if (item.state === 'pending') { pending.push(item); continue }
     if (item.state !== 'accepted') continue
-    const r = sharedRoutineOf(item, unit)
-    if (r) routines.push(r)
-    else unavailable.push({ id: sharedPointer(item.id), item, name: shareNameOf(item) || text(mine.names?.[item.id]), reason: reasonOf(item), from: text(item.from?.name) })
+    const { routine, reason } = shareOutcome(item, unit)
+    if (routine) routines.push(routine)
+    else unavailable.push({ id: sharedPointer(item.id), item, name: shareNameOf(item) || text(mine.names?.[item.id]), reason, from: text(item.from?.name) })
   }
   const byName = (a, b) => a.name.localeCompare(b.name) || (a.id < b.id ? -1 : 1)
   routines.sort(byName)
