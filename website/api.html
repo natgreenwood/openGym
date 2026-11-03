@@ -1556,6 +1556,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 <p>The records of removals (<code>deleted</code>) and of edits (<code>edited</code>) never shrink: the stored ones are joined into the write (a reset keeps its own). A writer that does not stamp its own changes (no <code>stamped: true</code>; an API script, an older app) and sends the current <code>baseRev</code> gets them stamped by the server, at the server's time: every entry it removed (a workout, routine, custom exercise, weigh-in, card, profile or favourite), every setting and plan day it changed (<code>queue</code>, <code>week.&lt;day&gt;</code>, …), and every entry it edited (<code>_ts</code>, per field <code>_f</code>). That keeps a planner's new week, or a routine it removed, from being undone by a phone that reconnects later with an older change. A setting, plan day or entry field whose stored stamp (<code>edited</code>, <code>_f</code>) is later than the one the writer sends back keeps the stored value: the writer never saw that change, so send back the <code>edited</code> and <code>_f</code> you read. A writer that sends no <code>edited</code> at all is not held to it. An entry the document holds while a removal on record says it was deleted after its last edit is kept and marked as added back.</p>
 <p>Such a writer also cannot delete what it does not know: a field of the stored document, of a stored routine, workout, custom exercise, card or profile, of a routine's exercise, or of a logged exercise or set that its copy leaves out comes back from the stored copy (an older app rebuilds an exercise from the fields it knows, which dropped pyramid sets made on an updated device). Only the fields v1.3.9 itself removes (a superset link, a note, a cleared set value, …) can be removed this way. Send <code>stamped: true</code> to remove anything else.</p>
 <p>Every accepted write also starts the grace period of each stored file (tag <code>media</code>) the new state no longer references, and stops it for each one it references again. That bookkeeping never changes the answer.</p>
+<p>Routine sharing (tag <code>shares</code>): a shared routine lives only in the sharer's document. The keys <code>shared</code>, <code>sharedRoutines</code> and <code>shares</code>, and any routine whose id starts with <code>shared:</code>, are dropped from the state before it is stored. The <code>shared:&lt;id&gt;</code> pointers in <code>week</code>, <code>dayPlan</code> and the queue are kept. After the write, every share you made of a routine that is no longer in <code>routines</code> is deleted, whatever its state, and recorded in the activity log as <code>share.revoke</code> (<code>act</code> <code>routine-gone</code>). Neither changes the answer.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
@@ -1611,6 +1612,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </summary>
   <div class="ep-body">
 <p>The <code>rev</code> that <code>GET /api/data</code> would return, without the document. Signed-in clients poll this while open and on every return to the foreground and fetch the document only when the number changed.</p>
+<p>While routine sharing is on, <code>shares</code> is the etag <code>GET /api/shares</code> would answer, so a new share, an answer, a revoke or a sharer's edit of a shared routine is noticed with no request of its own; fetch <code>GET /api/shares</code> when it moved. Nothing is written by this route.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 
@@ -1618,7 +1620,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <div class="ptab">
   <div class="prow rrow">
     <span class="r-code s2">200</span>
-    <span class="p-desc">The current revision (0 when the profile has no state yet).<span class="r-sig">{ rev: integer, wid: string }</span></span>
+    <span class="p-desc">The current revision (0 when the profile has no state yet).<span class="r-sig">{ rev: integer, wid: string, shares: string }</span></span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">401</span>
@@ -2208,8 +2210,9 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Your incoming and outgoing shares</span>
   </summary>
   <div class="ep-body">
-<p><code>incoming</code> holds the shares addressed to you that are pending or accepted; a declined or removed one is never listed. <code>outgoing</code> holds every share you made, with no state at all, so a decline or a removal looks exactly like a share still waiting. No routine body is included yet.</p>
-<p><code>etag</code> moves whenever either list changes for you; the sharer's half covers ids only, so a recipient's answer does not move it. While sharing is off the answer is <code>{ incoming: [], outgoing: [], etag: &quot;off&quot; }</code> rather than an error.</p>
+<p><code>incoming</code> holds the shares addressed to you that are pending or accepted; a declined or removed one is never listed. <code>outgoing</code> holds every share you made, with no state at all, so a decline or a removal looks exactly like a share still waiting.</p>
+<p>Each incoming share is read from the sharer's own document at request time. An accepted one carries the routine as it is now, the sharer's weight unit and the sharer's document revision (<code>rev</code>); a pending one carries only a preview, the routine's name and number of exercises, and <code>rev</code>. An accepted share whose routine now holds a custom exercise comes back as <code>unavailable: custom-exercise</code>, and one whose sharer's document cannot be read as <code>unavailable: unreadable</code>; neither carries a routine, and both come back as usable on their own once the cause is gone. A share whose routine was deleted is not listed, and is deleted here (<code>share.revoke</code>, <code>act</code> <code>routine-gone</code>).</p>
+<p><code>etag</code> moves whenever either list changes for you, when a sharer edits a routine shared with you and when a share's availability changes; the sharer's half covers ids only, so a recipient's answer does not move it. <code>GET /api/data/rev</code> carries the same etag. While sharing is off the answer is <code>{ incoming: [], outgoing: [], etag: &quot;off&quot; }</code> rather than an error.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 
@@ -2248,7 +2251,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <div class="prow">
     <span class="p-name">to<em class="p-req" title="required">required</em></span>
-    <span class="p-type">string[]</span>
+    <span class="p-type">(string <span class="p-hint">(&le; 64 chars)</span>)[]</span>
     <span class="p-desc">User ids from <code>GET /api/shares/recipients</code>.</span>
   </div>
 </div>
@@ -2266,7 +2269,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <div class="prow rrow">
     <span class="r-code s4">400</span>
-    <span class="p-desc"><code>bad-request</code> (the shape, more than 20 recipients, or one listed twice), <code>custom-exercise</code> (the routine holds a custom exercise) or <code>self</code> (you are one of the recipients).<span class="r-sig"><code>{&quot;error&quot;:&quot;a routine with a custom exercise cannot be shared&quot;}</code></span></span>
+    <span class="p-desc"><code>bad-request</code> (the shape, more than 20 recipients, a recipient id longer than 64 characters, or one listed twice), <code>custom-exercise</code> (the routine holds a custom exercise) or <code>self</code> (you are one of the recipients).<span class="r-sig"><code>{&quot;error&quot;:&quot;a routine with a custom exercise cannot be shared&quot;}</code></span></span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">401</span>
@@ -2304,7 +2307,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Accept a share addressed to you</span>
   </summary>
   <div class="ep-body">
-<p>Recorded in the activity log as <code>share.accept</code>.</p>
+<p>Recorded in the activity log as <code>share.accept</code>. Answers with the accepted item as <code>GET /api/shares</code> lists it, routine included. A share whose routine was deleted while it waited answers 404 <code>share-missing</code> and is deleted.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 
@@ -4980,10 +4983,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <summary>
     <span class="sch-name"><code>ShareIncoming</code></span>
     <span class="ep-chev" aria-hidden="true"></span>
-    <span class="ep-sum">A share addressed to you that is pending or accepted.</span>
+    <span class="ep-sum">A share addressed to you that is pending or accepted, read from the sharer's document.</span>
   </summary>
   <div class="ep-body">
-<p>No routine body yet.</p>
+<p>Accepted and usable: <code>rev</code>, <code>unit</code> and <code>routine</code>. Pending: <code>rev</code> and <code>preview</code>. Unavailable: <code>unavailable</code> and none of those.</p>
 <div class="ptab">
   <div class="prow">
     <span class="p-name">id</span>
@@ -5009,6 +5012,71 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-name">acceptedAt</span>
     <span class="p-type">string <span class="p-hint">(date-time)</span></span>
     <span class="p-desc">Once accepted.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">rev</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc">The sharer's document revision: moves with every edit the sharer makes.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit</span>
+    <span class="p-type">&quot;kg&quot; | &quot;lb&quot;</span>
+    <span class="p-desc">The sharer's weight unit, which the routine's weights are in.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine</span>
+    <span class="p-type">object</span>
+    <span class="p-desc">The routine as the sharer has it now: <code>id</code>, <code>name</code>, <code>emoji</code>, <code>prog</code>, <code>excludeFromProgression</code> and <code>ex</code>, with no sync bookkeeping (<code>_ts</code>, <code>_f</code>, <code>_u</code>) and no planned backups (<code>subs</code>) on its exercises.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.id</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.name</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.emoji</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.prog</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.excludeFromProgression</span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">routine.ex</span>
+    <span class="p-type">object[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">preview</span>
+    <span class="p-type">object</span>
+    <span class="p-desc">Pending only.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">preview.name</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">preview.exercises</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unavailable</span>
+    <span class="p-type">&quot;custom-exercise&quot; | &quot;unreadable&quot;</span>
+    <span class="p-desc">Why the share cannot be used right now: the routine holds a custom exercise (accepted only), or the sharer's document cannot be read.</span>
   </div>
 </div>
   </div>

@@ -530,9 +530,9 @@ function nudgeTick(user, S, now) {
   if (!S.reminder.nudge || user.lastNudge === now.date) return;
   if (!nudgeWindowOpen(S.reminder.time, now.hhmm)) return;
   if (livePresence(user.id)) return; // a session is under way — today's workout in the making
-  const rid = nudgeFor(S, now.date);
+  const rid = nudgeFor(S, now.date, sharedRoutineIds(user.id));
   if (!rid) return;
-  const routine = (S.routines || []).find(r => r?.id === rid);
+  const routine = (S.routines || []).find(r => r?.id === rid) || sharedRoutineFor(user.id, rid);
   console.log('nudge firing', user.id, rid);
   user.lastNudge = now.date;
   saveDb();
@@ -582,13 +582,19 @@ setInterval(() => {
       if (!S?.reminder?.on) continue;
       if (nudgeOpen) nudgeTick(user, S, now);
       if (!reminderOpen) continue;
-      // Nothing below depends on anything but the file, so an answer of "nothing owed today"
-      // holds until the file changes (which drops the summary) or the date does.
+      // Nothing below depends on anything but the file (and, for the rest-day answer, the
+      // caller's accepted shares), so an answer of "nothing owed today" holds until the file
+      // changes (which drops the summary) or the date does.
       if ((S.workouts || []).some(w => w?.d === now.date)) { sum.settled = now.date; continue; }
       if (excusedOn(S, now.date)) { sum.settled = now.date; continue; } // noted as sick, away, … (nudge.js excusedOn)
-      const rid = effectiveRoutineId(S, now.date);
-      if (!rid) { sum.settled = now.date; continue; } // rest day — nothing planned
-      const routine = (S.routines || []).find(r => r?.id === rid);
+      const rid = effectiveRoutineId(S, now.date, sharedRoutineIds(user.id));
+      // Rest day — nothing planned. Settled only while no accepted share could change that: a
+      // shared routine's answer depends on the sharer's document too, not on this file alone.
+      if (!rid) {
+        if (!db.shares.some(x => x.to === user.id && x.state === 'accepted')) sum.settled = now.date;
+        continue;
+      }
+      const routine = (S.routines || []).find(r => r?.id === rid) || sharedRoutineFor(user.id, rid);
       console.log('reminder firing', user.id, rid);
       user.lastReminder = now.date;
       saveDb();
@@ -2111,26 +2117,153 @@ const SHARE_STATE = { error: 'this share is no longer waiting for an answer', co
 const isTombstone = s => s.state === 'declined' || s.state === 'removed';
 const userRef = id => { const u = db.users.find(x => x.id === id); return u ? { id: u.id, name: u.name } : null; };
 
+// Custom exercises are not shareable in v1. The API has no exercise catalogue, so custom means
+// what the sharer's own `customEx` lists. Creation refuses such a routine, and the projection
+// hides one that gained a custom exercise since.
+const hasCustomEx = (S, routine) => {
+  const customIds = new Set(records(S.customEx).map(c => c.id));
+  return records(routine.ex).some(e => customIds.has(e.id));
+};
+
+// The projection (NATG-487): an incoming share is resolved at read time from the sharer's own
+// document, which nothing on the recipient's side can write. `resolveShare` decides what the
+// recipient may see and reads nothing but that document, through the stat cache the revision
+// poll already uses. It never writes: a share whose routine is gone comes back as `gone`, and
+// only GET /api/shares (dropGoneShares) and the sharer's own PUT /api/data delete the record.
+// That keeps GET /api/data/rev, the reminder tick and the accept/decline/DELETE etags free of
+// writes to db.json.
+//
+//   { unavailable: 'unreadable' }        the sharer's document cannot be read or is missing; the
+//                                         record is kept, a disk problem must not look like a revoke
+//   { gone: true }                       no routine with that id in the sharer's document
+//   { rev, unavailable: 'custom-exercise' }   accepted, but the routine now holds a custom exercise
+//   { rev, unit, routine }               usable (accepted) or previewable (pending)
+//
+// A pending share is never hidden for a custom exercise: it only shows a name and a count, and
+// the accepted item is where the rule bites. `rev` is the sharer's document revision, on pending
+// items too, so a rename while a share waits still moves the recipient's etag.
+const unreadableSharers = new Set();   // logged once per sharer until the document reads again
+function sharerDoc(uid, docs) {
+  if (docs?.has(uid)) return docs.get(uid);
+  const S = readStateCached(uid);
+  const doc = S && typeof S === 'object' && !Array.isArray(S) ? S : UNREADABLE;
+  if (doc === UNREADABLE) {
+    if (!unreadableSharers.has(uid)) { unreadableSharers.add(uid); console.error('shares: sharer state unreadable for', uid); }
+  } else unreadableSharers.delete(uid);
+  docs?.set(uid, doc);
+  return doc;
+}
+function resolveShare(s, docs) {
+  const S = sharerDoc(s.from, docs);
+  if (S === UNREADABLE) return { unavailable: 'unreadable' };
+  const routine = records(S.routines).find(r => r.id === s.routineId);
+  if (!routine) return { gone: true };
+  const rev = Number(S._rev) || 0;
+  if (s.state === 'accepted' && hasCustomEx(S, routine)) return { rev, unavailable: 'custom-exercise' };
+  return { rev, unit: S.unit === 'lb' ? 'lb' : 'kg', routine };
+}
+// What leaves the sharer's document: the routine fields the plan export keeps (buildPlanBundle in
+// frontend/src/lib/plan-share.js), without the sync bookkeeping, and each slot without its
+// bookkeeping and its planned backups (`subs`). The client normalises it as the plan import does.
+const ROUTINE_FIELDS = ['id', 'name', 'emoji', 'prog', 'excludeFromProgression'];
+const SLOT_DROPPED = new Set(['_ts', '_f', '_u', 'subs']);
+function sharedRoutine(r) {
+  const out = {};
+  for (const k of ROUTINE_FIELDS) if (r[k] !== undefined) out[k] = r[k];
+  out.ex = records(r.ex).map(e => Object.fromEntries(Object.entries(e).filter(([k]) => !SLOT_DROPPED.has(k))));
+  return out;
+}
+
 // What each side sees. The recipient never sees a declined or removed share; the sharer sees
-// every record they hold, with no state at all (epic AC12). No routine body in either yet: that
-// is the projection, NATG-487.
-function incomingItem(s) {
+// every record they hold, with no state at all (epic AC12). An incoming item comes in two sizes
+// from the same resolution: `meta` (id, state, rev, unavailable: all the etag reads) for the
+// revision poll, and the full item, with the routine or the preview, for GET /api/shares and
+// accept. A share whose routine is gone is in neither.
+function incomingItem(s, p, { meta = false } = {}) {
   const from = userRef(s.from);
-  if (!from) return null;
-  return { id: s.id, state: s.state, from, created: s.created, ...(s.acceptedAt ? { acceptedAt: s.acceptedAt } : {}) };
+  if (!from || p.gone) return null;
+  const item = meta ? { id: s.id, state: s.state } : {
+    id: s.id, state: s.state, from, created: s.created, ...(s.acceptedAt ? { acceptedAt: s.acceptedAt } : {})
+  };
+  if (p.unavailable) return { ...item, unavailable: p.unavailable };
+  item.rev = p.rev;
+  if (meta) return item;
+  if (s.state === 'pending') return { ...item, preview: { name: String(p.routine.name ?? ''), exercises: records(p.routine.ex).length } };
+  return { ...item, unit: p.unit, routine: sharedRoutine(p.routine) };
 }
 function outgoingItem(s) {
   const to = userRef(s.to);
   return to ? { id: s.id, to, routineId: s.routineId, created: s.created } : null;
 }
-function sharesOf(uid) {
-  const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s)).map(incomingItem).filter(Boolean);
-  const outgoing = db.shares.filter(s => s.from === uid).map(outgoingItem).filter(Boolean);
+// Both lists for `uid`. `meta` is the revision poll's cheap form: no routine body is built.
+// Read-only either way; GET /api/shares runs dropGoneShares first.
+function sharesOf(uid, { meta = false } = {}) {
+  const docs = new Map();
+  const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s))
+    .map(s => incomingItem(s, resolveShare(s, docs), { meta })).filter(Boolean);
+  const outgoing = db.shares.filter(s => s.from === uid)
+    .map(s => (meta ? (userRef(s.to) ? { id: s.id } : null) : outgoingItem(s))).filter(Boolean);
   return { incoming, outgoing };
 }
+// The lazy cleanup, for a sharer's document changed outside PUT /api/data (a restored file, a
+// hand edit): records, in any state, addressed to `uid` whose routine is no longer in the
+// sharer's document are deleted, each with a share.revoke line in the sharer's name (`act`
+// routine-gone). Only GET /api/shares calls it, never the revision poll. An unreadable document
+// deletes nothing.
+function dropGoneShares(req, uid) {
+  const docs = new Map();
+  const gone = db.shares.filter(s => s.to === uid && resolveShare(s, docs).gone);
+  if (!gone.length) return;
+  const drop = new Set(gone);
+  db.shares = db.shares.filter(s => !drop.has(s));
+  saveDb();
+  for (const s of gone) auditRoutineGone(req, s);
+}
+const auditRoutineGone = (req, s) =>
+  audit(req, 'share.revoke', { user: userRef(s.from) || { id: s.from, name: '' }, target: { id: s.to, name: userRef(s.to)?.name || '' }, msg: s.id, act: 'routine-gone' });
+// The ids that count as a planned routine for `uid`'s reminders and nudge (api/queue.js
+// `extraIds`): `shared:<id>` of every accepted share addressed to them whose projection is
+// usable right now. Read-only, like the poll.
+function sharedRoutineIds(uid) {
+  const ids = new Set();
+  if (!sharingOn()) return ids;
+  const docs = new Map();
+  for (const s of db.shares) {
+    if (s.to !== uid || s.state !== 'accepted' || !userRef(s.from)) continue;
+    if (resolveShare(s, docs).routine) ids.add('shared:' + s.id);
+  }
+  return ids;
+}
+// PUT /api/data's defence (epic AC6): no client can park a copy of a shared routine in its own
+// document. The keys a client might keep one under go, the way `active` does, and so does any
+// own routine whose id is a `shared:` pointer, which would otherwise shadow the projection and
+// pass POST /api/shares's own-routine check. Pointers in `week`, `dayPlan` and the queue stay:
+// they are strings, and the recipient's to schedule.
+const SHARED_KEYS = ['shared', 'sharedRoutines', 'shares'];
+function dropSharedCopies(state) {
+  for (const k of SHARED_KEYS) delete state[k];
+  if (Array.isArray(state.routines)) state.routines = state.routines.filter(r => !(typeof r?.id === 'string' && r.id.startsWith('shared:')));
+}
+// The caller's outgoing records whose routine is not in the document just written.
+function dropSharesOfGoneRoutines(req, user, state) {
+  const own = new Set(records(state.routines).map(r => r.id));
+  const gone = db.shares.filter(s => s.from === user.id && !own.has(s.routineId));
+  if (!gone.length) return;
+  const drop = new Set(gone);
+  db.shares = db.shares.filter(s => !drop.has(s));
+  saveDb();
+  for (const s of gone) auditRoutineGone(req, s);
+}
+// The shared routine a `shared:<id>` names for `uid`, for a reminder's title. Null otherwise.
+function sharedRoutineFor(uid, rid) {
+  if (typeof rid !== 'string' || !rid.startsWith('shared:')) return null;
+  const s = db.shares.find(x => x.id === rid.slice(7) && x.to === uid && x.state === 'accepted');
+  return s ? resolveShare(s).routine || null : null;
+}
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
-// ids alone, so a decline does not move it. `rev` and `unavailable` are null until the
-// projection fills them in.
+// ids alone, so a decline does not move it. The recipient's half moves with the sharer's
+// document revision (`rev`, pending items included) and with availability. It reads nothing a
+// meta item lacks, so the revision poll gets the same etag as GET /api/shares without a body.
 function sharesEtag({ incoming, outgoing }) {
   const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const src = [
@@ -2208,10 +2341,7 @@ const shareRoutes = {
     if (S === UNREADABLE) { console.error('shares: state file unreadable for', user.id); return json(res, 503, { error: 'state unreadable' }); }
     const routine = records(S?.routines).find(r => r.id === routineId);
     if (!routine) return json(res, 404, { error: 'no routine with that id in your profile', code: 'routine-missing' });
-    // Custom exercises are not shareable in v1. The API has no exercise catalogue, so custom
-    // means what the sharer's own `customEx` lists.
-    const customIds = new Set(records(S.customEx).map(c => c.id));
-    if (records(routine.ex).some(e => customIds.has(e.id))) {
+    if (hasCustomEx(S, routine)) {
       return json(res, 400, { error: 'a routine with a custom exercise cannot be shared', code: 'custom-exercise' });
     }
     if (to.includes(user.id)) return json(res, 400, { error: 'you cannot share a routine with yourself', code: 'self' });
@@ -2242,7 +2372,7 @@ const shareRoutes = {
       saveDb();
       for (const s of written) auditShare(req, 'share.create', user, s.to, s);
     }
-    json(res, 200, { shares, etag: sharesEtag(sharesOf(user.id)) });
+    json(res, 200, { shares, etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   },
 
   // Both halves of the caller's sharing, for the client to replace its copy with wholesale. Off
@@ -2251,21 +2381,36 @@ const shareRoutes = {
     const user = readSession(req);
     if (!user) return notSignedIn(res);
     if (!sharingOn()) return json(res, 200, { incoming: [], outgoing: [], etag: 'off' });
+    // The one read that may write: the lazy cleanup of shares whose routine is gone lives here,
+    // and never in the revision poll. Both answer the same etag, since a gone share is in
+    // neither list.
+    dropGoneShares(req, user.id);
     const lists = sharesOf(user.id);
     json(res, 200, { ...lists, etag: sharesEtag(lists) });
   },
 
+  // The accepted item carries the routine, so the client can show it at once. A share whose
+  // routine went while it waited is cleaned up here and answers as missing.
   'POST /api/shares/{id}/accept': async (req, res) => {
     const user = readSession(req);
     if (!user) return notSignedIn(res);
     const s = shareFor(req, user.id);
     if (!s || s.to !== user.id) return json(res, 404, SHARE_MISSING);
     if (s.state !== 'pending') return json(res, 409, SHARE_STATE);
+    if (resolveShare(s).gone) {
+      db.shares = db.shares.filter(x => x !== s);
+      saveDb();
+      auditRoutineGone(req, s);
+      return json(res, 404, SHARE_MISSING);
+    }
     s.state = 'accepted';
     s.acceptedAt = new Date().toISOString();
     saveDb();
+    // A rest day the reminder tick settled for today may be a training day now.
+    const sum = stateSummaries.get(user.id);
+    if (sum) sum.settled = '';
     auditShare(req, 'share.accept', user, s.from, s);
-    json(res, 200, { ok: true, share: incomingItem(s), etag: sharesEtag(sharesOf(user.id)) });
+    json(res, 200, { ok: true, share: incomingItem(s, resolveShare(s)), etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   },
 
   'POST /api/shares/{id}/decline': async (req, res) => {
@@ -2278,7 +2423,7 @@ const shareRoutes = {
     delete s.acceptedAt;
     saveDb();
     auditShare(req, 'share.decline', user, s.from, s);
-    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id)) });
+    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   },
 
   // The sharer revokes: the record goes, whatever its state. The recipient removes: an accepted
@@ -2300,7 +2445,7 @@ const shareRoutes = {
       saveDb();
       auditShare(req, ev, user, s.from, s);
     }
-    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id)) });
+    json(res, 200, { ok: true, etag: sharesEtag(sharesOf(user.id, { meta: true })) });
   }
 };
 
@@ -2674,7 +2819,11 @@ const routes = {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
     const doc = readStateCached(user.id);
-    json(res, 200, { rev: doc?._rev || 0, ...(doc?._wid ? { wid: doc._wid } : {}) });
+    // While sharing is on, the etag of the caller's shares rides along (see sharesEtag), so a new
+    // share or a sharer's edit needs no request of its own. The meta form: one stat per sharer,
+    // no routine body built and nothing written, the lazy cleanup included (GET /api/shares).
+    const shares = sharingOn() ? { shares: sharesEtag(sharesOf(user.id, { meta: true })) } : {};
+    json(res, 200, { rev: doc?._rev || 0, ...(doc?._wid ? { wid: doc._wid } : {}), ...shares });
   },
 
   // The phone app's background check before a missed-day nudge or a workout-day reminder it
@@ -2696,7 +2845,7 @@ const routes = {
     const workouts = Array.isArray(doc.workouts) ? doc.workouts : [];
     const done = workouts.some(w => w && w.d === date) || excusedOn(doc, date);
     let nudge = false;
-    try { nudge = !done && !!nudgeFor(doc, date); } catch { nudge = true; }   // unreadable: keep what the phone planned
+    try { nudge = !done && !!nudgeFor(doc, date, sharedRoutineIds(user.id)); } catch { nudge = true; }   // unreadable: keep what the phone planned
     json(res, 200, { date, done, nudge, rev: doc._rev || 0 });
   },
 
@@ -2748,6 +2897,7 @@ const routes = {
       return json(res, 409, { error: 'conflict', rev: curRev, state: forClient(cur) });
     }
     delete body.state.active;              // in-progress workouts stay device-local
+    dropSharedCopies(body.state);          // a shared routine lives in the sharer's document only
     // "Reset everything" stamps the profile (`resetAt`, with `resetIds`: what it wiped). The stamp
     // only moves forward: a write without it, or with an older one — a client from before it, a
     // backup restored over the profile — keeps the stored stamp. Otherwise every device that saw
@@ -2778,6 +2928,7 @@ const routes = {
     body.state._wid = crypto.randomBytes(8).toString('hex');
     // JSON.parse takes any nesting, JSON.stringify recurses and runs out of stack on a document
     // nested some thousands deep. No client builds one; it is a bad request, not a server error.
+    dropSharedCopies(body.state);          // again: the merge above can put a stored key back
     let text;
     try { text = JSON.stringify(body.state); }
     catch (e) { if (e instanceof RangeError) return json(res, 400, { error: 'invalid state' }); throw e; }
@@ -2795,6 +2946,9 @@ const routes = {
     if (MEDIA_ON) {
       try { MEDIA.noteState(user.id, body.state); } catch (e) { console.error('media noteState', e); }
     }
+    // A routine the caller deleted takes its shares with it (epic AC10), in any state: a revoke in
+    // the sharer's name, audited as such. Bookkeeping too, after the write.
+    try { dropSharesOfGoneRoutines(req, user, body.state); } catch (e) { console.error('shares cleanup', e); }
     json(res, 200, { ok: true, ts: body.state._ts || null, rev: curRev + 1, wid: body.state._wid });
   },
 

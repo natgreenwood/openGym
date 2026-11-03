@@ -1643,6 +1643,13 @@ paths:
         Every accepted write also starts the grace period of each stored file (tag `media`)
         the new state no longer references, and stops it for each one it references again.
         That bookkeeping never changes the answer.
+
+        Routine sharing (tag `shares`): a shared routine lives only in the sharer's document.
+        The keys `shared`, `sharedRoutines` and `shares`, and any routine whose id starts with
+        `shared:`, are dropped from the state before it is stored. The `shared:<id>` pointers in
+        `week`, `dayPlan` and the queue are kept. After the write, every share you made of a
+        routine that is no longer in `routines` is deleted, whatever its state, and recorded in
+        the activity log as `share.revoke` (`act` `routine-gone`). Neither changes the answer.
       requestBody:
         required: true
         content:
@@ -1729,6 +1736,11 @@ paths:
         The `rev` that `GET /api/data` would return, without the document. Signed-in clients poll
         this while open and on every return to the foreground and fetch the document only when
         the number changed.
+
+        While routine sharing is on, `shares` is the etag `GET /api/shares` would answer, so a
+        new share, an answer, a revoke or a sharer's edit of a shared routine is noticed with no
+        request of its own; fetch `GET /api/shares` when it moved. Nothing is written by this
+        route.
       responses:
         '200':
           description: The current revision (0 when the profile has no state yet).
@@ -1739,6 +1751,7 @@ paths:
                 properties:
                   rev: { type: integer }
                   wid: { type: string, description: 'The write id (`_wid`) of the stored document; absent before its first write.' }
+                  shares: { type: string, description: 'The etag of your shares (16 hex characters), the one `GET /api/shares` answers. Absent while routine sharing is off.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/nudge-check:
@@ -2792,11 +2805,22 @@ paths:
         `incoming` holds the shares addressed to you that are pending or accepted; a
         declined or removed one is never listed. `outgoing` holds every share you made, with
         no state at all, so a decline or a removal looks exactly like a share still waiting.
-        No routine body is included yet.
 
-        `etag` moves whenever either list changes for you; the sharer's half covers ids only,
-        so a recipient's answer does not move it. While sharing is off the answer is
-        `{ incoming: [], outgoing: [], etag: "off" }` rather than an error.
+        Each incoming share is read from the sharer's own document at request time. An
+        accepted one carries the routine as it is now, the sharer's weight unit and the
+        sharer's document revision (`rev`); a pending one carries only a preview, the
+        routine's name and number of exercises, and `rev`. An accepted share whose routine now
+        holds a custom exercise comes back as `unavailable: custom-exercise`, and one whose
+        sharer's document cannot be read as `unavailable: unreadable`; neither carries a
+        routine, and both come back as usable on their own once the cause is gone. A share
+        whose routine was deleted is not listed, and is deleted here (`share.revoke`, `act`
+        `routine-gone`).
+
+        `etag` moves whenever either list changes for you, when a sharer edits a routine shared
+        with you and when a share's availability changes; the sharer's half covers ids only,
+        so a recipient's answer does not move it. `GET /api/data/rev` carries the same etag.
+        While sharing is off the answer is `{ incoming: [], outgoing: [], etag: "off" }` rather
+        than an error.
       responses:
         '200':
           description: Both lists.
@@ -2849,7 +2873,7 @@ paths:
                   minItems: 1
                   maxItems: 20
                   uniqueItems: true
-                  items: { type: string }
+                  items: { type: string, minLength: 1, maxLength: 64 }
                   description: User ids from `GET /api/shares/recipients`.
             example: { routineId: "r1", to: ["Zk3x9"] }
       responses:
@@ -2866,7 +2890,8 @@ paths:
                   etag: { type: string }
         '400':
           description: >-
-            `bad-request` (the shape, more than 20 recipients, or one listed twice),
+            `bad-request` (the shape, more than 20 recipients, a recipient id longer than 64
+            characters, or one listed twice),
             `custom-exercise` (the routine holds a custom exercise) or `self` (you are one of
             the recipients).
           content:
@@ -2910,7 +2935,10 @@ paths:
       tags: [shares]
       operationId: acceptShare
       summary: Accept a share addressed to you
-      description: Recorded in the activity log as `share.accept`.
+      description: >-
+        Recorded in the activity log as `share.accept`. Answers with the accepted item as
+        `GET /api/shares` lists it, routine included. A share whose routine was deleted while it
+        waited answers 404 `share-missing` and is deleted.
       responses:
         '200':
           description: Accepted.
@@ -4261,13 +4289,42 @@ components:
     ShareIncoming:
       type: object
       description: >-
-        A share addressed to you that is pending or accepted. No routine body yet.
+        A share addressed to you that is pending or accepted, read from the sharer's document.
+        Accepted and usable: `rev`, `unit` and `routine`. Pending: `rev` and `preview`.
+        Unavailable: `unavailable` and none of those.
       properties:
         id: { type: string, description: 16 hex characters. }
         state: { type: string, enum: [pending, accepted] }
         from: { $ref: '#/components/schemas/ShareUser' }
         created: { type: string, format: date-time }
         acceptedAt: { type: string, format: date-time, description: Once accepted. }
+        rev: { type: integer, description: "The sharer's document revision: moves with every edit the sharer makes." }
+        unit: { type: string, enum: [kg, lb], description: "The sharer's weight unit, which the routine's weights are in." }
+        routine:
+          type: object
+          description: >-
+            The routine as the sharer has it now: `id`, `name`, `emoji`, `prog`,
+            `excludeFromProgression` and `ex`, with no sync bookkeeping (`_ts`, `_f`, `_u`) and
+            no planned backups (`subs`) on its exercises.
+          properties:
+            id: { type: string }
+            name: { type: string }
+            emoji: { type: string }
+            prog: { type: object, additionalProperties: true }
+            excludeFromProgression: { type: boolean }
+            ex: { type: array, items: { type: object, additionalProperties: true } }
+        preview:
+          type: object
+          description: Pending only.
+          properties:
+            name: { type: string }
+            exercises: { type: integer }
+        unavailable:
+          type: string
+          enum: [custom-exercise, unreadable]
+          description: >-
+            Why the share cannot be used right now: the routine holds a custom exercise
+            (accepted only), or the sharer's document cannot be read.
     ShareOutgoing:
       type: object
       description: A share you made. No state, by design.
