@@ -365,7 +365,7 @@ export const useStore = create((set, get) => {
   let pushAgain = false    // a push asked for while one was in flight — run once more after it
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
-  let sharesFetch = null   // the /api/shares in flight, likewise
+  let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
   let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
@@ -1624,8 +1624,12 @@ export const useStore = create((set, get) => {
     async loadShares() {
       const user = get().user
       if (!user) return null
-      if (sharesFetch) return sharesFetch
-      sharesFetch = (async () => {
+      // A request still out for someone else (a sign-in switch while it was in flight) is not this
+      // user's answer: it stores nothing when it lands, so this user gets a request of their own.
+      if (sharesFetch?.uid === user.id) return sharesFetch.promise
+      const mine = { uid: user.id, promise: null }
+      sharesFetch = mine
+      mine.promise = (async () => {
         try {
           const r = await api('/api/shares')
           if (get().user?.id !== user.id) return null
@@ -1635,9 +1639,9 @@ export const useStore = create((set, get) => {
         } catch {
           if (get().user?.id === user.id) set({ sharesError: true })
           return null
-        } finally { sharesFetch = null }
+        } finally { if (sharesFetch === mine) sharesFetch = null }
       })()
-      return sharesFetch
+      return mine.promise
     },
 
     // `adopt` (a sign-in, a pairing — { alwaysAsk } for a device link): adoptProfile follows and
