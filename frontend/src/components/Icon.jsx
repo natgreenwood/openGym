@@ -97,6 +97,8 @@ const P = {
   /* ---- objects ---- */
   person: <><circle cx="12" cy="8" r="3.8" /><path d="M4.8 20.4a7.2 7.2 0 0 1 14.4 0" /></>,
   personCircle: <><circle cx="12" cy="12" r="8.4" /><circle cx="12" cy="10" r="2.9" /><path d="M6.6 18.4a5.8 5.8 0 0 1 10.8 0" /></>,
+  // Two people: sharing a routine (NATG-483). From the design's Components page, scaled to this grid.
+  people: <><circle cx="9.2" cy="8.4" r="3.4" /><path d="M3.4 19.8a5.8 5.8 0 0 1 11.6 0M15.4 5.2c.71.18 1.35.59 1.8 1.17.45.58.69 1.3.69 2.03s-.24 1.45-.69 2.03c-.45.58-1.09.99-1.8 1.17M17.6 14.2c.99.54 1.8 1.36 2.33 2.35.54 1 .77 2.13.67 3.25" /></>,
   clipboard: <><rect x="5.4" y="4.8" width="13.2" height="15.8" rx="2.6" /><path d="M9 4.8a1.6 1.6 0 0 1 1.6-1.6h2.8A1.6 1.6 0 0 1 15 4.8v1.4H9Z" /><path d="M9.2 11.6h5.6M9.2 15.2h4" /></>,
   list: <path d="M8.4 6.6h11.2M8.4 12h11.2M8.4 17.4h11.2M4.6 6.6h.01M4.6 12h.01M4.6 17.4h.01" />,
   grid: <><rect x="4" y="4" width="6.5" height="6.5" rx="1.6" /><rect x="13.5" y="4" width="6.5" height="6.5" rx="1.6" /><rect x="4" y="13.5" width="6.5" height="6.5" rx="1.6" /><rect x="13.5" y="13.5" width="6.5" height="6.5" rx="1.6" /></>,

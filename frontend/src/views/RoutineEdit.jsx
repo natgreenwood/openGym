@@ -2,10 +2,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { exOr } from '../lib/exercises.js'
+import { exOr, isCustomEx } from '../lib/exercises.js'
 import { activeProfile, exAvailable } from '../lib/equipment.js'
 import { uid, exerciseNameText } from '../lib/format.js'
-import { t, exerciseNameFor, exerciseNameClass } from '../lib/i18n.js'
+import { t, tn, exerciseNameFor, exerciseNameClass } from '../lib/i18n.js'
 import { supersetUnits, moveRoutineEntry, cleanupSg, exLine, pickedExerciseConfig } from '../lib/history.js'
 import { Thumb } from '../components/Media.jsx'
 import { glyphPicker, exercisePicker, exConfigSheet, confirmSheet, supersetSheet } from '../sheets.jsx'
@@ -25,6 +25,7 @@ import { speedUnitOf } from '../lib/speed.js'
 import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
+import RoutineSharing, { useRoutineShares } from '../components/RoutineSharing.jsx'
 
 export const ROUTINE_LONG_PRESS_MS = 380
 export const ROUTINE_DRAG_SLOP = 8
@@ -376,6 +377,8 @@ export default function RoutineEdit() {
   // included: this still unmounts after the delete button navigates away.
   useEffect(() => () => useStore.getState().autoBackupNow(), [])
   const edit = fn => update(s => { fn(s.routines.find(x => x.id === id).ex) })
+  const shares = useRoutineShares(id)
+  const sharingRef = useRef(null)
   const reorder = useRoutineReorder(r, r?.ex || [], (sourceIndex, targetSlot) => {
     edit(exercises => { reorderRoutineUnit(exercises, sourceIndex, targetSlot) })
   })
@@ -392,6 +395,25 @@ export default function RoutineEdit() {
       cleanupSg(ex)
     })
   }
+  // While the routine is shared, a custom exercise can't go into it (NATG-483 AC11: the server
+  // would stop showing it to everyone it is shared with). The pick is turned away with the way
+  // out: unshare first, from the Sharing section this scrolls to. True when it was turned away.
+  const sharedCount = shares.list?.length || 0
+  const turnAway = (picker, ex) => {
+    if (!sharedCount || !isCustomEx(ex)) return false
+    picker?.close()
+    confirmSheet({
+      title: t('Unshare first'),
+      message: tn('{1} is shared with {0} person. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.',
+        '{1} is shared with {0} people. Custom exercises can’t go in a shared routine, so unshare it before adding {2}.', sharedCount, r.name, exerciseNameText(ex)),
+      confirmText: t('Manage sharing'), cancelText: t('Not now'),
+      onConfirm: () => setTimeout(() => {
+        sharingRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+        sharingRef.current?.focus({ preventScroll: true })
+      }, 50)
+    })
+    return true
+  }
   // Replace (#110): the picker chooses what goes into slot `i`, and the slot keeps its sets, reps,
   // weight and the rest (lib/routines.js replaceSlotExercise). "+" on a picker row replaces at
   // once; tapping the row opens the new exercise's settings at those numbers first, the way the
@@ -406,6 +428,7 @@ export default function RoutineEdit() {
       if (done) toast(t('Replaced with “{0}”', exerciseNameText(ex)))
     }
     const picker = exercisePicker((ex, quick) => {
+      if (turnAway(picker, ex)) return
       // The slot and the history as they are now, not as this render saw them: a sync can land
       // while the picker is open, and the new exercise's weight comes from its own sessions.
       const live = useStore.getState().S
@@ -437,14 +460,15 @@ export default function RoutineEdit() {
     cleanupSg(ex)
   })
 
-  const addExercise = () => exercisePicker((ex, quick) => {
+  const addExercise = () => { const picker = exercisePicker((ex, quick) => {
+    if (turnAway(picker, ex)) return
     if (quick) {
       edit(x => x.push({ id: ex.id, ...pickedExerciseConfig(ex.id) }))
       toast(t('“{0}” added to {1}', exerciseNameText(ex), r.name))
     } else {
       exConfigSheet(ex, null, cfg => edit(x => { x.push({ id: ex.id, ...cfg }) }), null, r, null, null, undefined, { backups: true })
     }
-  })
+  }) }
 
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
@@ -583,6 +607,7 @@ export default function RoutineEdit() {
     })()}
 
     <div className="small dim row" style={{ margin: '10px 2px', gap: 5 }}><Icon name="link" style={{ fontSize: 13 }} />{t('Tap the link button on an exercise to superset it with the one above. You’ll do them back-to-back.')}</div>
+    <RoutineSharing ref={sharingRef} routine={r} S={S} shares={shares} />
     <Button onClick={() => {
       const copy = copyRoutine(r, t('Copy'))
       update(s => { s.routines.push(copy) })

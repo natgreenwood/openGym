@@ -384,6 +384,53 @@ h4.sec{
 .lrow-c{color:var(--label);font-size:15px;flex:none;--icon-stroke:2.4}
 .lrow-k{color:var(--acc);font-size:17px;flex:none;--icon-stroke:2.4}
 .lrow.danger,.lrow.danger .lrow-t{color:var(--red)}
+
+/* ---------------------------------------------- routine sharing (NATG-485) --
+   The routine page's Sharing section and the share sheet. Built from .sect/.lrow; the avatar, the
+   select check and the alert are the design's three new pieces. */
+.routine-sharing{margin-top:22px;outline:none}
+.lrow.share-off{cursor:default}
+.lrow.share-off .lrow-t{color:var(--label-3)}
+.lrow.share-off .lrow-i{color:var(--label-2)}
+.share-avatar{width:32px;height:32px;border-radius:50%;flex:none;display:grid;place-items:center;
+  background:var(--surface-3);color:var(--label);font-size:13px;font-weight:600;letter-spacing:-.004em}
+.lrow.share-row{min-height:52px;padding-block:8px}
+.lrow.share-row+.lrow.share-row::before{inset-inline-start:58px}
+.share-unshare{flex:none;display:inline-flex;align-items:center;color:var(--red);font-size:15px;padding:0 2px;min-height:44px;background:none}
+.share-unshare:disabled{opacity:.32}
+.share-link{color:var(--acc);font-size:13px;font-weight:600;background:none;padding:0}
+.share-lead{font-size:15px;line-height:1.4;margin-bottom:14px}
+.share-label{display:flex;justify-content:space-between;gap:8px;font-size:13px;color:var(--label-2);padding:14px 4px 7px}
+.share-list{background:var(--surface);border-radius:var(--r-card);overflow:hidden}
+.share-person{display:flex;align-items:center;gap:12px;width:100%;min-height:52px;padding:8px 14px;
+  text-align:start;color:var(--label);background:none;position:relative}
+.share-person+.share-person::before{content:'';position:absolute;inset-inline-start:58px;inset-inline-end:0;top:0;height:var(--hair);background:var(--sep)}
+.share-person:active:not([aria-disabled]){background:var(--surface-2)}
+.share-person[aria-disabled]{cursor:default}
+.share-person:focus-visible{outline:2.5px solid var(--acc);outline-offset:-2.5px;border-radius:var(--r-card)}
+.share-nm{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.share-nm b{font-size:17px;font-weight:400;letter-spacing:-.012em;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.share-nm span{font-size:13px;color:var(--label-2);line-height:1.38}
+.share-check{width:24px;height:24px;border-radius:50%;flex:none;display:grid;place-items:center;
+  border:1.5px solid var(--label-3);color:transparent;font-size:16px;--icon-stroke:2.6}
+.share-check.on{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}
+.share-check.locked{background:var(--surface-3);border-color:var(--surface-3);color:var(--label-2)}
+.share-skel{margin-top:14px}
+.share-skel-row{display:flex;align-items:center;gap:12px;padding:10px 14px;position:relative}
+.share-skel-row+.share-skel-row::before{content:'';position:absolute;inset-inline-start:58px;inset-inline-end:0;top:0;height:var(--hair);background:var(--sep)}
+.share-skel-row span{width:32px;height:32px;border-radius:50%;background:var(--surface-3);flex:none}
+.share-skel-row i{height:12px;border-radius:6px;background:var(--surface-3);max-width:60%}
+.share-empty,.share-nomatch{padding:36px 20px 20px}
+.share-empty .small{margin-top:12px}
+.share-nomatch .ico{font-size:30px;margin-bottom:10px}
+.share-note{padding:8px 4px 0}
+.share-alert{display:flex;gap:10px;align-items:flex-start;margin-top:16px;padding:12px 14px;border-radius:12px;
+  background:rgba(255,69,58,0.15);background:color-mix(in srgb,var(--red) 15%,transparent);color:var(--label)}
+.share-alert>.icn{font-size:20px;color:var(--red);flex:none}
+.share-alert>div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.share-alert b{font-size:16px;font-weight:600;line-height:1.25;letter-spacing:-.012em}
+.share-alert span{font-size:13px;line-height:1.38}
+.share-foot{text-align:center;margin-top:8px}
 /* A warning under a settings row reads at subtitle size: a sentence, not a row title. */
 .lrow.backup-lost .lrow-t{font-size:13px;line-height:1.3;color:var(--label-2);letter-spacing:0}
 /* The Stats exercise name gets its own line so long names cannot run into the title.

@@ -364,6 +364,7 @@ export const useStore = create((set, get) => {
   let pushAgain = false    // a push asked for while one was in flight — run once more after it
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
+  let sharesFetch = null   // the /api/shares in flight, likewise
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
   let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
@@ -1603,6 +1604,32 @@ export const useStore = create((set, get) => {
         finally { configFetch = null }
       })()
       return configFetch
+    },
+
+    // Routine sharing (GET /api/shares): the caller's two lists as the server last answered,
+    // `{ uid, outgoing, incoming, etag }`, or null before the first answer. Never part of `S`: a
+    // share is a record on the server, not something this profile's document holds, and it must
+    // not sync or merge. Tagged with whose it is, so a sign-in as someone else never shows the
+    // previous profile's list. `sharesError` is set while the last load failed.
+    shares: null,
+    sharesError: false,
+    async loadShares() {
+      const user = get().user
+      if (!user) return null
+      if (sharesFetch) return sharesFetch
+      sharesFetch = (async () => {
+        try {
+          const r = await api('/api/shares')
+          if (get().user?.id !== user.id) return null
+          const shares = { uid: user.id, outgoing: Array.isArray(r?.outgoing) ? r.outgoing : [], incoming: Array.isArray(r?.incoming) ? r.incoming : [], etag: r?.etag || null }
+          set({ shares, sharesError: false })
+          return shares
+        } catch {
+          if (get().user?.id === user.id) set({ sharesError: true })
+          return null
+        } finally { sharesFetch = null }
+      })()
+      return sharesFetch
     },
 
     // `adopt` (a sign-in, a pairing — { alwaysAsk } for a device link): adoptProfile follows and
