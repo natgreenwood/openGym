@@ -2100,6 +2100,7 @@ const MAX_SHARES_PER_PROFILE = 50;     // outgoing records in any state: only a 
 const SHARE_CREATIONS_PER_HOUR = 30;   // POST /api/shares calls that create at least one record
 const MAX_SHARE_RECIPIENTS = 20;       // per request
 const MAX_ROUTINE_ID = 64;
+const MAX_UID = 64;                    // a user id in `to`: ids are 16 characters, this is the bound
 const SHARE_ID_RE = /^[0-9a-f]{16}$/;
 const SHARE_BURST = createWindow({ max: SHARE_CREATIONS_PER_HOUR, windowMs: 3600000 });
 setInterval(() => SHARE_BURST.sweep(), 60000).unref();
@@ -2197,8 +2198,8 @@ const shareRoutes = {
     if (typeof routineId !== 'string' || !routineId || routineId.length > MAX_ROUTINE_ID) {
       return badShareRequest(res, `routineId must be a string of 1 to ${MAX_ROUTINE_ID} characters`);
     }
-    if (!Array.isArray(to) || !to.length || to.length > MAX_SHARE_RECIPIENTS || !to.every(id => typeof id === 'string' && id)) {
-      return badShareRequest(res, `to must be a list of 1 to ${MAX_SHARE_RECIPIENTS} user ids`);
+    if (!Array.isArray(to) || !to.length || to.length > MAX_SHARE_RECIPIENTS || !to.every(id => typeof id === 'string' && id && id.length <= MAX_UID)) {
+      return badShareRequest(res, `to must be a list of 1 to ${MAX_SHARE_RECIPIENTS} user ids of at most ${MAX_UID} characters`);
     }
     if (new Set(to).size !== to.length) return badShareRequest(res, 'to lists the same user twice');
     // Only the caller's own document: a `shared:` pointer is never in `routines`, so this is also
