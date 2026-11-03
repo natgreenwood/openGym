@@ -1929,6 +1929,11 @@ export const useStore = create((set, get) => {
       // Held for a sign-in's question: "Sync now" is asking it (again), and the sync follows.
       if (adoptHold) { await get().resumeAdoption(); if (adoptHold) return get().sync }
       if (pulling) await pulling
+      // The share lists first, then the document, the order checkRev keeps (NATG-501): a sharer's
+      // edit, a revoke or a share that is no longer available shows after Sync now too, and a
+      // pointer the document brings is judged by lists at least as new as it.
+      const { config, user, shares } = get()
+      if (sharingAvailable(config, user, { demo: DEMO }) || sharesOf(shares, user)) await get().loadSharesNewer()
       await get().pullState()
       return get().sync
     },
