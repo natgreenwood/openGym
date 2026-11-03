@@ -57,11 +57,15 @@ const RoutineSharing = forwardRef(function RoutineSharing({ routine, S, shares }
       confirmText: t('Unshare'), danger: true,
       onConfirm: () => {
         setLeaving(s => new Set(s).add(o.id))
+        // Whose unshare this is: an answer that lands after the account changed says nothing, so
+        // the recipient's name never shows to whoever is signed in now.
+        const uid = useStore.getState().user?.id
+        const mine = () => useStore.getState().user?.id === uid
         api('/api/shares/' + encodeURIComponent(o.id), { method: 'DELETE' })
-          .then(() => toast(t('Stopped sharing with {0}.', o.to.name)))
+          .then(() => { if (mine()) toast(t('Stopped sharing with {0}.', o.to.name)) })
           // Already gone (revoked on another device): what was asked for is true, so say so.
-          .catch(e => e?.status === 404 ? toast(t('Stopped sharing with {0}.', o.to.name)) : toast(t('Couldn’t unshare. Check your connection and try again.')))
-          .finally(() => { reload(); setLeaving(s => { const n = new Set(s); n.delete(o.id); return n }) })
+          .catch(e => { if (mine()) toast(e?.status === 404 ? t('Stopped sharing with {0}.', o.to.name) : t('Couldn’t unshare. Check your connection and try again.')) })
+          .finally(() => { if (mine()) reload(); setLeaving(s => { const n = new Set(s); n.delete(o.id); return n }) })
       }
     })
   }

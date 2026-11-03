@@ -29,23 +29,31 @@ export default function ShareRoutineSheet({ routine, already, close, onShared, r
   const searchRef = useRef(null)
   const retryRef = useRef(null)
   const has = already instanceof Set ? already : new Set(already || [])
+  // False once the sheet has gone: closed, or closed for it when the account changed (useUI). An
+  // answer that lands after that is dropped, so nothing of it reaches whoever is signed in now.
+  const alive = useRef(true)
 
   const load = () => {
     setLoadFailed(false)
     return api('/api/shares/recipients')
       .then(r => {
+        if (!alive.current) return null
         const users = Array.isArray(r?.users) ? r.users.filter(u => u && u.id) : []
         setPeople(users)
         // Someone picked who has gone since is dropped, not sent.
         setPicked(cur => new Set([...cur].filter(id => users.some(u => u.id === id))))
         return users
       })
-      .catch(() => { setLoadFailed(true); return null })
+      .catch(() => { if (alive.current) setLoadFailed(true); return null })
   }
   useEffect(() => {
+    alive.current = true
     load()
     searchRef.current?.focus({ preventScroll: true })
-    return () => { if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true }) }
+    return () => {
+      alive.current = false
+      if (returnFocus?.isConnected) returnFocus.focus({ preventScroll: true })
+    }
   }, [])
   useEffect(() => { if (err) retryRef.current?.focus({ preventScroll: true }) }, [err])
 
@@ -64,13 +72,14 @@ export default function ShareRoutineSheet({ routine, already, close, onShared, r
     setErr(null)
     const to = [...picked]
     api('/api/shares', { method: 'POST', body: JSON.stringify({ routineId: routine.id, to }) })
-      .then(() => { close(); onShared?.(to.length) })
+      .then(() => { if (!alive.current) return; close(); onShared?.(to.length) })
       .catch(e => {
+        if (!alive.current) return
         const m = shareError(e, routine.name)
         setErr(m)
         if (m.refresh) load()
       })
-      .finally(() => setSending(false))
+      .finally(() => { if (alive.current) setSending(false) })
   }
 
   // Nobody else has a profile here: nothing to pick, so the sheet says so and offers only OK.

@@ -455,6 +455,22 @@ export const useUI = create((set, get) => ({
   }
 }))
 
+// Leaving a signed-in account (a sign-out, a switch to another account, another tab of this
+// browser signing someone else in: useStore's storage listener) closes every sheet and the toast.
+// A sheet keeps what it was opened with, whatever happens to the store after: a share picker kept
+// the routine's name and who already had it, an unshare confirm its recipient and its callback,
+// all on screen and live for whoever signed in next (SEC-01). A toast's Undo would replay the
+// previous account's change into the next one's copy. Closing unmounts them, so none of their
+// callbacks can run afterwards. A guest signing in keeps its sheets: they hold no one else's data,
+// and the sign-in's own sheets (the adopt question) open after the account is set. The same id
+// coming back (boot re-reading /api/me) is no change. `subscribe` is absent only where a test
+// stands a stub in for the store.
+useStore.subscribe?.((next, prev) => {
+  if (!prev.user || next.user?.id === prev.user.id) return
+  useUI.getState().closeAll()
+  useUI.getState().dismissToast()
+})
+
 // A reload in the middle of a rest (pull to refresh, a WebView restart, an update) used to drop
 // the countdown while its alarm still rang later. The rest lives on in localStorage and comes
 // back at boot while its end is still ahead, held if it was paused. Not sessionStorage: that

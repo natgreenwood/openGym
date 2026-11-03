@@ -153,6 +153,20 @@ describe('ShareRoutineSheet', () => {
     expect(row('Alex Morgan')).toBeTruthy()
   })
 
+  // SEC-01: a sheet closed under it (the account changed) ignores what answers afterwards.
+  it('does nothing with a share answer that lands after it has gone', async () => {
+    let answer
+    net.create = () => new Promise(resolve => { answer = resolve })
+    const { close, onShared } = await mount()
+    act(() => row('Alex').click())
+    act(() => shareBtn().click())
+    act(() => root.unmount())
+    await act(async () => { answer({ shares: [], etag: 'e' }); await new Promise(r => setTimeout(r, 0)) })
+    expect(close).not.toHaveBeenCalled()
+    expect(onShared).not.toHaveBeenCalled()
+    root = createRoot(document.createElement('div'))
+  })
+
   it('gives focus back to what opened it when it closes', async () => {
     const opener = document.createElement('button')
     document.body.appendChild(opener)
