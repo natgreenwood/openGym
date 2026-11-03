@@ -1,6 +1,7 @@
 import { uid } from './format.js'
 import { modeOf, defaultConfig, isPerSide, entryRoutineId, setsFromRows } from './history.js'
 import { isSideSet, isWarmupRow, hasCompletedWork, modeForEntry } from './workout-model.js'
+import { isSharedId } from './routine-lookup.js'
 
 // A saved workout is evidence of what was logged, not a live routine. Copy only its flat
 // exercise setup on this explicit action; finishing a workout never calls this helper.
@@ -149,10 +150,12 @@ export function saveSessionAsRoutine(state, session, name) {
 // One group per routine (a combined day can add to two), only exercises the routine does not
 // have yet and that had a completed set: a skipped one was not part of the workout. A swap keeps
 // its slot and is not an addition.
+// A routine shared with you is never offered (NATG-486 AC5): it can't be changed, so an exercise
+// added to its session stays with the workout only.
 export function routineAdditions(active, routines = []) {
   const groups = new Map()
   for (const entry of sessionEntries(active)) {
-    if (entry?.addedInSession !== true || !entry.rid || !(entry.sets || []).some(hasCompletedWork)) continue
+    if (entry?.addedInSession !== true || !entry.rid || isSharedId(entry.rid) || !(entry.sets || []).some(hasCompletedWork)) continue
     const routine = (Array.isArray(routines) ? routines : []).find(r => r?.id === entry.rid)
     if (!routine || !Array.isArray(routine.ex) || routine.ex.some(x => x?.id === entry.id)) continue
     if (!groups.has(routine.id)) groups.set(routine.id, { routine, entries: [] })

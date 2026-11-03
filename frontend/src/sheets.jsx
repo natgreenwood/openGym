@@ -59,6 +59,9 @@ import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
 import { useSharedCounts } from './lib/use-shared-counts.js'
+import { useSharedRoutines, sharedNow } from './lib/use-shared-routines.js'
+import { routineById } from './lib/routine-lookup.js'
+import { unavailableOf } from './lib/shared-routines.js'
 import { useAutoMore } from './lib/use-auto-more.js'
 import { isFav, toggleFav, sortFavouritesFirst, sortYoursFirst } from './lib/favourites.js'
 import { buildSessionEntries, buildPlannedEntry, buildSessionEntry, plannedConfigOf } from './lib/session-start.js'
@@ -214,6 +217,7 @@ const dayList = days => new Intl.ListFormat(dateLocale()).format(days.map(d => t
 function StarterPlanChooser({ close }) {
   const week = useStore(s => s.S.week)
   const routines = useStore(s => s.S.routines)
+  const shared = useSharedRoutines()
   const profiles = useStore(s => s.S.equipProfiles) || []
   // Fitting starts on for the profile you already filter by; '' leaves the plan as written.
   const [fitId, setFitId] = useState(() => activeProfile(useStore.getState().S)?.id || '')
@@ -223,7 +227,7 @@ function StarterPlanChooser({ close }) {
     close()
     // A confirmation is only worth showing when one of those days is actually occupied — by a
     // routine that still exists, not by a stale id the Plan already shows as "Rest".
-    const taken = day => [].concat(week[day] || []).some(id => routines.some(r => r.id === id))
+    const taken = day => [].concat(week[day] || []).some(id => !!routineById({ routines }, id, shared))
     if (!days.some(taken)) { loadStarterPlan(id, fit); return }
     confirmSheet({
       title: t('Load {0}?', name),
@@ -1656,7 +1660,7 @@ function commitActiveSwap(index, ex, cfg) {
   // A swap is an in-place substitution — routine identity is unchanged, so the replacement
   // keeps the slot's own `rid` and reads its prescription from that routine (not a
   // session-wide one). A slot with no `rid` is freestyle.
-  const slotRoutine = current.rid ? st.routines.find(r => r.id === current.rid) : null
+  const slotRoutine = current.rid ? routineById(st, current.rid, sharedNow()) : null
   // Same rows the add flow builds (buildSessionEntry).
   const built = buildSessionEntry(st, ex.id, cfg, slotRoutine, current)
   const replacement = {
@@ -2560,6 +2564,9 @@ function PlanImport({ bundle, close }) {
 /* ============================ day override / assign ============================ */
 function DayOverride({ iso, close }) {
   const st = useStore(s => s.S)
+  // The routines shared with you plan a day like your own (NATG-486 AC4).
+  const shared = useSharedRoutines()
+  const nameOf = id => routineById(st, id, shared)?.name
   const hasOvr = st.dayPlan[iso] !== undefined
   // A fulfilled pin (a coach session pinned here and since done) reads as no override, as it does
   // everywhere else — the row to clear the leftover entry stays.
@@ -2567,11 +2574,11 @@ function DayOverride({ iso, close }) {
   // The plan the day would have without its override — the weekday's routines, and in a coach
   // week the queue's session for the day in front of them, same as the Home row shows.
   const { [iso]: _ovr, ...noOvr } = st.dayPlan
-  const weeklyNames = effectiveRoutineIds({ ...st, dayPlan: noOvr }, iso).map(id => st.routines.find(r => r.id === id)?.name).filter(Boolean)
+  const weeklyNames = effectiveRoutineIds({ ...st, dayPlan: noOvr }, iso, todayISO(), shared.ids).map(nameOf).filter(Boolean)
   // A weekday can hold several routines; the per-date override stays single-pick, so picking
   // one here collapses a combined day to it (docs/dev/COMBINE_ROUTINES.md §8). The check marks
   // show everything currently planned for the day.
-  const effIds = effectiveRoutineIds(st, iso)
+  const effIds = effectiveRoutineIds(st, iso, todayISO(), shared.ids)
   // A planned day in the past with nothing logged was missed — or trained and never logged,
   // like a run you forgot to start the app for (#284). Logging it opens "Log a past workout" on
   // that date with the day's routines picked, where the time and the duration can still change.
@@ -2596,7 +2603,7 @@ function DayOverride({ iso, close }) {
   const set = v => {
     update(s => { if (!v) delete s.dayPlan[iso]; else s.dayPlan[iso] = v })
     close()
-    toast(v === '' ? t('Back to weekly plan') : v === 'rest' ? t('{0} set to rest', fmtDate(iso)) : t('{0} planned for {1}', (st.routines.find(r => r.id === v) || {}).name, fmtDate(iso)))
+    toast(v === '' ? t('Back to weekly plan') : v === 'rest' ? t('{0} set to rest', fmtDate(iso)) : t('{0} planned for {1}', nameOf(v), fmtDate(iso)))
   }
   const row = r => <div key={r.id} className="item" {...tappable(() => set(r.id))}>
     <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -2621,6 +2628,7 @@ function DayOverride({ iso, close }) {
     </>}
     <div className="list">
       {st.routines.filter(r => !remaining.includes(r.id)).map(row)}
+      {shared.routines.map(row)}
       <div className="item" {...tappable(() => set('rest'))}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest / skip this day')}</div></div>{effIds.length === 0 && <Icon name="check" className="accent" />}</div>
       {hasOvr && <div className="item" {...tappable(() => set(''))}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="reset" /></span><div className="grow"><div className="tt">{t('Back to weekly plan')}</div></div></div>}
     </div>
@@ -2671,7 +2679,11 @@ export const dayNoteSheet = iso => ui().openSheet(close => <DayNote iso={iso} cl
 // for a second pick, so "Done" closes it. The weekday never stores [] (the key goes instead).
 function DayAssign({ day, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const cur = [].concat(st.week[day] || [])
+  // A shared routine that is not available right now but is on this day stays listed, ticked,
+  // so it can be taken off the day (NATG-486 AC9).
+  const offHere = cur.map(id => unavailableOf(shared, id)).filter(Boolean)
   const toggle = id => update(s => {
     const ids = [].concat(s.week[day] || [])
     const next = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]
@@ -2692,6 +2704,25 @@ function DayAssign({ day, close }) {
         </div>
       })}
     </div>
+    {/* The routines shared with you, scheduled the same way (NATG-486 AC4). */}
+    {(shared.routines.length > 0 || offHere.length > 0) && <>
+      <h4 className="sec">{t('Shared with you')}</h4>
+      <div className="list menu-list">
+        {shared.routines.map(r => {
+          const on = cur.includes(r.id)
+          return <div key={r.id} className="item menu-item" aria-pressed={on} {...tappable(() => toggle(r.id))}>
+            <span className="lrow-i has-badge"><Icon name={glyphOf(r.emoji)} /><span className="shared-badge" aria-hidden="true"><Icon name="people" /></span></span>
+            <div className="grow"><div className="tt">{r.name}</div><div className="ss">{[r.shared.from.name ? t('From {0}', r.shared.from.name) : '', exCount(r.ex.length)].filter(Boolean).join(' · ')}</div></div>
+            <span className={'menu-on' + (on ? ' is-on' : '')}><Icon name="check" /></span>
+          </div>
+        })}
+        {offHere.map(u => <div key={u.id} className="item menu-item" aria-pressed="true" {...tappable(() => toggle(u.id))}>
+          <span className="lrow-i unavail"><Icon name="warning" /></span>
+          <div className="grow"><div className="tt">{u.name || t('Shared routine')}</div><div className="ss">{t('Not available right now')}</div></div>
+          <span className="menu-on is-on"><Icon name="check" /></span>
+        </div>)}
+      </div>
+    </>}
     <div style={{ height: 12 }} />
     <Button variant="primary" onClick={close}>{t('Done')}</Button>
   </>
@@ -2776,6 +2807,7 @@ function WorkoutDetail({ w, close }) {
   const noteRef = useRef(null)
   const onNoteFocus = useSheetKeyboard(noteRef)
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const update = useStore(s => s.update)
   // The session note is editable here rather than only at the finish sheet: what you want to
   // record about a session is often clearer once you have looked at what you actually did.
@@ -2865,7 +2897,7 @@ function WorkoutDetail({ w, close }) {
     <h3>{w.name}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(sessionVolume(w, st), st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
     {grouped ? groups.map(g => {
-      const r = g.rid ? st.routines.find(x => x.id === g.rid) : null
+      const r = g.rid ? routineById(st, g.rid, shared) : null
       const items = g.items.map(i => w.entries[i])
       const setN = items.reduce((n, e) => n + e.sets.filter(s => s.done && !isWarmupRow(s)).length, 0)
       const vol = workoutVolume({ entries: items }, { warmups: countsWarmups(st) })
@@ -3039,6 +3071,7 @@ export const workoutDetailSheet = w => ui().openSheet(close => <WorkoutDetail w=
 /* ============================ calendar ============================ */
 function Calendar({ start, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   // A day as 'YYYY-MM-DD' is read at local noon: new Date('2026-09-01') is UTC midnight, which is
   // still August west of UTC, so a tap on the 1st in Stats opened the month before (found by the
   // weekly run in America/Los_Angeles, .github/workflows/audit.yml).
@@ -3061,7 +3094,7 @@ function Calendar({ start, close }) {
   for (let d = 1; d <= daysIn; d++) {
     const iso = y + '-' + String(mo + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
     // A fulfilled pin (a coach session pinned here and since done) reads as no override, as it does everywhere else.
-    const ws = byDay[iso], planned = effectiveRoutineIds(st, iso).length > 0, ovr = st.dayPlan[iso] !== undefined && pinState(st, st.dayPlan[iso]) !== 'done'
+    const ws = byDay[iso], planned = effectiveRoutineIds(st, iso, todayISO(), shared.ids).length > 0, ovr = st.dayPlan[iso] !== undefined && pinState(st, st.dayPlan[iso]) !== 'done'
     // A day off with a note on it (#261) shows the note's dot instead of the plan's, and its
     // note as the tooltip; tapping it opens the day sheet, where the note is.
     const note = !ws && dayNoteOf(st, iso)
@@ -3096,7 +3129,8 @@ export const calendarSheet = start => ui().openSheet(close => <Calendar start={s
 /* shared small workout row (used in lists) */
 export function WorkoutRow({ w, onClick }) {
   const st = useStore(s => s.S)
-  const glyph = glyphOf((st.routines.find(r => r.id === w.routineId) || {}).emoji)
+  const shared = useSharedRoutines()
+  const glyph = glyphOf(routineById(st, w.routineId, shared)?.emoji)
   const mediaN = workoutMediaCount(w)
   return <div className="item" {...tappable(onClick)}>
     <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19 }}><Icon name={glyph} /></span>
@@ -3131,7 +3165,8 @@ export function startFlow(routineIds) {
 // so the sets ticked on it find it, and its start time, however late the phone hears of it.
 export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
   const st = S()
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(st, routineIds)
+  // A shared routine starts from the version this device last synced (NATG-486 AC4, AC8).
+  const { entries, routineIds: rids, routines } = buildCombinedEntries(st, routineIds, sharedNow())
   const startAt = Number.isFinite(start) && start > 0 ? start : Date.now()
   update(s => {
     s.active = {
@@ -3185,8 +3220,9 @@ export function repeatWorkout(w, close) {
 const PLANNED_DAY = '__planned-day'
 function LogPastWorkout({ initial, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
-  const planned = [].concat(initial?.routineIds || []).map(id => st.routines.find(r => r.id === id)).filter(Boolean)
+  const planned = [].concat(initial?.routineIds || []).map(id => routineById(st, id, shared)).filter(Boolean)
   const [date, setDate] = useState(initial?.iso || isoOf(yesterday))
   const [time, setTime] = useState('18:00')
   const [dur, setDur] = useState(60)
@@ -3196,6 +3232,7 @@ function LogPastWorkout({ initial, close }) {
     { value: '', label: t('Freestyle') },
     ...(planned.length > 1 ? [{ value: PLANNED_DAY, label: deriveSessionName(planned.map(r => r.name)) }] : []),
     ...st.routines.map(r => ({ value: r.id, label: r.name })),
+    ...shared.routines.map(r => ({ value: r.id, label: r.name })),
   ]
 
   const go = replaceId => {
@@ -3265,7 +3302,7 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
   const st = S()
   const start = backfillStart(iso, time)
   const past = historyAsOf(st, { d: iso, start, replaceId })
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(past, routineIds || [])
+  const { entries, routineIds: rids, routines } = buildCombinedEntries(past, routineIds || [], sharedNow())
   update(s => {
     s.active = {
       id: uid(), d: iso, start,
@@ -3288,6 +3325,7 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
 // `s.active.cur` is left where it is — the appended block is reached by scrolling / Next.
 function AddRoutineToSession({ close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const active = st.active
   if (!active) return null
   const inSession = new Set([].concat(active.routineIds || []))
@@ -3300,7 +3338,7 @@ function AddRoutineToSession({ close }) {
       s.active.entries.push(...entries.map(e => joinSessionNoProg(s.active, e)))
       s.active.routineIds = [...[].concat(s.active.routineIds || []), r.id]
       if (!s.active.customName) {
-        s.active.name = deriveSessionName(s.active.routineIds.map(id => s.routines.find(x => x.id === id)?.name).filter(Boolean))
+        s.active.name = deriveSessionName(s.active.routineIds.map(id => routineById(s, id, shared)?.name).filter(Boolean))
       }
     })
     close()
@@ -3309,7 +3347,7 @@ function AddRoutineToSession({ close }) {
   return <>
     <h3>{t('Add routine')}</h3>
     <div className="list">
-      {st.routines.map(r => {
+      {[...st.routines, ...shared.routines].map(r => {
         const already = inSession.has(r.id)
         const empty = !(r.ex || []).length
         const disabled = already || empty

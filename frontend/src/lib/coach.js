@@ -22,6 +22,7 @@ import { t, tn } from './i18n.js'
 import { snapshotKey } from './sync-merge.js'
 import { scheduleModeOf, startNewPass } from './rotation.js'
 import { queueOf } from './queue.js'
+import { isSharedId } from './routine-lookup.js'
 
 // Bumping this re-prompts everyone: it means what we share, or who we share it with, changed.
 // 2: the training line names the session notes, which the payload carries and version 1 never
@@ -139,7 +140,10 @@ export const planHash = S => hashPlan(canonicalPlan(S))
 
 /* ============================ staleness ============================ */
 
-const findRoutine = (S, id) => (S.routines || []).find(r => r.id === id) || null
+// Your own routines only. A routine shared with you (`shared:<id>`) is someone else's and can't
+// be changed (NATG-486 AC5), so the Coach never finds one: a change naming it is stale, and
+// applying it fails (applyChangeSet).
+const findRoutine = (S, id) => (isSharedId(id) ? null : (S.routines || []).find(r => r.id === id) || null)
 const findEx = (routine, id) => (routine?.ex || []).find(e => e.id === id) || null
 
 // The Coach reads a routine's name cut at 80 characters (NAME_MAX in api/coach/core/payload.js),
@@ -602,6 +606,9 @@ export function applyChangeSet(s, proposal, acceptedIds) {
   pushSnapshot(s, proposal.id, t('Before the Coach’s changes'))
   const applied = []
   for (const c of changes) {
+    // remove-routine deletes by id without looking the routine up first; a shared one is not the
+    // Coach's to touch, whatever the change says.
+    if (isSharedId(c.target?.routineId)) throw new Error('missing target')
     CHANGE_APPLY[c.type](s, c)
     applied.push(decisionOf(c, 'accepted'))
   }
