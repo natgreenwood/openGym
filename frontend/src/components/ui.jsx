@@ -115,7 +115,7 @@ export function Switch({ checked, onChange, disabled, ...accessibility }) {
 
 /* ============================ segmented ============================ */
 
-// options: [{ value, label, icon? }]  — the selected pill slides between cells.
+// options: [{ value, label, icon?, dot?, ariaLabel? }]  — the selected pill slides between cells.
 export function Segmented({ options, value, onChange, className = '' }) {
   const i = Math.max(0, options.findIndex(o => o.value === value))
   return (
@@ -126,10 +126,13 @@ export function Segmented({ options, value, onChange, className = '' }) {
           key={o.value}
           className={o.value === value ? 'on' : ''}
           aria-pressed={o.value === value}
+          aria-label={o.ariaLabel}
           onClick={() => onChange(o.value)}
         >
           {o.icon && <Icon name={o.icon} />}
           {o.label && <span>{o.label}</span>}
+          {/* Something waits on this option (Plan's Shared, NATG-486); `ariaLabel` says what. */}
+          {o.dot && <span className="seg-dot" aria-hidden="true" />}
         </button>
       ))}
     </div>

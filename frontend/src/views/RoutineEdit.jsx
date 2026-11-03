@@ -26,6 +26,8 @@ import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import RoutineSharing, { useRoutineShares } from '../components/RoutineSharing.jsx'
+import SharedRoutineView from './SharedRoutineView.jsx'
+import { isSharedId } from '../lib/routine-lookup.js'
 
 export const ROUTINE_LONG_PRESS_MS = 380
 export const ROUTINE_DRAG_SLOP = 8
@@ -364,7 +366,14 @@ export function undoRemoveRoutineExercise({ routineId, i, before, after, base, d
   return true
 }
 
+// A routine shared with you opens read-only (NATG-486): none of this page's editing is offered
+// for it. Decided by the id alone, an exact `shared:` prefix (lib/routine-lookup.js).
 export default function RoutineEdit() {
+  const { id } = useParams()
+  return isSharedId(id) ? <SharedRoutineView key={id} id={id} /> : <OwnRoutineEdit />
+}
+
+function OwnRoutineEdit() {
   const nav = useNavigate()
   const { id } = useParams()
   const S = useStore(s => s.S)

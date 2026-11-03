@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { DAYN, DAYS, weekOrder, weekStartOf, uid, exCount, routineCount, todayISO, fmtDate } from '../lib/format.js'
-import { t } from '../lib/i18n.js'
+import { t, tn } from '../lib/i18n.js'
 import {
   dayAssignSheet, starterPlanSheet, confirmSheet, menuSheet,
   planHasRoutines, exportPlanFile, printWholePlan, importPlanFile,
@@ -22,6 +22,10 @@ import { DEMO } from '../lib/demo.js'
 import { MOBILE } from '../lib/mobile.js'
 import { coachAvailable } from '../lib/coach.js'
 import { sharingAvailable, sharesOf, shareCounts } from '../lib/shares.js'
+import { routineById, isSharedId } from '../lib/routine-lookup.js'
+import { unavailableOf } from '../lib/shared-routines.js'
+import { useSharedRoutines } from '../lib/use-shared-routines.js'
+import SharedRoutines, { useSharedTab, SharedGlyph, unavailableLine } from '../components/SharedRoutines.jsx'
 import { queueOf, queueView } from '../lib/queue.js'
 import { deriveSessionName } from '../lib/session-merge.js'
 import { markUndone, undoMarks } from '../lib/sync-merge.js'
@@ -30,12 +34,14 @@ import {
   chooseRotation, chooseFixedWeek, sequenceOf, isSimpleSequence, segmentAt, REST,
 } from '../lib/rotation.js'
 
-// Plan has two views (v1.3.11): Schedule (how you train, and when) and Routines (what you
-// train). The last one you looked at comes back: a per-device convenience, never synced, so it
-// lives in this browser's storage and not in S.
+// Plan has three views: Schedule (how you train, and when), Routines (what you train, v1.3.11)
+// and Shared (what other people on this server shared with you, NATG-486). The last one you
+// looked at comes back: a per-device convenience, never synced, so it lives in this browser's
+// storage and not in S.
 export const PLAN_VIEW_KEY = 'gym_plan_view'
+const VIEWS = ['schedule', 'routines', 'shared']
 const readView = () => {
-  try { return localStorage.getItem(PLAN_VIEW_KEY) === 'routines' ? 'routines' : 'schedule' } catch { return 'schedule' }
+  try { const v = localStorage.getItem(PLAN_VIEW_KEY); return VIEWS.includes(v) ? v : 'schedule' } catch { return 'schedule' }
 }
 
 /* Undo for Plan's two removals (v1.3.11). Both go through the store's normal update, so sync
@@ -137,7 +143,11 @@ export default function Plan() {
   const coachMode = useStore(s => s.coachLocal?.mode)
   const user = useStore(s => s.user)
   const fileRef = useRef(null)
-  const [view, setViewState] = useState(readView)
+  const [savedView, setViewState] = useState(readView)
+  // Shared is there while sharing is on for you, or while this device holds shares from before
+  // (a phone that starts offline has no config yet). Without it, a remembered Shared is Schedule.
+  const sharedTab = useSharedTab()
+  const view = savedView === 'shared' && !sharedTab.show ? 'schedule' : savedView
   const setView = v => {
     setViewState(v)
     try { localStorage.setItem(PLAN_VIEW_KEY, v) } catch { /* private mode: the view just isn't remembered */ }
@@ -179,10 +189,18 @@ export default function Plan() {
     </div>
     <input ref={fileRef} type="file" accept="application/json,.json" onChange={pickFile} hidden />
     <Segmented className="plan-views" value={view} onChange={setView}
-      options={[{ value: 'schedule', label: t('Schedule') }, { value: 'routines', label: t('Routines') }]} />
+      options={[
+        { value: 'schedule', label: t('Schedule') },
+        { value: 'routines', label: t('Routines') },
+        // A dot while a share waits for your answer; the name says how many.
+        ...(sharedTab.show ? [{ value: 'shared', label: t('Shared'), dot: sharedTab.waiting > 0,
+          ariaLabel: sharedTab.waiting > 0 ? tn('Shared, {0} waiting', 'Shared, {0} waiting', sharedTab.waiting) : undefined }] : []),
+      ]} />
     {view === 'routines'
       ? <Routines S={S} update={update} nav={nav} />
-      : <Schedule S={S} update={update} nav={nav} mode={mode} />}
+      : view === 'shared'
+        ? <SharedRoutines S={S} />
+        : <Schedule S={S} update={update} nav={nav} mode={mode} />}
   </div>
 }
 
@@ -270,17 +288,28 @@ function Schedule({ S, update, nav, mode }) {
 
   const ws = weekStartOf(S)
   const todayDow = new Date().getDay()
-  const routineOf = id => S.routines.find(x => x.id === id)
+  // Your own routines and the ones shared with you (`shared:<id>`, NATG-486) alike.
+  const shared = useSharedRoutines()
+  const routineOf = id => routineById(S, id, shared)
   const dayRoutines = d => [].concat(S.week[d] || []).map(routineOf).filter(Boolean)
+  // A shared routine that is not available right now keeps its day (NATG-486 AC9): the day says
+  // so rather than reading as rest, and comes back by itself once the share heals.
+  const dayUnavailable = d => [].concat(S.week[d] || []).filter(isSharedId).map(id => unavailableOf(shared, id)).filter(Boolean)
   // One weekday: what is on it at a glance, and a tap to change it (dayAssignSheet picks one
   // routine, several for a combined day, or a rest day).
-  const dayRow = (d, rs = dayRoutines(d)) => {
+  const dayRow = (d, rs = dayRoutines(d), off = dayUnavailable(d)) => {
+    const one = rs.length === 1 ? rs[0] : null
+    const sub = one?.shared
+      ? [one.shared.from.name ? t('From {0}', one.shared.from.name) : '', exCount(one.ex.length)].filter(Boolean).join(' · ')
+      : one ? exCount(one.ex.length) : rs.length ? routineCount(rs.length)
+        : off.length ? unavailableLine(off[0]) : t('Tap to plan something')
     return <div key={d} className="item plan-day" data-day={d} aria-label={t(DAYN[d])} {...tappable(() => dayAssignSheet(d))}>
       <span className={'plan-day-n' + (d === todayDow ? ' today' : '')} aria-hidden="true">{t(DAYS[d])}</span>
-      <span className={'lrow-i' + (rs.length ? '' : ' rest')}><Icon name={rs.length ? glyphOf(rs[0].emoji) : 'moon'} /></span>
+      {rs.length ? (rs[0].shared ? <SharedGlyph routine={rs[0]} /> : <span className="lrow-i"><Icon name={glyphOf(rs[0].emoji)} /></span>)
+        : off.length ? <SharedGlyph unavailable /> : <span className="lrow-i rest"><Icon name="moon" /></span>}
       <div className="grow">
-        <div className="tt">{rs.length ? deriveSessionName(rs.map(r => r.name)) : t('Rest day')}</div>
-        <div className="ss">{rs.length === 1 ? exCount(rs[0].ex.length) : rs.length ? routineCount(rs.length) : t('Tap to plan something')}</div>
+        <div className="tt">{rs.length ? deriveSessionName(rs.map(r => r.name)) : off.length ? (off[0].name || t('Shared routine')) : t('Rest day')}</div>
+        <div className="ss">{sub}</div>
       </div>
       {rs.length > 0 && <MiniBodyMap routines={rs} body={S.body} />}
       <Icon name="chevronRight" className="chev" />
