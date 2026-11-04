@@ -594,6 +594,14 @@ export const useStore = create((set, get) => {
   const sameCopy = (a, b) => JSON.stringify({ ...a, _ts: 0 }) === JSON.stringify({ ...b, _ts: 0 })
   const readWid = () => { try { return localStorage.getItem(WID_KEY) } catch { return null } }
   const readOwner = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
+  // A request's answer is still for this tab: `uid`, the user it was sent for, is the one signed in
+  // here, and the browser's owner too (undefined: sent with nobody signed in). The owner key is
+  // what another tab's sign-out or sign-in writes first, so it has moved even while this tab's
+  // storage event for it is still queued and the store names the previous user (NATG-528). An
+  // answer for anyone else is dropped whole: taken or saved, it put the previous account's copy
+  // back into the browser after its sign-out, and persist() then moved seenOwner, so the owner
+  // event, once it ran, found nothing to clear.
+  const answerIsFor = uid => get()?.user?.id === uid && (uid === undefined || readOwner() === uid)
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
   const readWidOwner = () => { try { return localStorage.getItem(WID_OWNER_KEY) } catch { return null } }
   // The saved copy is the one this tab may join: written under the owner this tab holds. QA
@@ -791,6 +799,7 @@ export const useStore = create((set, get) => {
 
   const doPush = async (attempt = 0) => {
     const S = get().S
+    const uid = get().user?.id   // whose copy this is; an answer that lands after they have gone is dropped (answerIsFor)
     const { base } = metaOf()
     // A forced push is one attempt. One that fails is retried as an ordinary push against the
     // revision this copy descends from: kept armed, it went out later without a baseRev and
@@ -809,6 +818,7 @@ export const useStore = create((set, get) => {
     else if (!force && base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     try {
       const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
+      if (!answerIsFor(uid)) return
       // A server from before revisions answers without one — then there is nothing to hold the
       // next push to, and the marker must not pretend otherwise.
       if (r.rev == null) dropSync()
@@ -824,6 +834,7 @@ export const useStore = create((set, get) => {
         import('./useUI.js').then(({ useUI }) => useUI.getState().toast(t('Back online and synced with the server.'))).catch(() => {})
       }
     } catch (e) {
+      if (!answerIsFor(uid)) return   // a 409 would merge the previous account's document in
       if (e.status === 409 && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
         // merge and push once more against that revision. A second refusal in a row leaves the
@@ -1907,7 +1918,7 @@ export const useStore = create((set, get) => {
           if (pushTm) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
           const res = await api('/api/data')
-          if (get().user?.id !== uid) return
+          if (!answerIsFor(uid)) return
           lastCheck = Date.now()
           reached()
           const { state, rev } = res
@@ -1951,7 +1962,7 @@ export const useStore = create((set, get) => {
           mergeInto(S, state, rev)
           pushPending = false
           await get().pushState()
-        } catch (e) { if (get().user?.id === uid) failed(e) /* keep local; the poll retries */ }
+        } catch (e) { if (answerIsFor(uid)) failed(e) /* keep local; the poll retries */ }
         finally { if (pulling === mine) pulling = null }
       })()
       return mine.promise
