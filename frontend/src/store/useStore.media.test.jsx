@@ -13,9 +13,7 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
-import { createMediaStore, memoryBackend, _setMediaStore } from '../lib/media-store.js'
-import { _resetMediaOwed, registerMediaRunner } from '../lib/media-owed.js'
-import { DEF, useStore } from './useStore.js'
+import { DEF } from './useStore.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const USER = { id: 'user-1', name: 'One' }
@@ -26,10 +24,18 @@ const ref = { kind: 'image', hash: A, mime: 'image/webp', size: 3, width: 8, hei
 const withPhoto = () => ({ ...clone(DEF), _ts: 100, customEx: [{ id: 'c1', n: 'sandbag carry', bp: 'back', custom: true, media: clone(ref) }] })
 const tick = () => new Promise(r => setTimeout(r, 0))
 
-let media
+// A fresh store per test, loaded as a page would be on this browser: whose copy the browser holds
+// is the module's to remember, and a test that signed out left that behind for the next one, whose
+// edit then read as another tab's sign-in. The media modules come with it, so the store sees the
+// in-memory media store and the runner set here.
+let media, useStore, createMediaStore, memoryBackend, _setMediaStore, _resetMediaOwed, registerMediaRunner
 beforeEach(async () => {
   localStorage.clear()
   localStorage.setItem('gym_owner', USER.id)
+  vi.resetModules()
+  ;({ createMediaStore, memoryBackend, _setMediaStore } = await import('../lib/media-store.js'))
+  ;({ _resetMediaOwed, registerMediaRunner } = await import('../lib/media-owed.js'))
+  ;({ useStore } = await import('./useStore.js'))
   api.mockReset(); toast.mockReset()
   _resetMediaOwed()
   media = createMediaStore(memoryBackend())

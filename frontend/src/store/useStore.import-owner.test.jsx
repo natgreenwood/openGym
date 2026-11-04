@@ -13,7 +13,7 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF, useStore } from './useStore.js'
+import { DEF } from './useStore.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const ids = xs => (xs || []).map(x => x.id)
@@ -23,15 +23,24 @@ const reads = () => api.mock.calls.filter(([path]) => path === '/api/data')
 const BACKUP = { ...clone(DEF), _ts: 50, restSec: 120, workouts: [workout('w1'), workout('w2')] }
 const SERVER_A = { ...clone(DEF), _ts: 300, restSec: 60, workouts: [workout('w1'), workout('w2'), workout('a-only', '2026-09-26')], _rev: 7 }
 const SERVER_B = { ...clone(DEF), _ts: 400, restSec: 30, workouts: [workout('b1', '2026-09-27')], _rev: 21 }
+let useStore
 const store = () => useStore.getState()
 
-const signedIn = (uid, S, rev) => {
+// The store is loaded after the storage each one writes, as a page loaded there sees it: it holds
+// that owner (or none) as its own, whatever a test before left behind.
+const load = async () => {
+  vi.resetModules()
+  ;({ useStore } = await import('./useStore.js'))
+}
+const signedIn = async (uid, S, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
   localStorage.setItem('gym_owner', uid)   // as setUser signs in
+  await load()
   useStore.setState({ S, user: { id: uid }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }
-const guest = S => {
+const guest = async S => {
   localStorage.removeItem('gym_owner')
+  await load()
   useStore.setState({ S, user: null, ready: true })
 }
 // Another tab of this browser: its sign-out or sign-in writes the owner key first, and this tab's
@@ -47,7 +56,7 @@ const followed = uid => { otherTab(uid); ownerEvent(); useStore.setState({ user:
 // then the check with it. A signed in with a server workout the backup lacks, or a guest with a
 // workout on this device the backup lacks.
 async function askedAsA() {
-  signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+  await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
   const token = store().importToken()
   api.mockResolvedValueOnce({ state: clone(SERVER_A), rev: 7 })
   const c = await store().importConflict(BACKUP, token)
@@ -55,7 +64,7 @@ async function askedAsA() {
   return { c, token }
 }
 async function askedAsGuest() {
-  guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('guest-only', '2026-09-28')] })
+  await guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('guest-only', '2026-09-28')] })
   const token = store().importToken()
   const c = await store().importConflict(BACKUP, token)
   expect(c).toMatchObject({ workouts: 1, device: true, token })
@@ -84,11 +93,9 @@ beforeEach(() => { localStorage.clear(); api.mockReset(); vi.useFakeTimers({ toF
 afterEach(() => {
   vi.useRealTimers()
   localStorage.clear()
-  useStore.setState({ S: clone(DEF), user: null, ready: false })
+  useStore?.setState({ S: clone(DEF), user: null, ready: false })
 })
 
-// First in the file: the owner events further down leave this store handed over to the new
-// owner (it writes nothing until it has taken that owner's saved copy), as a real tab would be.
 describe('with no account change, the import goes as before', () => {
   it('"Merge them in" as A', async () => {
     const asked = await askedAsA()
@@ -145,7 +152,7 @@ describe('the account changes while the import confirm is open', () => {
   }
 
   it('the plain "Import backup?" confirm (no conflict to warn about) is refused the same way', async () => {
-    signedIn('A', clone(DEF), 6)
+    await signedIn('A', clone(DEF), 6)
     const token = store().importToken()
     api.mockResolvedValueOnce({ state: clone(BACKUP), rev: 7 })
     expect(await store().importConflict(BACKUP, token)).toBeNull()
@@ -153,7 +160,7 @@ describe('the account changes while the import confirm is open', () => {
     expect(store().importIsCurrent(token)).toBe(false)
     expectNothingImported(() => store().importBackup(BACKUP, { token }))
 
-    guest(clone(DEF))
+    await guest(clone(DEF))
     const token2 = store().importToken()
     expect(await store().importConflict(BACKUP, token2)).toBeNull()
     otherTab('B')
@@ -161,7 +168,7 @@ describe('the account changes while the import confirm is open', () => {
   })
 
   it('a switch while the check is still asking the server leaves nothing to confirm', async () => {
-    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     const token = store().importToken()
     let answer
     api.mockReturnValueOnce(new Promise(r => { answer = r }))
@@ -178,7 +185,7 @@ describe('the account changes while the import confirm is open', () => {
 // by what another import's check left behind, and a check for a stale import asks nothing.
 describe('an import is held to the token it began with', () => {
   it('overlapping imports: A\'s, still asking the server, is refused after B\'s confirm is cancelled', async () => {
-    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     const tokenA = store().importToken()
     let answerA
     api.mockReturnValueOnce(new Promise(r => { answerA = r }))
@@ -204,14 +211,14 @@ describe('an import is held to the token it began with', () => {
   })
 
   it('an account switch while the file is still being read: the check asks nothing, the import is refused', async () => {
-    signedIn('A', clone(DEF), 6)
+    await signedIn('A', clone(DEF), 6)
     const token = store().importToken()
     followed('B')   // during readBackupFile
     expect(await store().importConflict(BACKUP, token)).toEqual({ stale: true, token })
     expect(reads()).toHaveLength(0)
     expectNothingImported(() => store().importBackup(BACKUP, { token }))
 
-    guest(clone(DEF))
+    await guest(clone(DEF))
     const guestToken = store().importToken()
     otherTab('B')
     expect(await store().importConflict(BACKUP, guestToken)).toEqual({ stale: true, token: guestToken })
@@ -219,7 +226,7 @@ describe('an import is held to the token it began with', () => {
   })
 
   it('this tab still names A while the owner key says B: no request goes, and A coming back does not revive the import', async () => {
-    signedIn('A', clone(DEF), 6)
+    await signedIn('A', clone(DEF), 6)
     otherTab('B')   // the storage event has not run: user A, owner key B
     const taken = store().importToken()
     expect(taken).toMatchObject({ uid: 'A', owner: 'B' })
@@ -242,7 +249,7 @@ describe('an import is held to the token it began with', () => {
   })
 
   it('A → B → A while the check is asking the server: the answer is not taken as A\'s', async () => {
-    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     const token = store().importToken()
     let answer
     api.mockReturnValueOnce(new Promise(r => { answer = r }))
@@ -255,12 +262,12 @@ describe('an import is held to the token it began with', () => {
   })
 
   it('an import with no token at all writes nothing', async () => {
-    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     expectNothingImported(() => store().importBackup(BACKUP))
     expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: null }))
     // a hand-made answer carries no check's token either
     expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: { state: clone(SERVER_A), rev: 7 } }))
-    guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] })
+    await guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] })
     expectNothingImported(() => store().importBackup(BACKUP))
   })
 
@@ -330,7 +337,7 @@ describe('owner events this tab hears of only after the key is back where it was
 
   it('a check still asking the server across such a round trip comes back stale: no late confirm', async () => {
     settled('A')
-    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     const token = store().importToken()
     let answer
     api.mockReturnValueOnce(new Promise(r => { answer = r }))
