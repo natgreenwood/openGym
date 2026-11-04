@@ -526,6 +526,45 @@ describe('created plans', () => {
     expect(made.media).toBeUndefined()
   })
 
+  // NATG-518: mergePlan keeps a slot's fields from one list (PLAN_SLOT_FIELDS), so what reaches a
+  // profile from the Coach is held to the same rule as a plan file, whatever validatePlan let by.
+  it('stores no slot field outside the plan list, and no own "__proto__" (NATG-518 AC4)', () => {
+    const s = JSON.parse(JSON.stringify(state()))
+    const slot = JSON.parse('{"id":"0001","sets":3,"reps":10,"mode":"reps","evil":"x","__proto__":{"polluted":true}}')
+    expect(Object.hasOwn(slot, '__proto__')).toBe(true)
+    const hostile = { ...bundle, routines: [{ id: 'x1', name: 'A', ex: [slot] }], week: {} }
+    applyCreatedPlan(s, { id: 'p1', kind: 'create', bundle: hostile }, { schedule: false })
+    const stored = s.routines[2].ex[0]
+    expect(stored).toEqual({ id: '0001', sets: 3, reps: 10, mode: 'reps' })
+    expect(Object.hasOwn(stored, '__proto__')).toBe(false)
+    expect(Object.getPrototypeOf(stored)).toBe(Object.prototype)
+    expect(stored.polluted).toBeUndefined()
+    expect({}.polluted).toBeUndefined()
+  })
+
+  it('keeps every field validatePlan writes on a slot except its `why` (NATG-518 AC2)', async () => {
+    const { validatePlan } = await import('../../../api/coach/core/validate.js')
+    const answer = {
+      opengym_plan: 1, name: 'Plan', week: { 1: 'x1' }, customEx: [],
+      routines: [{ id: 'x1', name: 'A', why: 'day', ex: [
+        { id: '0001', sets: 3, mode: 'reps', reps: 8, weight: 60, prog: 'double', inc: 2.5, repsMin: 6, repsMax: 10, setsMax: 5, bodyweight: true, side: true, sg: 'a', why: 'w' },
+        { id: '0002', sets: 3, mode: 'time', sec: 45, weight: 10, sg: 'a', why: 'w' },
+        { id: '0009', sets: 1, mode: 'cardio', min: 20, speed: 8, why: 'w' },
+      ] }],
+    }
+    const v = validatePlan(answer, { workingWeights: [{ id: '0001', best: 100 }, { id: '0002', best: 20 }] })
+    expect(v.ok, JSON.stringify(v.errors)).toBe(true)
+    const written = v.bundle.routines[0].ex
+    expect(written.every(e => e.why)).toBe(true)   // validatePlan keeps it; applying the plan drops it
+    const s = JSON.parse(JSON.stringify(state()))
+    applyCreatedPlan(s, { id: 'p1', kind: 'create', bundle: v.bundle }, { schedule: false })
+    const stored = s.routines[2].ex
+    written.forEach((e, i) => {
+      const { why, ...rest } = e
+      expect(stored[i], `slot ${i}`).toEqual(rest)
+    })
+  })
+
   it('adds routines as new ones and never modifies what was already there', () => {
     const s = JSON.parse(JSON.stringify(state()))
     applyCreatedPlan(s, { id: 'p1', kind: 'create', bundle }, { schedule: false })

@@ -34,7 +34,9 @@ const PLAN_UNITS = new Set(['kg', 'lb'])
 // Ids a plan file may write that a plain object answers from its prototype rather than its own
 // keys: JSON.parse keeps `"__proto__"` as an ordinary key, and writing it back through `o[k] = v`
 // replaces the object's prototype (NATG-514). An id is compared as text, the way a property name
-// is, so `["__proto__"]` is caught as well.
+// is, so `["__proto__"]` is caught as well. The Coach's gate keeps the same list for the ids it
+// lets through (RESERVED_IDS in api/coach/core/validate.js); the API can't import this file, so
+// the two are kept the same by hand.
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const isReservedKey = id => RESERVED_KEYS.has(String(id))
 const inCatalogue = id => Object.hasOwn(EXIDX, id)
@@ -85,7 +87,22 @@ function convertedBundle(bundle, destinationUnit) {
   }
 }
 
-// Keep only the meaningful config fields, so the file stays small and readable.
+// Every field cleanEx can write on a slot, and with that every field a plan file's slot can
+// carry: the current export writes no others, nor did any older one, and the Coach's plans
+// (api/coach/core/validate.js validatePlan) write a subset plus its `why`, which applyCreatedPlan
+// strips. Import keeps these and drops the rest (cleanSlot), so the two sides read one list.
+// Declared rather than read off cleanEx, which writes fields depending on the mode;
+// plan-share.test.js fails when cleanEx writes a field that is not here, or one here is never written.
+export const PLAN_SLOT_FIELDS = Object.freeze([
+  'id', 'sets', 'mode', 'min', 'speed', 'incline', 'sec', 'weight', 'reps',
+  'pyramid', 'pyramidRest', 'pyramidWeight', 'bodyweight', 'side', 'prog', 'inc', 'backoff',
+  'lastToFailure', 'deloadFactor', 'dbLoad', 'repsMin', 'setsMax', 'repsMax', 'restSec', 'restOff',
+  'warmupRestSec', 'warmupRestOff', 'subs', 'sideRestOff', 'sideRestSec', 'sg', 'sgName', 'sgRest',
+  'note', 'warmupSets', 'intensifier',
+])
+
+// Keep only the meaningful config fields, so the file stays small and readable. A field added
+// here goes on PLAN_SLOT_FIELDS too, or import drops it.
 function cleanEx(e) {
   const o = { id: e.id, sets: e.sets }
   const mode = modeOf(e)
@@ -139,7 +156,7 @@ function cleanEx(e) {
   if (e.repsMax != null) o.repsMax = e.repsMax
   // The exercise's own rest (issue #10) is part of how it is prescribed, so it travels too —
   // only when set, so a plan that never asked for one leaves the recipient's own default
-  // timer in charge. parsePlan and mergePlan carry it through by spread.
+  // timer in charge. parsePlan and mergePlan keep it because it is on PLAN_SLOT_FIELDS.
   if (e.restSec > 0) o.restSec = e.restSec
   else if (e.restOff === true) o.restOff = true   // "No timer" for this exercise
   if (e.warmupRestSec > 0) o.warmupRestSec = e.warmupRestSec   // the ramp's own rest travels with the work rest
@@ -216,13 +233,15 @@ function cleanNumber(v) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null
 }
 
-/** The slot with each plain field in the type cleanEx writes it, and dropped when it can't be:
- *  a plan file is someone else's data, so a wrong type is left out rather than stored. */
-function cleanSlotTypes(e) {
-  const o = { ...e }
-  // A file's own `"__proto__"` field is copied as data here, but an Object.assign further on
-  // would turn it into the slot's prototype.
-  RESERVED_KEYS.forEach(k => { if (Object.hasOwn(o, k)) delete o[k] })
+/** The slot as import keeps it: only the PLAN_SLOT_FIELDS it holds as its own keys, each plain
+ *  field in the type cleanEx writes it, and dropped when it can't be. A plan file is someone
+ *  else's data, so whatever export never writes (an unknown field, a file's own `"__proto__"`
+ *  that an Object.assign further on would turn into the slot's prototype) is left out rather
+ *  than stored. The one step for a file (parsePlan) and for a Coach plan (mergePlan). */
+function cleanSlot(e) {
+  const o = {}
+  if (!e || typeof e !== 'object') return o
+  PLAN_SLOT_FIELDS.forEach(k => { if (Object.hasOwn(e, k) && e[k] !== undefined) o[k] = e[k] })
   const keep = (k, v) => { if (v === null) delete o[k]; else o[k] = v }
   SLOT_NUMBERS.forEach(k => { if (k in o) keep(k, cleanNumber(o[k])) })
   SLOT_TEXT.forEach(k => { if (k in o) keep(k, typeof o[k] === 'string' ? o[k] : null) })
@@ -318,11 +337,11 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       if (!ok) dropped++
       return ok
     }).map(slot => {
-      // The exercises pass through as written, so the fields that carry numbers into the
-      // planner get the same clamps on the way in that they get on the way out, and the plain
-      // fields are put in their own types. A drawing's id (the female figure of an exercise)
-      // becomes the exercise's own.
-      const e = cleanSlotTypes(slot)
+      // Only the fields export writes are kept, the plain ones in their own types (cleanSlot),
+      // and the fields that carry numbers into the planner get the same clamps on the way in
+      // that they get on the way out. A drawing's id (the female figure of an exercise) becomes
+      // the exercise's own.
+      const e = cleanSlot(slot)
       const warm = cleanWarmupSets(e.warmupSets)
       const intens = cleanIntensifier(e.intensifier)
       const rest = cleanRestSec(e.restSec)
@@ -376,7 +395,8 @@ export function mergePlan(s, bundle, { schedule } = {}) {
   s.customEx = s.customEx || []
   // Both id maps are Maps keyed by the id as text (what an object key used to coerce it to), so a
   // lookup answers only for an id the file actually gave: never from Object.prototype. The Coach
-  // calls this without parsePlan, so the reserved-key drops are repeated here.
+  // calls this without parsePlan, so the reserved-key drops and the slot allowlist (cleanSlot)
+  // are repeated here.
   const exIdMap = new Map()
   ;(source.customEx || []).forEach(c => {
     if (isReservedKey(c.id)) return
@@ -401,7 +421,7 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       ...(typeof r.emoji === 'string' ? { emoji: r.emoji } : {}),
       ...(typeof r.prog === 'string' && r.prog ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-      ex: (r.ex || []).filter(e => !isReservedKey(e?.id)).map(e => ({ ...e, id: exIdMap.get(String(e.id)) || canonicalExId(e.id) }))
+      ex: (r.ex || []).filter(e => !isReservedKey(e?.id)).map(e => ({ ...cleanSlot(e), id: exIdMap.get(String(e.id)) || canonicalExId(e.id) }))
     })
   })
   if (schedule) {

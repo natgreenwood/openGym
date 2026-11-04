@@ -43,9 +43,13 @@ const MAX_INC = 50;
 // and either way it reaches the plan, the progression engine and a printed line reading "∞ kg".
 const MAX_WEIGHT = 1000;
 const MAX_SPEED = 60;
-// Ids that are object keys downstream (exIdMap/ridMap in plan-share.js). Assigning to them is
-// silently ignored and reading them back yields Object.prototype, which persists into state as
-// {} — a scheduled day that is forever rest, or an exercise that is forever "Unknown".
+// Ids that answer from Object.prototype when used as a plain object's key. Downstream,
+// exIdMap/ridMap in frontend/src/lib/plan-share.js mergePlan are Maps keyed by the id as text, so
+// a lookup never reaches the prototype, and mergePlan drops these ids itself as well. When those
+// maps were plain objects (before NATG-514), such an id resolved to Object.prototype and persisted
+// into state as {}: a scheduled day that is forever rest, or an exercise that is forever "Unknown".
+// The same list is RESERVED_KEYS in plan-share.js; the API can't import the frontend, so the two
+// are kept the same by hand.
 const RESERVED_IDS = ['__proto__', 'constructor', 'prototype'];
 const safeId = v => isStr(v) && !RESERVED_IDS.includes(v);
 const MAX_CHANGES = 25;

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlanBundle, mergePlan, parsePlan } from './plan-share.js'
+import { readFileSync } from 'node:fs'
+import { PLAN_SLOT_FIELDS, buildPlanBundle, mergePlan, parsePlan } from './plan-share.js'
+import { isBodyweightEq } from './exercises.js'
 
 // There was no test file for plan sharing at all, which is how a whole prescription field
 // went missing without anyone noticing.
@@ -648,5 +650,87 @@ describe('parsePlan reads the plan name only when it is text', () => {
 
   it('still trims a string name', () => {
     expect(parsePlan(fileNamed('  My plan  ')).name).toBe('My plan')
+  })
+})
+
+// NATG-518: export writes a known list of slot fields (cleanEx); import used to type the fields it
+// knew and let every other one through. Both sides now read PLAN_SLOT_FIELDS, so a field export
+// never writes can't reach a stored slot, from a file (parsePlan) or a Coach plan (mergePlan).
+describe('a slot keeps only the fields export writes (NATG-518)', () => {
+  // Every key cleanEx can write, read from its source the way shared-routine-parity.test.js does:
+  // cleanEx writes some fields only in some modes, so no set of example slots is sure to reach all.
+  const cleanExKeys = () => {
+    const src = readFileSync(new URL('./plan-share.js', import.meta.url), 'utf8')
+    const start = src.indexOf('function cleanEx(e) {')
+    const body = src.slice(start, src.indexOf('\n}\n', start))
+    const init = /const o = \{([^}]*)\}/.exec(body)[1].split(',').map(p => p.split(':')[0].trim()).filter(Boolean)
+    return new Set([...init, ...[...body.matchAll(/\bo\.(\w+)\s*=/g)].map(m => m[1])])
+  }
+  // Between them these reach every field on the list: pyramid and back-off can't share a slot,
+  // nor a rest with its "no timer", nor cardio with anything rep-shaped.
+  const rich = [
+    { id: '0025', sets: 3, reps: 8, weight: 60, pyramid: [12, 8, 6], pyramidRest: [60, 90, 90], pyramidWeight: [40, 50, 60],
+      bodyweight: !isBodyweightEq('0025'), side: true, sideRestSec: 20, prog: 'double', inc: 2.5, lastToFailure: true,
+      deloadFactor: 0.8, dbLoad: 'each', repsMin: 6, setsMax: 5, repsMax: 10, restSec: 120, warmupRestSec: 60,
+      subs: ['0031'], sg: 'a', sgName: 'Pair', sgRest: 90, note: 'Pause', warmupSets: 2,
+      intensifier: { type: 'dropset', count: 1, pct: 20 } },
+    { id: '0025', sets: 3, reps: 5, weight: 100, backoff: true, inc: 2.5, restOff: true },
+    { id: '0007', mode: 'time', sets: 3, sec: 45, side: true, sideRestOff: true, warmupSets: 1, warmupRestOff: true },
+    { id: '0025', mode: 'cardio', sets: 1, min: 20, speed: 9.5, incline: 3 },
+  ]
+  const exported = () => JSON.parse(JSON.stringify(buildPlanBundle({ unit: 'kg', routines: [{ id: 'r1', name: 'All', ex: rich }], week: {}, customEx: [] }, 'Plan')))
+  const fresh = () => ({ unit: 'kg', routines: [], week: {}, customEx: [] })
+  // A slot as a file or a model could write it: an unknown field, the sender's own sync stamps and
+  // photo, and a `"__proto__"` that JSON.parse keeps as an own key.
+  const HOSTILE = '{"id":"0025","sets":3,"reps":8,"evil":"x","_ts":5,"_f":{"reps":5},"photo":"f00d","__proto__":{"polluted":true}}'
+  const hostile = () => JSON.parse(HOSTILE)
+  const expectClean = slot => {
+    expect(Object.keys(slot).sort()).toEqual(['id', 'reps', 'sets'])
+    expect(Object.hasOwn(slot, '__proto__')).toBe(false)
+    expect(Object.getPrototypeOf(slot)).toBe(Object.prototype)
+    expect(slot.polluted).toBeUndefined()
+    expect({}.polluted).toBeUndefined()
+  }
+
+  it('the list is exactly the fields cleanEx can write (AC1)', () => {
+    const kept = cleanExKeys()
+    expect(kept.size).toBeGreaterThan(20)   // the parse found cleanEx
+    expect([...PLAN_SLOT_FIELDS].sort()).toEqual([...kept].sort())
+    expect(new Set(PLAN_SLOT_FIELDS).size).toBe(PLAN_SLOT_FIELDS.length)
+  })
+
+  it('an exported slot carries only listed fields, and the examples reach every one (AC1)', () => {
+    const slots = exported().routines[0].ex
+    const written = new Set(slots.flatMap(Object.keys))
+    for (const k of written) expect(PLAN_SLOT_FIELDS, k).toContain(k)
+    expect([...written].sort()).toEqual([...PLAN_SLOT_FIELDS].sort())
+  })
+
+  it('every field export writes survives parsePlan and mergePlan (AC2, AC6)', () => {
+    const bundle = exported()
+    const s = fresh()
+    mergePlan(s, parsePlan(JSON.stringify(bundle)))
+    const stored = s.routines[0].ex
+    bundle.routines[0].ex.forEach((e, i) => expect(Object.keys(stored[i]).sort(), `slot ${i}`).toEqual(Object.keys(e).sort()))
+  })
+
+  it('parsePlan drops a field export never writes (AC3)', () => {
+    const raw = `{"opengym_plan":1,"routines":[{"id":"r","name":"Push","ex":[${HOSTILE}]}]}`
+    expectClean(parsePlan(raw).routines[0].ex[0])
+  })
+
+  it('mergePlan, called directly, drops an unknown field and a slot\'s own "__proto__" (AC3, AC4)', () => {
+    const slot = hostile()
+    expect(Object.hasOwn(slot, '__proto__')).toBe(true)
+    const s = fresh()
+    mergePlan(s, { opengym_plan: 1, routines: [{ id: 'r', name: 'Push', ex: [slot] }], customEx: [], week: {} })
+    expectClean(s.routines[0].ex[0])
+    expectClean(JSON.parse(JSON.stringify(s)).routines[0].ex[0])
+  })
+
+  it('mergePlan types the plain fields of a bundle that never went through parsePlan (AC3)', () => {
+    const s = fresh()
+    mergePlan(s, { opengym_plan: 1, routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: '3', reps: 8, side: 'yes', mode: 'hold' }] }], customEx: [], week: {} })
+    expect(s.routines[0].ex[0]).toEqual({ id: '0025', sets: 3, reps: 8 })
   })
 })
