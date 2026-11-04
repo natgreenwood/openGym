@@ -530,18 +530,23 @@ describe('a request sent after its account has left the browser', () => {
         s.session = null
         return { ok: true }
       }
+      if (method === 'GET' && path === '/api/config') return {}
       if (!who) throw httpError(401, { error: 'not signed in' })
+      if (method === 'GET' && path === '/api/me') return { user: { id: who, name: who } }
       const doc = s.docs[who] || null
       if (method === 'GET' && path === '/api/data/rev') return { rev: doc?._rev || 0 }
       if (method === 'GET' && path === '/api/data') return { state: doc ? clone(doc) : null, rev: doc?._rev || 0 }
       if (method === 'PUT' && path === '/api/data') {
         const curRev = doc?._rev || 0
-        if (body.baseRev != null && body.baseRev !== curRev) throw httpError(409, { error: 'conflict', rev: curRev, state: clone(doc) })
+        if (body.baseRev != null && (body.baseRev !== curRev || (body.baseWid && doc?._wid && body.baseWid !== doc._wid))) throw httpError(409, { error: 'conflict', rev: curRev, state: clone(doc) })
         const next = clone(body.state)
         delete next.active
         next._rev = curRev + 1
+        // A write id per document write, and the ones it descends from, as api/server.js keeps them.
+        next._wid = who + '-w' + next._rev
+        next._wids = [...(doc?._wids || []), ...(doc?._wid ? [doc._wid] : [])].slice(-20)
         s.docs[who] = next
-        return { ok: true, rev: next._rev }
+        return { ok: true, rev: next._rev, wid: next._wid }
       }
       throw new Error('unexpected ' + method + ' ' + path)
     }
@@ -652,6 +657,55 @@ describe('a request sent after its account has left the browser', () => {
     expect(JSON.parse(localStorage.getItem('gym_adopt'))?.uid).toBe(bId)   // B's own question still stands
     expect(ids(saved())).not.toContain('x1')
     expect(ids(srv.docs[bId])).toEqual(['bW1'])
+  })
+
+  // SEC-03: tab 1 reloads while signed in as A, with A's copy in step with A's revision, and its
+  // first wait (/api/config) outlasts the other tab signing out, signing in as B and settling B's
+  // sign-in. Boot then took the owner it saw after that wait (B) as its own, /api/me answered B,
+  // setUser(B) took A's copy and revision for B's, and the pull merged A's entries into B's
+  // document (their write ids do not descend from each other) and pushed them with B's own
+  // revision, which the server accepted.
+  it('SEC-03: a boot whose first answer lands after the other tab signed in as B syncs nothing into B', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
+    const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
+    srv.session = aId
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+    const S = clone(aDoc); delete S._rev
+    localStorage.setItem('gym_state_v1', JSON.stringify(S))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+    const A = await openTab({ id: aId, name: 'Xavi' })   // the tab that reloads
+    const B = await openTab({ id: aId, name: 'Xavi' })
+    A.setState({ ready: false })
+    const bBefore = clone(srv.docs[bId])
+
+    const held = srv.hold('GET', '/api/config')
+    const booting = A.getState().boot()
+    await held.asked
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until its boot has gone on
+    try {
+      await act(B, () => B.getState().signOut())
+      srv.session = bId
+      await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+      await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+      expect(ids(saved())).toEqual(['bW1'])
+      writer = tabA
+      held.release()
+      await booting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+    await act(A, settleTicks)
+
+    expect(srv.sent.filter(r => r.method === 'PUT' && r.who === bId)).toEqual([])
+    expect(srv.docs[bId]).toEqual(bBefore)
+    expect(ids(saved())).toEqual(['bW1'])
+    // Tab 1 ends on B's own copy, through the follow path, not on A's relabelled as B's.
+    expect(ids(A.getState().S)).not.toContain('x1')
   })
 
   // SEC-02: a revision check whose answer is held while this tab signs out, with the logout not

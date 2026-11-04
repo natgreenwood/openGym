@@ -2340,6 +2340,14 @@ export const useStore = create((set, get) => {
       // Opened from a device-link QR code (#95): the code comes off the address at once — a reload,
       // a bookmark or a shared screenshot of the address bar must not carry it around — and waits
       // here for the sheet that redeems it (App.jsx, components/Passkeys.jsx).
+      // Whose copy this tab loaded, before anything here waits (SEC-03). Another tab can sign out,
+      // or in as someone else, while this boot is out asking: from then on the session the
+      // browser holds is not this copy's, and setUser would relabel this copy (and its revision)
+      // as the new account's, and sync it into that account. Checked after every wait below; once
+      // it has moved, boot ends signed out and this tab follows the other one (the owner event,
+      // takeSaved, followSignIn), as any tab whose owner changed under it does.
+      const owner0 = seenOwner
+      const moved = () => readOwner() !== owner0
       const linkCode = linkTokenFromSearch(window.location.search)
       if (linkCode) { stripLinkFromUrl(); set({ linkCode }) }
       // Guests never authenticate, so an instance that turned guest mode off has no request to
@@ -2347,20 +2355,21 @@ export const useStore = create((set, get) => {
       // boot. Ending the session needs a positive `allow_guest: false`; see lib/guest.js for why
       // an unreachable server must not be allowed to lock anyone out (#42).
       const cfg = await get().loadConfig()
+      if (moved()) { finishBoot(); return }
       if (!guestAllowed(cfg)) get().setGuest(false)
       // A sign-out that could not reach the server: finish it first. Still unanswered, the
       // browser stays signed out rather than adopt the session it left behind.
       if (logoutOwed()) {
         try { await api('/api/logout', { method: 'POST', body: '{}' }); logoutOwed(false) } catch { /* owed until it is answered */ }
-        if (logoutOwed()) { finishBoot(); return }
+        if (logoutOwed() || moved()) { finishBoot(); return }
       }
       try {
-        const owner0 = readOwner()
+        if (moved()) { finishBoot(); return }
         const me = await api('/api/me')
-        // Another tab signed out (or in) while this asked: the answer is about a session this
-        // browser no longer holds, and setUser would sign it back in here. This tab follows that
-        // tab instead (the storage events, followSignIn).
-        if (readOwner() !== owner0 || logoutOwed()) { finishBoot(); return }
+        // The answer is about the session the browser holds now: one this copy's owner no longer
+        // has (another tab signed out or in meanwhile), or a sign-out still owed, is not signed in
+        // here, and setUser would sign it back in.
+        if (moved() || logoutOwed()) { finishBoot(); return }
         if (!me.user?.id) throw Object.assign(new Error('no user'), { status: 200, code: 'bad-response' })
         get().setUser(me.user)
         // Re-stamp the reminder's timezone on every load — keeps it correct if you're travelling,
