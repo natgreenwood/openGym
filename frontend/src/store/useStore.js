@@ -1696,7 +1696,7 @@ export const useStore = create((set, get) => {
             etag: r?.etag || null, fetchedAt: Date.now(),
             // The last name each share showed, for one that is not available right now: the
             // server sends it without its routine, and its row still has to say which it is.
-            names: sharedNames(incoming, before?.names),
+            names: sharedNames(incoming, stored?.names),
           }
           set({ shares, sharesError: false })
           sharesFresh = user.id

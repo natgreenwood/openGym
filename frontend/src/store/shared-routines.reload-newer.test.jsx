@@ -230,3 +230,18 @@ it('NATG-511: when the fresh request after a stale answer fails, the next poll l
   expect(loads()).toBe(before + 1)
   expect(ui.toast).toHaveBeenCalledTimes(1)
 })
+
+it('a share first listed by a stale answer keeps its name when the fresh answer says it is not available', async () => {
+  net.incoming = []
+  await signedIn()
+  await useStore.getState().loadShares()
+  net.hold = true
+  const older = useStore.getState().loadShares()
+  useStore.getState().loadSharesNewer()
+  answers[0](lists([share('s1')], 'e2'))
+  await older
+  await tick(0)
+  answers[1](lists([{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unavailable: 'custom-exercise' }], 'e3'))
+  await tick()
+  expect(useStore.getState().shares.names.s1).toBe('Leg Day')
+})
