@@ -102,3 +102,16 @@ test('a lang that names an Object prototype key falls back to English', () => {
 test('an emoji that names an Object prototype key falls back to the default glyph', () => {
   for (const key of ['constructor', 'toString', 'valueOf']) assert.equal(routineEmoji(key), '🏋️', key);
 });
+
+// A `lang` that is not a string at all: `PUT /api/data` stores it as sent, and looking it up as a
+// property key coerces it first, which throws for `{"toString":1}`. The rest timer builds its push
+// on a timer callback, so that throw stopped the API for everyone (NATG-542).
+test('a lang that is not a string gives the English push from every builder', () => {
+  for (const lang of [{ toString: 1 }, [{ toString: 1 }], 5, null]) {
+    const label = JSON.stringify(lang);
+    assert.deepEqual(restTimerPush(lang), restTimerPush('en'), label);
+    assert.deepEqual(testPush(lang), testPush('en'), label);
+    assert.deepEqual(dayReminderPush(lang, { name: 'Legs', emoji: '💪' }), dayReminderPush('en', { name: 'Legs', emoji: '💪' }), label);
+    assert.deepEqual(nudgePush(lang, 'friendly', { name: 'Legs' }, iso), nudgePush('en', 'friendly', { name: 'Legs' }, iso), label);
+  }
+});
