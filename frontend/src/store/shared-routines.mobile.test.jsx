@@ -30,16 +30,6 @@ vi.mock('@capacitor/app', () => ({ App: { addListener: () => ({ remove() {} }) }
 vi.mock('@capacitor/core', () => ({
   Capacitor: { getPlatform: () => 'ios', isNativePlatform: () => true }, registerPlugin: () => ({}),
 }))
-vi.mock('../lib/mobile.js', async original => ({
-  ...await original(),
-  // Works around vitest-dev/vitest#11460 on Vitest 4.1.x: when two import()s of a mocked
-  // module overlap, the second caller gets the real plugin, so boot()'s shared-file read would
-  // hit Capacitor's IndexedDB fallback. Remove this override once Vitest is 5.1 or later.
-  readJsonFile: async name => {
-    const data = h.files.get('DATA/' + name)
-    return data == null ? null : JSON.parse(data)
-  },
-}))
 vi.mock('../lib/api.js', () => ({
   setRemoteAuth: vi.fn(), setAccessHeaders: vi.fn(),
   api: vi.fn(async path => {
