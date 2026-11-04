@@ -113,6 +113,21 @@ describe('startWidgetSync', () => {
     stop()
   })
 
+  it('counts a day planned with a shared routine once the shared routines arrive (NATG-498)', async () => {
+    let store = { S: S({ routines: [], week: { 3: ['shared:s1'] } }), user: null, shares: null }
+    const stub = { getState: () => store, subscribe: fn => { subs.push(fn); return () => {} } }
+    const stop = await startWidgetSync({ useStore: stub })
+    await vi.runAllTimersAsync()
+    expect(writes.at(-1).week).toEqual({ done: 0, planned: 0 })
+    const user = { id: 'u2', name: 'Jo' }
+    const shares = { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h', routine: legs }] }
+    const prev = store; store = { ...store, user, shares }
+    subs.forEach(fn => fn(store, prev))
+    await vi.runAllTimersAsync()
+    expect(writes.at(-1).week).toEqual({ done: 0, planned: 1 })
+    stop()
+  })
+
   it('does nothing off the iPhone app', async () => {
     _resetWidgets()
     h.platform = 'android'

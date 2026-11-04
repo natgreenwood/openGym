@@ -9,6 +9,9 @@ import { routineAdditions } from './session-routines.js'
 import { applyChangeSet, markStale, CONSENT_VERSION } from './coach.js'
 import { buildNudgeNotifications, buildReminderNotifications } from './mobile.js'
 import { sharedView } from './shared-routines.js'
+import { weekTally } from './queue.js'
+import { loadOfWeeklyPlan } from './muscles.js'
+import { buildWidgetSnapshot } from './widgets.js'
 
 const ME = { id: 'u2', name: 'Jo' }
 const LEG = { id: 'r9', name: 'Leg Day', emoji: 'barbell', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] }
@@ -106,5 +109,35 @@ describe('the phone’s reminders and nudges count shared routines', () => {
   it('nudges about it, and not about a share that is not available', () => {
     expect(buildNudgeNotifications(S, now, viewOf([accepted('s1')]))[0].body).toContain('Leg Day')
     expect(buildNudgeNotifications(S, now, viewOf([{ id: 's1', state: 'accepted', unavailable: 'custom-exercise' }]))).toEqual([])
+  })
+})
+
+describe('the streak card, the weekly volume and the widget plan a shared day like your own (NATG-498)', () => {
+  // Monday shared only, Tuesday combined, Thursday a share that is not available, Friday one that ended.
+  const S = state({ week: { 1: ['shared:s1'], 2: ['r1', 'shared:s1'], 4: ['shared:s2'], 5: ['shared:s3'] } })
+  const shared = viewOf([accepted('s1'), { id: 's2', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unavailable: 'custom-exercise' }])
+  it('counts the days whose shared routines resolve, a combined day once (AC1)', () => {
+    expect(weekTally(S, TUE, shared)).toEqual({ done: 0, planned: 2 })
+    expect(weekTally(S, TUE, null)).toEqual({ done: 0, planned: 1 })
+  })
+  it('keeps counting a finished shared workout as done, as it always did (AC1)', () => {
+    const done = { ...S, workouts: [{ id: 'w', d: MON, start: Date.parse(MON + 'T18:00:00'), routineIds: ['shared:s1'], name: 'Leg Day', entries: [] }] }
+    expect(weekTally(done, TUE, shared)).toEqual({ done: 1, planned: 2 })
+    expect(weekTally(done, TUE, null)).toEqual({ done: 1, planned: 1 })
+  })
+  it('adds the shared routine’s sets on every weekday it is planned (AC2)', () => {
+    const asOwn = state({ routines: [state().routines[0], { ...LEG, id: 'r9' }], week: { 1: ['r9'], 2: ['r1', 'r9'] } })
+    expect(loadOfWeeklyPlan(S, shared)).toEqual(loadOfWeeklyPlan(asOwn))
+    expect(Object.keys(loadOfWeeklyPlan(S, shared)).length).toBeGreaterThan(Object.keys(loadOfWeeklyPlan(S)).length)
+  })
+  it('gives a plan of shared routines only a weekly volume and a fraction (AC2, AC3)', () => {
+    const only = state({ routines: [], week: { 3: ['shared:s1'] } })
+    expect(Object.keys(loadOfWeeklyPlan(only, shared)).length).toBeGreaterThan(0)
+    expect(loadOfWeeklyPlan(only)).toEqual({})
+    expect(weekTally(only, TUE, shared)).toEqual({ done: 0, planned: 1 })
+  })
+  it('gives the home-screen widget the same fraction as the Home streak card (AC4)', () => {
+    expect(buildWidgetSnapshot(S, { today: TUE, shared }).week).toEqual(weekTally(S, TUE, shared))
+    expect(buildWidgetSnapshot(S, { today: TUE }).week).toEqual({ done: 0, planned: 1 })
   })
 })
