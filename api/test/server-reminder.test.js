@@ -237,6 +237,9 @@ test('a reminder whose payload fails to build does not spend the day, and is log
   if (!late.sameDay) return t.skip('just after midnight UTC — a same-day window cannot be set up');
   const h = await startServer(t, [sub], { fault: true });
   fs.writeFileSync(h.faultFile, '');
+  const dbFile = path.join(h.dataDir, 'db.json');
+  const beforeDb = fs.readFileSync(dbFile, 'utf8');
+  const beforeMtime = fs.statSync(dbFile).mtimeMs;
   fs.writeFileSync(path.join(h.dataDir, 'state-u_test_1.json'), goodState(late.hhmm));
   const failures = () => (h.log.match(/reminder payload u_test_1 r1 Error: payload fault/g) || []).length;
   let deadline = Date.now() + 30000;
@@ -248,6 +251,8 @@ test('a reminder whose payload fails to build does not spend the day, and is log
   assert.doesNotMatch(h.log, /reminder tick u_test_1/, 'the failure is the payload\'s, not the tick\'s');
   let db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   assert.equal(db.users.find(u => u.id === 'u_test_1').lastReminder, undefined, 'a failed build spent the day');
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), beforeDb, 'a failed build changed the database');
+  assert.equal(fs.statSync(dbFile).mtimeMs, beforeMtime, 'a failed build saved the database');
 
   fs.rmSync(h.faultFile);
   deadline = Date.now() + 10000;

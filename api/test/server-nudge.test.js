@@ -136,6 +136,9 @@ test('a nudge whose payload fails to build does not spend the evening, and is lo
   const tz = zoneAt(20);
   const h = await startServer(t, [sub], { fault: true });
   fs.writeFileSync(h.faultFile, '');
+  const dbFile = path.join(h.dataDir, 'db.json');
+  const beforeDb = fs.readFileSync(dbFile, 'utf8');
+  const beforeMtime = fs.statSync(dbFile).mtimeMs;
   h.write(missedToday(tz));
   const failures = () => (h.log.match(new RegExp(`nudge payload ${UID} r1 Error: payload fault`, 'g')) || []).length;
   await until(() => failures() > 0);
@@ -145,6 +148,8 @@ test('a nudge whose payload fails to build does not spend the evening, and is lo
   assert.equal(firings(h.log), 0, h.log);
   assert.doesNotMatch(h.log, /reminder tick/, 'the failure is the payload\'s, not the tick\'s');
   assert.equal(h.db().users[0].lastNudge, undefined, 'a failed build spent the evening');
+  assert.equal(fs.readFileSync(dbFile, 'utf8'), beforeDb, 'a failed build changed the database');
+  assert.equal(fs.statSync(dbFile).mtimeMs, beforeMtime, 'a failed build saved the database');
 
   fs.rmSync(h.faultFile);
   await until(() => firings(h.log) > 0);
