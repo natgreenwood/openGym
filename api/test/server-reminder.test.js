@@ -31,15 +31,17 @@ const USERS = [
   { id: 'u_test_2', name: 'Two', created: new Date().toISOString() }
 ];
 
-async function startServer(t, subs = []) {
+// `fault`: load test/fail-push.mjs, so the reminder payload build throws while h.faultFile exists.
+async function startServer(t, subs = [], { fault = false } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-reminder-'));
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({ users: USERS, creds: [], subs, invites: [] }));
-  const child = spawn(process.execPath, ['server.js'], {
+  const faultFile = path.join(dataDir, 'push-fault');
+  const child = spawn(process.execPath, [...(fault ? ['--import', './test/fail-push.mjs'] : []), 'server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', REMINDER_TICK_MS: '300' }
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', REMINDER_TICK_MS: '300', PUSH_FAULT_FILE: faultFile }
   });
-  const h = { api: '', dataDir, child, log: '' };
+  const h = { api: '', dataDir, child, log: '', faultFile };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -220,4 +222,39 @@ test('a disabled profile gets no reminder', async t => {
   await boundPort(child, () => log);
   await wait(1500);
   assert.equal(firings(log), 0, log);
+});
+
+/* NATG-515. The tick used to write lastReminder and save before it built the push, so a build
+   that threw spent the user's day: the date gate kept every later tick out, even once the data
+   was fixed. The build now comes first. A failed build leaves the day unspent, is logged once
+   (the tick runs every 10 s), and the next tick after the cause is gone sends.
+   The fault is injected (test/fail-push.mjs): no stored routine value makes the build throw any
+   more. Only the "once per user" half of the log rule is driven here; the "per local date" half
+   is a string comparison against the tick's own date, which the fake clock cannot move
+   (userNow() reads new Date(), fake-clock.mjs only patches Date.now()). */
+test('a reminder whose payload fails to build does not spend the day, and is logged once', async t => {
+  const late = hhmmMinusMinutes(2);
+  if (!late.sameDay) return t.skip('just after midnight UTC — a same-day window cannot be set up');
+  const h = await startServer(t, [sub], { fault: true });
+  fs.writeFileSync(h.faultFile, '');
+  fs.writeFileSync(path.join(h.dataDir, 'state-u_test_1.json'), goodState(late.hhmm));
+  const failures = () => (h.log.match(/reminder payload u_test_1 r1 Error: payload fault/g) || []).length;
+  let deadline = Date.now() + 30000;
+  while (Date.now() < deadline && !failures()) await wait(300);
+  assert.equal(failures(), 1, h.log);
+  await wait(1500);   // several more ticks, all failing
+  assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
+  assert.equal(firings(h.log), 0, h.log);
+  assert.doesNotMatch(h.log, /reminder tick u_test_1/, 'the failure is the payload\'s, not the tick\'s');
+  let db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
+  assert.equal(db.users.find(u => u.id === 'u_test_1').lastReminder, undefined, 'a failed build spent the day');
+
+  fs.rmSync(h.faultFile);
+  deadline = Date.now() + 10000;
+  while (Date.now() < deadline && !firings(h.log)) await wait(300);
+  assert.equal(firings(h.log), 1, h.log);
+  await wait(900);
+  assert.equal(firings(h.log), 1, 'fired again inside the window');
+  db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
+  assert.ok(db.users.find(u => u.id === 'u_test_1').lastReminder, 'the day is recorded once it sends');
 });
