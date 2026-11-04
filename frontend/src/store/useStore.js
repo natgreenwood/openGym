@@ -1854,6 +1854,12 @@ export const useStore = create((set, get) => {
         // Signed out, or another account, meanwhile: nothing of this one's is changed or saved here.
         if (!answerIsFor(uid)) return true   // the removal itself went through
         const user = get().user
+        // Answered after a switch to another account: the removal was the account that asked, and
+        // what is held now belongs to the one signed in since. Nothing is written into its lists
+        // or its copy, where a delete that finds nothing would still stamp a change and push it
+        // (NATG-531). The asking account's pointer goes on its next load (sweepSharedPointers);
+        // the reload in `finally` still runs.
+        if (user?.id !== uid) return true
         const mine = sharesOf(get().shares, user)
         if (mine) {
           const shares = { ...mine, incoming: mine.incoming.filter(i => i?.id !== id) }
