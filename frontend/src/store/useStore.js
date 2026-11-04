@@ -378,6 +378,9 @@ export const useStore = create((set, get) => {
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
+  // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
+  // after it names what went from these, so a revoke the stale one saw first is still told (NATG-502).
+  let sharesBefore = null
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
   let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
   const saveShares = v => {
@@ -728,7 +731,7 @@ export const useStore = create((set, get) => {
       // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
-      if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer()
+      if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer(sharesEtag)
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
@@ -1032,6 +1035,7 @@ export const useStore = create((set, get) => {
     // The account's share lists go with it: a shared device keeps nothing of whom it shared with.
     try { localStorage.removeItem(SHARED_KEY) } catch { /* nothing to keep */ }
     sharesFresh = null
+    sharesBefore = null
     set({ shares: null, sharesError: false })
     seenOwner = null   // a guest's tab now: it joins what other signed-out tabs save (as setUser)
     handedOver = false
@@ -1653,36 +1657,46 @@ export const useStore = create((set, get) => {
       const { config, user, shares } = get()
       if (sharingAvailable(config, user, { demo: DEMO }) && (sharesFresh !== user.id || !sharesOf(shares, user))) get().loadShares()
     },
-    // `newer`: the caller knows of a change the request in flight may predate (a `shares` etag
-    // the revision poll saw move, Sync now). That request is still joined, so its callers get
-    // their answer, but it is marked stale: what it lands is stored and never swept by (NATG-499),
-    // and a fresh request goes out the moment it lands (loadSharesNewer waits for that one).
-    async loadShares({ newer = false } = {}) {
+    // `newer`: the caller knows of a change the request in flight may predate. That request is
+    // still joined, so its callers get their answer, but it may be stale: what a stale one lands is
+    // stored and never swept by (NATG-499), and a fresh request goes out the moment it lands
+    // (loadSharesNewer waits for that one). `etag`: the `shares` etag the caller saw (the revision
+    // poll); the request is stale only if it answers a different one, so a request already as new
+    // as that is left alone (NATG-502). Without one (Sync now, an accept, a decline, a removal)
+    // the change can't be told from the etag, so the request in flight is always stale.
+    async loadShares({ newer = false, etag = null } = {}) {
       const user = get().user
       if (!user) return null
       // A request still out for someone else (a sign-in switch while it was in flight) is not this
       // user's answer: it stores nothing when it lands, so this user gets a request of their own.
       if (sharesFetch?.uid === user.id) {
-        if (newer) sharesFetch.stale = true
+        if (newer && etag) sharesFetch.seen = etag   // the latest a caller saw is the newest
+        else if (newer) sharesFetch.stale = true
         return sharesFetch.promise
       }
       // The pointers in the document as the request leaves (NATG-499): the only ones its answer
       // may sweep. One that arrives after it (a pull, a merge, another tab) may belong to a share
       // accepted after the server answered, so this answer cannot judge it.
-      const mine = { uid: user.id, promise: null, stale: false, known: new Set(orphanPointers(get().S, [])) }
+      const mine = { uid: user.id, promise: null, stale: false, seen: null, known: new Set(orphanPointers(get().S, [])) }
       sharesFetch = mine
       mine.promise = (async () => {
         try {
           const r = await api('/api/shares')
           if (get().user?.id !== user.id) return null
-          const before = sharesOf(get().shares, user)
+          const stale = mine.stale || (mine.seen != null && mine.seen !== (r?.etag || null))
+          const stored = sharesOf(get().shares, user)
+          // What went is named against the lists as they were before the first stale answer since
+          // the last sweep, so a revoke that a stale answer saw first is still told, once.
+          const held = sharesBefore?.uid === user.id ? sharesBefore.lists : undefined
+          sharesBefore = stale ? { uid: user.id, lists: held === undefined ? stored : held } : null
+          const before = held === undefined ? stored : held
           const incoming = Array.isArray(r?.incoming) ? r.incoming : []
           const shares = {
             uid: user.id, outgoing: Array.isArray(r?.outgoing) ? r.outgoing : [], incoming,
             etag: r?.etag || null, fetchedAt: Date.now(),
             // The last name each share showed, for one that is not available right now: the
             // server sends it without its routine, and its row still has to say which it is.
-            names: sharedNames(incoming, before?.names),
+            names: sharedNames(incoming, stored?.names),
           }
           set({ shares, sharesError: false })
           sharesFresh = user.id
@@ -1694,7 +1708,7 @@ export const useStore = create((set, get) => {
           // it says nothing about any one share, so no pointer is judged by it.
           // This request is done: what follows may start the next one.
           if (sharesFetch === mine) sharesFetch = null
-          if (mine.stale) {
+          if (stale) {
             // Older than a change the caller knew of: no sweep, and the lists load again now.
             get().loadShares()
           } else if (shares.etag !== 'off' && Array.isArray(r?.incoming)) {
@@ -1703,16 +1717,23 @@ export const useStore = create((set, get) => {
           }
           return shares
         } catch {
-          if (get().user?.id === user.id) set({ sharesError: true })
+          // The lists held now may be older than the server's (a stale answer whose fresh request
+          // failed, NATG-511): their etag is forgotten in memory, so the next revision poll can't
+          // take them as current and loads again. No retry of its own.
+          if (get().user?.id === user.id) {
+            const held = sharesOf(get().shares, user)
+            set({ sharesError: true, ...(held ? { shares: { ...held, etag: null } } : {}) })
+          }
           return null
         } finally { if (sharesFetch === mine) sharesFetch = null }
       })()
       return mine.promise
     },
     // The lists as the server has them now, not as a request already in flight will answer: joins
-    // that request (marked stale), then waits for the fresh one its landing starts.
-    async loadSharesNewer() {
-      const first = await get().loadShares({ newer: true })
+    // that request, then waits for the fresh one its landing starts if it turned out stale.
+    // `etag`: the `shares` etag the caller saw, if it knows one (see loadShares).
+    async loadSharesNewer(etag = null) {
+      const first = await get().loadShares({ newer: true, etag })
       const user = get().user
       return sharesFetch && user && sharesFetch.uid === user.id ? sharesFetch.promise : first
     },
@@ -1745,22 +1766,24 @@ export const useStore = create((set, get) => {
       }).catch(() => {})
     },
     // The recipient's three answers (POST accept or decline, DELETE to remove). Each needs the
-    // server; a failure is thrown for the screen to say why. The lists load again afterwards, and
-    // a removal takes the share off your schedule at once, the way deleting a routine does.
+    // server; a failure is thrown for the screen to say why. The lists load again afterwards, from a
+    // request that left after the answer (loadSharesNewer), so a request already in flight can't
+    // show the share as it was; a removal takes the share off your schedule at once, the way
+    // deleting a routine does.
     async acceptShare(id) {
       try { return await api('/api/shares/' + encodeURIComponent(id) + '/accept', { method: 'POST', body: '{}' }) }
-      finally { await get().loadShares() }
+      finally { await get().loadSharesNewer() }
     },
     async declineShare(id) {
       try { return await api('/api/shares/' + encodeURIComponent(id) + '/decline', { method: 'POST', body: '{}' }) }
-      finally { await get().loadShares() }
+      finally { await get().loadSharesNewer() }
     },
     async removeShare(id) {
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
       } catch (e) {
         // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
-        if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadShares(); throw e }
+        if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadSharesNewer(); throw e }
       }
       const user = get().user
       const mine = sharesOf(get().shares, user)
@@ -1769,8 +1792,12 @@ export const useStore = create((set, get) => {
         set({ shares })
         saveShares(shares)
       }
+      // Nor is it named as gone by the next load: the user removed it.
+      // Only for a user still signed in: after a sign-out there is nobody to hold lists for.
+      const held = user && sharesBefore?.uid === user.id ? sharesBefore.lists : null
+      if (held) sharesBefore = { uid: user.id, lists: { ...held, incoming: held.incoming.filter(i => i?.id !== id) } }
       get().update(s => { deleteRoutine(s, sharedPointer(id)) })
-      get().loadShares()
+      get().loadSharesNewer()
       return true
     },
 
