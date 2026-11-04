@@ -47,14 +47,20 @@ export default function SharedRoutineView({ id }) {
     message: t('It leaves your Shared tab and every day it’s on in your schedule. {0}’s routine isn’t affected, and your logged workouts stay as they are.', first),
     confirmText: t('Remove'), danger: true,
     onConfirm: async () => {
+      // The account that asked. If it signed out, or another account signed in, before the server
+      // answered, the answer is not for whoever is here now: no toast naming the routine and no
+      // move to Plan (NATG-524). The same check the store makes on an account switch (user.id).
+      const uid = useStore.getState().user?.id
+      const asked = () => useStore.getState().user?.id === uid
       setRemoving(true)
       try {
         await useStore.getState().removeShare(shareIdOf(id))
+        if (!asked()) return
         toast(t('{0} is off your plan.', name))
         nav('/plan')
       } catch {
         setRemoving(false)
-        toast(t('Couldn’t remove {0}. Check your connection and try again.', name))
+        if (asked()) toast(t('Couldn’t remove {0}. Check your connection and try again.', name))
       }
     },
   })
