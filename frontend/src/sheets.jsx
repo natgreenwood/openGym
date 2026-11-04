@@ -166,13 +166,14 @@ function MenuSheet({ title, titleClass = '', subtitle, items, sections, close })
     </div>)}
   </>
 }
+// Both return the sheet's handle (useUI openSheet), for a caller that has to close it itself.
 export function menuSheet(opts) {
-  ui().openSheet(close => <MenuSheet {...opts} close={close} />)
+  return ui().openSheet(close => <MenuSheet {...opts} close={close} />)
 }
 
 // Themed replacement for window.confirm — callback-based (no blocking).
 export function confirmSheet(opts) {
-  ui().openSheet(close => <ConfirmDialog {...opts} close={close} />, { kind: 'center', ...(opts.locked ? { locked: true } : {}) })
+  return ui().openSheet(close => <ConfirmDialog {...opts} close={close} />, { kind: 'center', ...(opts.locked ? { locked: true } : {}) })
 }
 
 /* ============================ starter plan ============================ */

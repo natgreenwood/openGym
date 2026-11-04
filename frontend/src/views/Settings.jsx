@@ -120,7 +120,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
   const passkeys = usePasskeys(!!user && !DEMO && (page === 'account'))
   const [credsV, setCredsV] = useState(0)
   const credsChanged = () => { passkeys.load(); setCredsV(v => v + 1) }
-  const { update, importConflict, importBackup, setUnit, resetEverything: resetAll, setUser, pullState, pushState, resetDemo } = useStore()
+  const { update, importConflict, importBackup, importIsCurrent, setUnit, resetEverything: resetAll, setUser, pullState, pushState, resetDemo } = useStore()
   const toast = useUI(s => s.toast)
   // Your outgoing shares, for the restore and reset warnings below (NATG-487): replacing your
   // document drops the shares of every routine it no longer holds, for good.
@@ -340,12 +340,15 @@ export default function Settings({ page = null, find = null, via = null, entryKe
       const { backupImportError } = await import('../lib/backup-media.js')
       toast(backupImportError(e)); return
     }
+    // Nothing of the backup is kept, its photos included, once the account the confirm was asked
+    // for has gone (NATG-535); importBackup checks again after the photos are written.
     const apply = async mergeWith => {
+      if (!importIsCurrent(mergeWith)) return
       if (read.files.length) {
         const { storeBackupMedia } = await import('../lib/backup-media.js')
         await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
       }
-      importBackup(read.state, { mergeWith })
+      if (!importBackup(read.state, { mergeWith })) return
       // The photos it brought are pending here and maybe gone from the server (a reset): sent now,
       // not after the ten-minute dedupe of the run before the reset.
       if (read.files.length) syncMedia({ force: true })
@@ -355,10 +358,21 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // another device meanwhile, would be deleted from the profile by the replace — said, with the
     // choice to merge those in instead (useStore importConflict / importBackup).
     const conflict = await importConflict(read.state)
+    // The confirm is about the account the check was for. Another tab signing out, switching
+    // account or signing in from guest, before it opens or while it is open, closes it and nothing
+    // is imported, whichever choice it offered (NATG-535). The sign-in from guest is the one the
+    // sheets' own close on an account change leaves open (useUI).
+    if (!importIsCurrent(conflict)) return
+    const whileCurrent = sheet => {
+      const off = useStore.subscribe(() => {
+        if (!importIsCurrent(conflict)) { off(); sheet.close() }
+        else if (!useUI.getState().sheets.some(x => x.id === sheet.id)) off()
+      })
+    }
     const lost = sharesLostLine(lostBy(read.state?.routines))
     if (conflict) {
       const n = conflict.workouts
-      menuSheet({
+      whileCurrent(menuSheet({
         title: t('Import backup?'),
         subtitle: conflict.device
           ? t(n === 1 ? 'This device has 1 workout that is not in this backup. Replacing deletes it.'
@@ -372,13 +386,13 @@ export default function Settings({ page = null, find = null, via = null, entryKe
           { icon: 'merge', label: t('Merge them in'), onClick: () => apply(conflict) },
           { icon: 'xmark', label: t('Cancel'), onClick: () => {} },
         ],
-      })
+      }))
       return
     }
-    confirmSheet({
+    whileCurrent(confirmSheet({
       title: t('Import backup?'), message: t('This replaces all current data with the backup file.') + (lost ? ' ' + lost : ''), confirmText: t('Import'), danger: true,
       onConfirm: () => apply(null)
-    })
+    }))
   }
   // Whether any custom exercise has a photo or video: the rows about them only show then.
   const hasMedia = referencedFiles(S).length > 0

@@ -17,7 +17,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const mocks = vi.hoisted(() => {
   const state = { S: null, user: null, config: null, sync: { status: 'ok' }, stashed: new Set() }
   state.replaceState = vi.fn()
-  state.importBackup = vi.fn()
+  state.importBackup = vi.fn(() => true)   // the import went (useStore importBackup)
   state.resetEverything = vi.fn()
   state.menuSheet = vi.fn()
   state.conflict = null
@@ -35,13 +35,14 @@ const mocks = vi.hoisted(() => {
     signOut: vi.fn(), signOutAll: vi.fn(), resetDemo: vi.fn(), disconnectServer: vi.fn(),
     syncNow: vi.fn(), unsyncedChanges: () => ({ owed: false, count: 0 }), keptChanges: state.keptChanges,
     stashedMediaHashes: async () => state.stashed,
-    importConflict: async () => state.conflict, importBackup: state.importBackup, resetEverything: state.resetEverything
+    importConflict: async () => state.conflict, importBackup: state.importBackup, importIsCurrent: () => true, resetEverything: state.resetEverything
   })
   return state
 })
 vi.mock('../store/useStore.js', () => {
   const useStore = selector => selector ? selector(mocks.snapshot()) : mocks.snapshot()
   useStore.getState = mocks.snapshot
+  useStore.subscribe = () => () => {}
   return { useStore, DEF: { reminder: { time: '17:30' }, workouts: [] }, hasData: () => false }
 })
 vi.mock('../store/useUI.js', () => {
