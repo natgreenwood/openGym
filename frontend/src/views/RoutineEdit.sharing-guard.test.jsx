@@ -36,6 +36,7 @@ async function mount({ shares = null, config = { shares: true } } = {}) {
   const S = JSON.parse(JSON.stringify(DEF))
   S.routines = [{ id: 'r1', name: 'Push Day', emoji: 'dumbbell', ex: [{ id: '0025', sets: 3, mode: 'reps', reps: 5, weight: 80 }] }]
   S.customEx = [CUSTOM]
+  localStorage.setItem('gym_owner', ME.id)   // as setUser signs in
   useStore.setState({ S, user: ME, config, shares, sharesError: false })
   host = document.createElement('div')
   document.body.appendChild(host)

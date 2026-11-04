@@ -67,6 +67,7 @@ afterEach(() => { store?.setState({ user: null, ready: false }); vi.unstubAllEnv
 async function load() {
   const { useStore, DEF } = await import('./useStore.js')
   store = useStore
+  localStorage.setItem('gym_owner', USER.id)   // as setUser signs in
   store.setState({ user: USER, S: structuredClone(DEF), ready: false })
   await store.getState().loadShares()
   // The native helper crosses a dynamic import before writing.
