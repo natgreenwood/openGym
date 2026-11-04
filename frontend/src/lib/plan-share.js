@@ -188,6 +188,30 @@ function cleanIntensifier(x) {
   return null
 }
 
+// The plain slot fields cleanEx writes as numbers, text and flags. A file the app exported always
+// has them in those types; a hand-edited or generated one may not, and a slot stored as `"3"` is
+// one the planner reads (its clamps coerce) but a recipient of the shared routine can't.
+const SLOT_NUMBERS = ['sets', 'reps', 'weight', 'min', 'speed', 'sec', 'inc', 'repsMin', 'repsMax', 'setsMax', 'deloadFactor']
+const SLOT_TEXT = ['note', 'sg', 'dbLoad', 'prog']
+const SLOT_FLAGS = ['bodyweight', 'side']
+
+/** A finite number, from a number or a numeric string like "3", or null. */
+function cleanNumber(v) {
+  if (typeof v === 'string' && v.trim()) v = Number(v)
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** The slot with each plain field in the type cleanEx writes it, and dropped when it can't be:
+ *  a plan file is someone else's data, so a wrong type is left out rather than stored. */
+function cleanSlotTypes(e) {
+  const o = { ...e }
+  const keep = (k, v) => { if (v === null) delete o[k]; else o[k] = v }
+  SLOT_NUMBERS.forEach(k => { if (k in o) keep(k, cleanNumber(o[k])) })
+  SLOT_TEXT.forEach(k => { if (k in o) keep(k, typeof o[k] === 'string' ? o[k] : null) })
+  SLOT_FLAGS.forEach(k => { if (k in o) keep(k, typeof o[k] === 'boolean' ? o[k] : null) })
+  return o
+}
+
 // The muscles the map can draw, plus the one label the form gives a cardio exercise.
 const CUSTOM_MUSCLES = new Set([...MUSCLES, 'cardiovascular system'])
 const muscleList = v => inMuscleOrder([...new Set((Array.isArray(v) ? v : []).filter(m => CUSTOM_MUSCLES.has(m)))])
@@ -270,10 +294,12 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const ok = !!e && (known.has(e.id) || !!EXIDX[e.id])
       if (!ok) dropped++
       return ok
-    }).map(e => {
+    }).map(slot => {
       // The exercises pass through as written, so the fields that carry numbers into the
-      // planner get the same clamps on the way in that they get on the way out. A drawing's id
-      // (the female figure of an exercise) becomes the exercise's own.
+      // planner get the same clamps on the way in that they get on the way out, and the plain
+      // fields are put in their own types. A drawing's id (the female figure of an exercise)
+      // becomes the exercise's own.
+      const e = cleanSlotTypes(slot)
       const warm = cleanWarmupSets(e.warmupSets)
       const intens = cleanIntensifier(e.intensifier)
       const rest = cleanRestSec(e.restSec)
