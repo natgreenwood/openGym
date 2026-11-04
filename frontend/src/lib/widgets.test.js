@@ -171,6 +171,23 @@ describe('buildWidgetSnapshot', () => {
       expect(snap.lastPR).toEqual({ name: HUGE.slice(0, MAX_WIDGET_TEXT), value: '40 kg', d: '2026-10-13' })
     })
 
+    it('cuts an own routine\'s exercise line built from oversized reps, minutes or pyramid steps', () => {
+      const own = { id: 'r9', name: 'Mine', ex: [
+        { id: '0025', sets: 3, reps: HUGE, weight: 60 },
+        { id: '0043', sets: 3, reps: 5, pyramid: [HUGE, 8] },
+        { id: 'c3', name: 'Run', mode: 'cardio', sets: 1, min: HUGE },
+      ] }
+      const [today] = buildWidgetSnapshot(S({ routines: [own], week: { 3: ['r9'] } }), { today: TODAY }).days
+      expect(today.exercises).toHaveLength(3)
+      for (const e of today.exercises) {
+        expect(e.line.length).toBeLessThanOrEqual(MAX_WIDGET_TEXT)
+        // cut, not dropped: the line still opens the way it reads in the app
+        expect(e.line.length).toBeGreaterThan(0)
+      }
+      expect(today.exercises[0].line.startsWith('3 × x')).toBe(true)
+      expect(today.exercises[1].line.startsWith('x')).toBe(true)
+    })
+
     it('counts code points, so an emoji at the cut is kept or dropped whole', () => {
       const nameOf = name => buildWidgetSnapshot(S({ routines: [{ ...push, name }] }), { today: TODAY }).days[0].name
       const a = n => 'a'.repeat(n)

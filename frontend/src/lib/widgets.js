@@ -64,7 +64,9 @@ function dayOf (S, iso, today, shared = null) {
     const speed = speedUnitOf(S)
     day.exercises = routines.flatMap(r => r.ex || []).slice(0, WIDGET_EXERCISES_MAX).map(cfg => {
       let line = ''
-      try { line = exLine(cfg, unit, speed) } catch { line = '' }
+      // Built from the routine's own fields as they are: an own routine's reps, minutes or pyramid
+      // steps reach it unchecked (a shared routine's are numbers by then), so the line is cut too.
+      try { line = clipText(exLine(cfg, unit, speed)) } catch { line = '' }
       return { name: nameOfCfg(cfg), line }
     })
     // Logged already (as the Home screen's today row says it): every routine of the day covered
