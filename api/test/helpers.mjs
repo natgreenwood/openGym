@@ -51,28 +51,35 @@ export function boundPort(child, tail = () => '') {
  * asserted on with the line still in the pipe: 34 of 48 concurrent runs of
  * server-origin-hint.test.js on one box found no line at all. So wait for it, with a limit.
  *
- * `log` returns what the caller has collected of the child's stdout and stderr. It is read at once
- * (the line may already be there) and again after every chunk; the caller's own 'data' listeners
- * were attached at spawn, before these, so each chunk is already in `log()` when it is read. Only
+ * It keeps its own copy of the output: what the caller has collected so far (`tail()`, since the
+ * line may already be there) plus every chunk on stdout and stderr from then on. So it does not
+ * matter whether the caller's own 'data' listeners run before or after these. Only
  * newline-terminated lines count, so a line split across two chunks is never matched half-written.
+ * The 15 s limit is in line with the other waits on this output (20 s for the boot line above,
+ * 15 s in the `until` helpers); the wait ends the moment the line arrives, so a long one costs
+ * nothing on the pass path.
+ *
+ * `tail` supplies whatever the caller has collected of the child's output, as for boundPort.
  */
-export function logLine(child, prefix, log, ms = 5000) {
-  const find = () => log().split('\n').slice(0, -1).find(l => l.startsWith(prefix));
+export function logLine(child, prefix, tail = () => '', ms = 15000) {
   return new Promise((resolve, reject) => {
+    let seen = tail();
+    const find = () => seen.split('\n').slice(0, -1).find(l => l.startsWith(prefix));
     const done = () => {
       clearTimeout(give);
       child.stdout.off('data', look);
       child.stderr.off('data', look);
       child.off('exit', gone);
     };
-    const look = () => {
+    const look = d => {
+      if (d !== undefined) seen += d;
       const line = find();
       if (line === undefined) return;
       done();
       resolve(line);
     };
-    const gone = code => { done(); reject(new Error(`server exited (${code}) before logging "${prefix}":\n${log()}`)); };
-    const give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${log()}`)); }, ms);
+    const gone = code => { done(); reject(new Error(`server exited (${code}) before logging "${prefix}":\n${tail() || seen}`)); };
+    const give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${tail() || seen}`)); }, ms);
     child.stdout.on('data', look);
     child.stderr.on('data', look);
     child.once('exit', gone);

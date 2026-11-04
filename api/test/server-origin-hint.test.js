@@ -17,7 +17,7 @@ const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const key = softPasskey(ORIGIN);
 
-async function startServer(t) {
+async function startServer(t, first) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-originhint-'));
   fs.writeFileSync(path.join(dataDir, 'secret'), crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
@@ -29,6 +29,8 @@ async function startServer(t) {
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost' }
   });
   const h = { api: '', log: '', child };
+  // `first` sees the child before this file's own listeners are attached (the last test).
+  if (first) h.first = first(child, () => h.log);
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -65,4 +67,11 @@ test('a passkey made at another address is refused with the same code', async t 
   assert.equal(body.code, 'origin-mismatch');
   assert.equal(body.expected, ORIGIN);
   assert.match(body.error, /ORIGIN=http:\/\/localhost:8080/);
+});
+
+test('the wait for a log line finds it when it starts listening before the test collects any output', async t => {
+  const h = await startServer(t, (child, log) => logLine(child, 'refused cross-origin', log));
+  const r = await post(h, '/api/login/options', {}, { Origin: 'http://10.11.0.4:3030' });
+  assert.equal(r.status, 403);
+  assert.match(await h.first, /origin="http:\/\/10\.11\.0\.4:3030" expected=http:\/\/localhost:8080/);
 });
