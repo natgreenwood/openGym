@@ -401,8 +401,9 @@ export const useStore = create((set, get) => {
   let replaceRev = null
   let importRead = null    // what importConflict last read: { token, state, rev }
   // Each import is held to the account it began under (importToken). The counter moves with every
-  // owner change another tab makes, so an import outlives no switch, back again included; a token
-  // once found stale stays stale (importIsCurrent).
+  // owner change, another tab's (the gym_owner listener) or this tab's own (setUser, a sign-out),
+  // so an import outlives no switch, back again included; a token once found stale stays stale
+  // (importIsCurrent).
   let ownerEpoch = 0
   const staleImports = new WeakSet()
   let lastCheck = 0
@@ -1080,6 +1081,7 @@ export const useStore = create((set, get) => {
     sharesBefore = null
     set({ shares: null, sharesError: false })
     seenOwner = null   // a guest's tab now: it joins what other signed-out tabs save (as setUser)
+    ownerEpoch++       // also when the session had already expired: the owner key goes now
     handedOver = false
     // Signed out, this device is nobody's: the sign-in screen is in the instance's language.
     persist(freshState(), false)
@@ -1635,18 +1637,16 @@ export const useStore = create((set, get) => {
     //
     // An import whose token (importToken) no longer holds is refused whole, whichever button was
     // pressed: merged or replaced, it would write one account's choice into another's copy
-    // (NATG-535). So is an answer from another import's check. Returns whether the import went.
-    // With no token at all (no check before it), the import is held to whoever is here now.
+    // (NATG-535). So is an answer from another import's check, and an import with no token at all:
+    // nothing would hold it to the account it began under. `mergeWith` carries its check's token.
+    // Returns whether the import went.
     importBackup(backup, { mergeWith, token } = {}) {
-      const bound = token || mergeWith?.token || null
-      const own = bound || get().importToken()
-      if (mergeWith?.stale || (mergeWith?.token && mergeWith.token !== own) || !get().importIsCurrent(own)) return false
+      const own = token || mergeWith?.token || null
+      if (!own || mergeWith?.stale || (mergeWith?.token && mergeWith.token !== own) || !get().importIsCurrent(own)) return false
       const cur = get().S
       const uid = get().user?.id
-      // The replace goes against the revision this import's own check read: the same token. With
-      // none handed in, the last check's, when it was for this same account and still holds.
-      const t = importRead?.token
-      const ours = !!t && (bound ? t === bound : t.uid === own.uid && t.owner === own.owner && get().importIsCurrent(t))
+      // The replace goes against the revision this import's own check read: the same token.
+      const ours = !!importRead && importRead.token === own
       const read = mergeWith?.state ? mergeWith : ours ? importRead : null
       if (ours) importRead = null
       const server = read?.state || null
@@ -1924,6 +1924,9 @@ export const useStore = create((set, get) => {
     // `adopt` (a sign-in, a pairing — { alwaysAsk } for a device link): adoptProfile follows and
     // decides what becomes of this copy; until it has, nothing is pulled or pushed (ADOPT_KEY).
     setUser(u, { adopt } = {}) {
+      // Every change of account here ends the imports begun under the previous one: a sign-in as
+      // someone else, a session that expired (a 401), and the same account signing in again.
+      if ((get().user?.id || null) !== (u?.id || null)) ownerEpoch++
       if (u) {
         // The local copy belongs to whoever last signed in here. When a session expires or is
         // revoked elsewhere, boot() only drops the user and the data stays; a different profile

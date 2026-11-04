@@ -65,7 +65,7 @@ afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user:
 
 const restore = async file => {
   const { state } = await readBackupFile(file)
-  useStore.getState().importBackup(state)
+  useStore.getState().importBackup(state, { token: useStore.getState().importToken() })
   return useStore.getState().S
 }
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1'))

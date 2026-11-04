@@ -254,6 +254,40 @@ describe('an import is held to the token it began with', () => {
     expectNothingImported(() => store().importBackup(BACKUP, { token }))
   })
 
+  it('an import with no token at all writes nothing', async () => {
+    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    expectNothingImported(() => store().importBackup(BACKUP))
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: null }))
+    // a hand-made answer carries no check's token either
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: { state: clone(SERVER_A), rev: 7 } }))
+    guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] })
+    expectNothingImported(() => store().importBackup(BACKUP))
+  })
+
+  // Same tab, no look at the token in between: nothing but the round trip itself can end it.
+  it('A\'s session ends here (a 401) and A signs in again: a token taken before is refused', async () => {
+    const { c, token } = await askedAsA()
+    store().setUser(null)          // boot's 401: the copy and the owner key stay
+    store().setUser({ id: 'A' })   // A signs in again
+    expect(store().user?.id).toBe('A')
+    expect(localStorage.getItem('gym_owner')).toBe('A')
+    expect(store().importIsCurrent(token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: c, token }))
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: null, token }))
+  })
+
+  it('A signs out here (clearLocalSession) and signs in again: a token taken before is refused', async () => {
+    const { c, token } = await askedAsA()
+    api.mockResolvedValue({ ok: true })
+    await store().signOut({ force: true })
+    expect(localStorage.getItem('gym_owner')).toBeNull()
+    store().setUser({ id: 'A' })
+    expect(localStorage.getItem('gym_owner')).toBe('A')
+    expect(store().importIsCurrent(token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: c, token }))
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: null, token }))
+  })
+
   it('an answer from another import\'s check is refused, and so is a stale one', async () => {
     const asked = await askedAsA()
     const other = store().importToken()
