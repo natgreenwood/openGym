@@ -12,7 +12,7 @@ let DEF, useStore, useUI, sharedViewOf, buildCombinedEntries, saveSessionAsRouti
 const clone = v => structuredClone(v)
 const ME = { id: 'qa-recipient', name: 'Recipient' }
 const fresh = { offline: false, pending: false, auth: false, lastError: null, lastSynced: 0, server: null }
-const accepted = (name = 'Original', hash = 'qa-h1', ex = [{ id: '0025', sets: 2, reps: 5, weight: 100 }]) => ({ id: 'qa-share', state: 'accepted', from: { id: 'qa-sharer', name: 'Sharer' }, unit: 'kg', hash, routine: { id: 'source', name, ex } })
+const accepted = (name = 'Original', hash = 'qa-h1', ex = [{ id: '0025', sets: 2, reps: 5, weight: 100 }], extra = {}) => ({ id: 'qa-share', state: 'accepted', from: { id: 'qa-sharer', name: 'Sharer' }, unit: 'kg', hash, routine: { id: 'source', name, ex, ...extra } })
 const OWN = { id: 'r-own', name: 'Mine', ex: [{ id: '0007', sets: 1, reps: 8, weight: 20 }] }
 let net
 beforeEach(async () => {
@@ -91,6 +91,10 @@ it('AC1–AC3: WorkoutDetail saves a shared workout, and the copy outlives the s
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   const nav = vi.fn()
   setNav(nav)
+  // The sharer's routine has a rule of its own: it has to come through the share, the shared view
+  // and the sheet onto the copy, the way a copy of your own routine keeps its rule.
+  const DOUBLE = accepted('Original', 'qa-h1', undefined, { prog: 'double' })
+  net.incoming = [clone(DOUBLE)]
   await useStore.getState().loadShares()
   const w = workoutFrom(['shared:qa-share'], { id: 'qa-complete' })
   expect(w.sharedOrigin).toBeUndefined()
@@ -123,13 +127,13 @@ it('AC1–AC3: WorkoutDetail saves a shared workout, and the copy outlives the s
   expect(S.routines).toHaveLength(2)
   const copy = clone(S.routines.find(r => r.id !== 'r-own'))
   independent(copy)
-  expect(copy).toMatchObject({ name: 'Original', ex: [{ id: '0025', sets: 2, reps: 5, weight: 100 }] })
+  expect(copy).toMatchObject({ name: 'Original', ex: [{ id: '0025', sets: 2, reps: 5, weight: 100, prog: 'double' }] })
   expect(nav).toHaveBeenLastCalledWith('/plan/r/' + copy.id)
   // AC3: the shared routine as you see it, and the share itself, are as they were. The workout
   // that was copied still says where it came from.
   expect(sharedViewOf(useStore.getState()).byId.get('shared:qa-share')).toEqual(sharedBefore)
   expect(useStore.getState().shares).toEqual(sharesBefore)
-  expect(net.incoming).toEqual([accepted()])
+  expect(net.incoming).toEqual([DOUBLE])
   expect(S.workouts[0].routineIds).toEqual(['shared:qa-share'])
 
   // The sharer edits their routine: the shared routine follows, your copy doesn't.
