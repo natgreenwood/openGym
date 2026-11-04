@@ -2,7 +2,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { parseHTML } from 'linkedom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import Modals, { afterScrollRestore, scrollRestorePending } from './Modals.jsx'
+import Modals, { afterScrollRestore, scrollRestorePending, useBehindSheet } from './Modals.jsx'
 
 const mocks = vi.hoisted(() => {
   const listeners = new Set()
@@ -515,5 +515,72 @@ describe('the restore window under StrictMode', () => {
     vi.advanceTimersByTime(400)
     expect(onClose).toHaveBeenCalledTimes(1)
     vi.useRealTimers()
+  })
+})
+
+// jsdom and linkedom do not enforce inert, so these check the attributes that make a browser keep
+// Tab and the screen reader inside the top sheet. The real Tab behaviour is checked in a browser.
+describe('the page behind an open sheet', () => {
+  // The shape App.jsx gives it: the page and the bars beside #modal-root take useBehindSheet(),
+  // the toast does not.
+  function Host() {
+    const behind = useBehindSheet()
+    return React.createElement(React.Fragment, null,
+      React.createElement('div', { id: 'app', ...behind }, React.createElement('button', null, 'Page')),
+      React.createElement('nav', { id: 'tabbar', ...behind }, React.createElement('button', null, 'Tab')),
+      React.createElement(Modals),
+      React.createElement('div', { id: 'toast', role: 'status' }))
+  }
+  const behindIsHidden = () => ['app', 'tabbar'].map(id => {
+    const el = document.getElementById(id)
+    return [el.hasAttribute('inert'), el.getAttribute('aria-hidden')]
+  })
+  const layers = () => [...document.querySelectorAll('#modal-root > div')]
+  const usable = el => !el.hasAttribute('inert') && el.getAttribute('aria-hidden') === null
+
+  beforeEach(async () => {
+    await act(async () => { root.render(React.createElement(Host)) })
+  })
+
+  it('is left alone while no sheet is open', () => {
+    expect(behindIsHidden()).toEqual([[false, null], [false, null]])
+  })
+
+  it('goes inert and hidden when a sheet opens, and comes back when the last one closes', async () => {
+    await setSheets([sheet('one')])
+    expect(behindIsHidden()).toEqual([[true, 'true'], [true, 'true']])
+    expect(usable(document.getElementById('toast'))).toBe(true)   // still announces
+    expect(layers().map(usable)).toEqual([true])
+
+    await setSheets([])
+    expect(behindIsHidden()).toEqual([[false, null], [false, null]])
+  })
+
+  it('leaves only the top sheet usable when sheets stack', async () => {
+    await setSheets([sheet('one'), sheet('two')])
+    expect(layers().map(usable)).toEqual([false, true])
+    expect(layers()[0].getAttribute('aria-hidden')).toBe('true')
+
+    // the top one closes: the one under it is the top now, and the page stays out of reach
+    await act(async () => { mocks.state.closeSheet('two') })
+    expect(layers().map(usable)).toEqual([true])
+    expect(behindIsHidden()).toEqual([[true, 'true'], [true, 'true']])
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(behindIsHidden()).toEqual([[false, null], [false, null]])
+  })
+
+  it('makes bottom sheets and centered dialogs modal dialogs', async () => {
+    await setSheets([sheet('bottom'), { ...sheet('confirm'), kind: 'center' }])
+    const box = sel => document.querySelector(sel)
+    expect([box('.sheet').getAttribute('role'), box('.sheet').getAttribute('aria-modal')]).toEqual(['dialog', 'true'])
+    expect([box('.center').getAttribute('role'), box('.center').getAttribute('aria-modal')]).toEqual(['dialog', 'true'])
+  })
+
+  it('does not wrap a full-screen viewer, already its own named dialog, in a second one', async () => {
+    const render = () => React.createElement('div', { className: 'mviewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photo' })
+    await setSheets([{ ...sheet('viewer', { render }), kind: 'viewer' }])
+    expect(document.querySelectorAll('#modal-root [role="dialog"]').length).toBe(1)
+    expect(behindIsHidden()).toEqual([[true, 'true'], [true, 'true']])
   })
 })
