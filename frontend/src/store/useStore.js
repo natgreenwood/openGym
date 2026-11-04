@@ -399,7 +399,12 @@ export const useStore = create((set, get) => {
   // A backup import's replace: pushed against the revision the import's check read (importRead),
   // so a change another device synced while the confirm was open is merged in, not wiped.
   let replaceRev = null
-  let importRead = null    // what importConflict last read: { uid, owner, state, rev }
+  let importRead = null    // what importConflict last read: { token, state, rev }
+  // Each import is held to the account it began under (importToken). The counter moves with every
+  // owner change another tab makes, so an import outlives no switch, back again included; a token
+  // once found stale stays stale (importIsCurrent).
+  let ownerEpoch = 0
+  const staleImports = new WeakSet()
   let lastCheck = 0
   let pollTm = null
   let offlineChanges = false   // a push failed for lack of network — the next one that lands says so
@@ -611,11 +616,14 @@ export const useStore = create((set, get) => {
   // persist() then moved seenOwner, so the owner event, once it ran, found nothing to clear; a
   // request sent for them went out under whichever session the browser holds now (SEC-01).
   const answerIsFor = uid => !!uid && get()?.user?.id === uid && readOwner() === uid
-  // Whether an import's check (importConflict) is still about whoever is here: the account it read
-  // for (answerIsFor), or, asked with nobody signed in, still nobody under the same owner key. The
-  // confirm stays open for as long as the user takes, and another tab can sign out, switch account
-  // or sign in from guest meanwhile (NATG-535).
-  const importIsFor = read => read.uid ? answerIsFor(read.uid) : !get().user && readOwner() === read.owner
+  // Whether an import's token (importToken) still holds: no owner change since it was taken, and
+  // the same account signed in here under its own owner key (answerIsFor), or still nobody under
+  // the same owner key. A signed-in token taken while the two disagreed (this tab still names A,
+  // the owner key already says B) never holds. The confirm stays open for as long as the user
+  // takes, and another tab can sign out, switch account or sign in from guest meanwhile (NATG-535).
+  const importHolds = tok => tok.epoch === ownerEpoch && (tok.uid
+    ? tok.owner === tok.uid && answerIsFor(tok.uid)
+    : !get().user && readOwner() === tok.owner)
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
   const readWidOwner = () => { try { return localStorage.getItem(WID_OWNER_KEY) } catch { return null } }
   // The saved copy is the one this tab may join: written under the owner this tab holds. QA
@@ -934,6 +942,7 @@ export const useStore = create((set, get) => {
     meta.set(S, { base: null, owed: false })
     seenWid = readWid()
     seenOwner = owner
+    ownerEpoch++
     handedOver = true
     const user = get().user
     set({ ...(user && user.id !== owner ? { user: null } : {}), S })
@@ -1569,25 +1578,25 @@ export const useStore = create((set, get) => {
     // deliberate replace and deletes them from the profile; the confirm says so and offers to merge
     // them in instead (importBackup). null when there are none, when nobody is signed in, or when
     // the server cannot be asked — the replace then goes as it always has.
-    async importConflict(backup) {
-      // Whose check this is, recorded before anything is asked: the import it leads to goes only
-      // while that is still who is here (importIsCurrent), whatever the answer was.
-      const uid = get().user?.id || null
-      const owner = readOwner()
-      importRead = { uid, owner, state: null, rev: null }
+    async importConflict(backup, token = get().importToken()) {
+      // A check for an import that is no longer this account's asks nothing, not even the server:
+      // its request would go out under whichever session the browser holds now (SEC-02). The
+      // answer says so, tied to that import, rather than null, which means nothing to warn about.
+      const stale = Object.freeze({ stale: true, token })
+      if (!get().importIsCurrent(token)) return stale
       // No account (a phone in local mode, a guest): this copy is the only one there is, so the
       // workouts it holds that the backup lacks are asked about the same way, never just replaced.
-      if (!uid) {
+      if (!token.uid) {
         const key = w => entryKey('workouts', w)
         const inBackup = new Set((Array.isArray(backup?.workouts) ? backup.workouts : []).filter(Boolean).map(key))
         const here = (get().S.workouts || []).filter(w => w && !inBackup.has(key(w))).length
-        return here ? { workouts: here, state: get().S, rev: null, device: true, uid, owner } : null
+        return here ? { workouts: here, state: get().S, rev: null, device: true, token } : null
       }
       let res
       try { res = await api('/api/data') } catch { return null }
-      if (!answerIsFor(uid)) return null   // the account the confirm would be about has gone
+      if (!get().importIsCurrent(token)) return stale   // the account the confirm would be about has gone
       const state = res?.state
-      importRead = { uid, owner, state: state || null, rev: res?.rev ?? null }
+      importRead = { token, state: state || null, rev: res?.rev ?? null }
       if (!state) return null
       const key = w => entryKey('workouts', w)
       const inBackup = new Set((Array.isArray(backup?.workouts) ? backup.workouts : []).filter(Boolean).map(key))
@@ -1596,15 +1605,22 @@ export const useStore = create((set, get) => {
       const workouts = server.filter(w => !inBackup.has(key(w))).length
       // This device's own workouts the server has not received yet go the same way, and count too.
       const mine = owes() ? (get().S.workouts || []).filter(w => w && !inBackup.has(key(w)) && !onServer.has(key(w))).length : 0
-      return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes(), uid, owner } : null
+      return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes(), token } : null
     },
-    // Whether the confirm an import check opened is still about whoever is here: `answer`
-    // (importConflict's), or with none, nothing to warn about, the check's own read. Settings
-    // closes the confirm once it is not, and importBackup refuses it (NATG-535). An import with no
-    // check before it has nothing to hold it to.
-    importIsCurrent(answer) {
-      const read = answer || importRead
-      return !read || importIsFor(read)
+    // Whose import this is, taken when the file is chosen, before anything is awaited: Settings
+    // hands it to every step after (importConflict, importIsCurrent, importBackup), and each judges
+    // that token alone, never what another import last read (NATG-535 SEC-01).
+    importToken() {
+      return Object.freeze({ uid: get().user?.id || null, owner: readOwner(), epoch: ownerEpoch })
+    },
+    // Whether the import `token` belongs to is still this account's (importHolds). Settings closes
+    // the confirm once it is not, and importBackup refuses it. Stale is for good: an account that
+    // comes back finds the import gone, as the confirm already is.
+    importIsCurrent(token) {
+      if (!token || staleImports.has(token)) return false
+      if (importHolds(token)) return true
+      staleImports.add(token)
+      return false
     },
     // A backup in place of this copy. With `mergeWith` — importConflict's answer — the server's copy
     // is merged in instead of replaced (with this device's changes not yet on it, when there are
@@ -1617,15 +1633,22 @@ export const useStore = create((set, get) => {
     // plan are the latest choice, on every device. The replace goes against the revision the check
     // read (or this copy's own): a change another device synced meanwhile is merged in, not wiped.
     //
-    // An answer for anyone but whoever is here now (importIsCurrent) is refused whole, whichever
-    // button was pressed: merged or replaced, it would write one account's choice into another's
-    // copy (NATG-535). Returns whether the import went.
-    importBackup(backup, { mergeWith } = {}) {
-      if (!get().importIsCurrent(mergeWith)) { importRead = null; return false }
+    // An import whose token (importToken) no longer holds is refused whole, whichever button was
+    // pressed: merged or replaced, it would write one account's choice into another's copy
+    // (NATG-535). So is an answer from another import's check. Returns whether the import went.
+    // With no token at all (no check before it), the import is held to whoever is here now.
+    importBackup(backup, { mergeWith, token } = {}) {
+      const bound = token || mergeWith?.token || null
+      const own = bound || get().importToken()
+      if (mergeWith?.stale || (mergeWith?.token && mergeWith.token !== own) || !get().importIsCurrent(own)) return false
       const cur = get().S
       const uid = get().user?.id
-      const read = mergeWith?.state ? mergeWith : importRead && importRead.uid === uid ? importRead : null
-      importRead = null
+      // The replace goes against the revision this import's own check read: the same token. With
+      // none handed in, the last check's, when it was for this same account and still holds.
+      const t = importRead?.token
+      const ours = !!t && (bound ? t === bound : t.uid === own.uid && t.owner === own.owner && get().importIsCurrent(t))
+      const read = mergeWith?.state ? mergeWith : ours ? importRead : null
+      if (ours) importRead = null
       const server = read?.state || null
       const now = Math.max(Date.now(), highestStamp(cur) + 1, highestStamp(server) + 1, highestStamp(backup) + 1)
       const next = sanitizeAccent(Object.assign(clone(DEF), backup))

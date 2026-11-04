@@ -4,8 +4,9 @@
    on a confirm for as long as the user takes. Another tab could sign out, switch account or sign in
    from guest meanwhile, and any choice on the confirm then wrote into whoever was here now:
    "Merge them in" put account A's server workouts into B's profile against A's revision, and
-   "Replace anyway" or the plain Import replaced B's data on a warning that counted A's. The import
-   is now refused whole once the account its check was for has gone, whichever choice was made. */
+   "Replace anyway" or the plain Import replaced B's data on a warning that counted A's. Each import
+   now carries a token of the account it began under (importToken), taken when the file is chosen,
+   and is refused whole once that token no longer holds, whichever choice was made. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
@@ -18,8 +19,11 @@ const clone = v => JSON.parse(JSON.stringify(v))
 const ids = xs => (xs || []).map(x => x.id)
 const workout = (id, d = '2026-09-20') => ({ id, d, start: 1, end: 2, entries: [] })
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT')
+const reads = () => api.mock.calls.filter(([path]) => path === '/api/data')
 const BACKUP = { ...clone(DEF), _ts: 50, restSec: 120, workouts: [workout('w1'), workout('w2')] }
 const SERVER_A = { ...clone(DEF), _ts: 300, restSec: 60, workouts: [workout('w1'), workout('w2'), workout('a-only', '2026-09-26')], _rev: 7 }
+const SERVER_B = { ...clone(DEF), _ts: 400, restSec: 30, workouts: [workout('b1', '2026-09-27')], _rev: 21 }
+const store = () => useStore.getState()
 
 const signedIn = (uid, S, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
@@ -36,39 +40,44 @@ const otherTab = owner => {
   if (owner) localStorage.setItem('gym_owner', owner); else localStorage.removeItem('gym_owner')
 }
 const ownerEvent = () => window.dispatchEvent(new StorageEvent('storage', { key: 'gym_owner' }))
+// Another tab signed in as `uid`, and this tab has followed it all the way (followSignIn).
+const followed = uid => { otherTab(uid); ownerEvent(); useStore.setState({ user: { id: uid } }) }
 
-// The confirm's answer, for each way into it: A signed in with a server workout the backup lacks,
-// or a guest with a workout on this device the backup lacks.
+// The confirm's answer, for each way into it, asked as Settings does: the import's token first,
+// then the check with it. A signed in with a server workout the backup lacks, or a guest with a
+// workout on this device the backup lacks.
 async function askedAsA() {
   signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+  const token = store().importToken()
   api.mockResolvedValueOnce({ state: clone(SERVER_A), rev: 7 })
-  const c = await useStore.getState().importConflict(BACKUP)
-  expect(c).toMatchObject({ workouts: 1, uid: 'A' })
-  return c
+  const c = await store().importConflict(BACKUP, token)
+  expect(c).toMatchObject({ workouts: 1, token })
+  return { c, token }
 }
 async function askedAsGuest() {
   guest({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('guest-only', '2026-09-28')] })
-  const c = await useStore.getState().importConflict(BACKUP)
-  expect(c).toMatchObject({ workouts: 1, device: true, uid: null })
-  return c
+  const token = store().importToken()
+  const c = await store().importConflict(BACKUP, token)
+  expect(c).toMatchObject({ workouts: 1, device: true, token })
+  return { c, token }
 }
 
 // What "nothing imported" means: the copy and its saved form stay as they were, and nothing goes
 // to the server, not even after the push debounce.
 function expectNothingImported(run) {
-  const S = useStore.getState().S
+  const S = store().S
   const saved = localStorage.getItem('gym_state_v1')
   const before = puts().length
   expect(run()).toBe(false)
-  expect(useStore.getState().S).toBe(S)
+  expect(store().S).toBe(S)
   expect(localStorage.getItem('gym_state_v1')).toBe(saved)
   vi.advanceTimersByTime(5000)
   expect(puts().length).toBe(before)
 }
 
 const CHOICES = [
-  ['"Merge them in"', c => useStore.getState().importBackup(BACKUP, { mergeWith: c })],
-  ['"Replace anyway"', () => useStore.getState().importBackup(BACKUP, { mergeWith: null })],
+  ['"Merge them in"', ({ c, token }) => store().importBackup(BACKUP, { mergeWith: c, token })],
+  ['"Replace anyway"', ({ token }) => store().importBackup(BACKUP, { mergeWith: null, token })],
 ]
 
 beforeEach(() => { localStorage.clear(); api.mockReset(); vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }) })
@@ -82,17 +91,17 @@ afterEach(() => {
 // owner (it writes nothing until it has taken that owner's saved copy), as a real tab would be.
 describe('with no account change, the import goes as before', () => {
   it('"Merge them in" as A', async () => {
-    const c = await askedAsA()
-    expect(useStore.getState().importIsCurrent(c)).toBe(true)
-    expect(useStore.getState().importBackup(BACKUP, { mergeWith: c })).toBe(true)
-    expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w2', 'a-only'])
+    const asked = await askedAsA()
+    expect(store().importIsCurrent(asked.token)).toBe(true)
+    expect(CHOICES[0][1](asked)).toBe(true)
+    expect(ids(store().S.workouts)).toEqual(['w1', 'w2', 'a-only'])
   })
 
   it('"Replace anyway" as a guest', async () => {
-    await askedAsGuest()
-    expect(useStore.getState().importIsCurrent(null)).toBe(true)
-    expect(useStore.getState().importBackup(BACKUP)).toBe(true)
-    expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w2'])
+    const asked = await askedAsGuest()
+    expect(store().importIsCurrent(asked.token)).toBe(true)
+    expect(CHOICES[1][1](asked)).toBe(true)
+    expect(ids(store().S.workouts)).toEqual(['w1', 'w2'])
   })
 })
 
@@ -100,69 +109,155 @@ describe('the account changes while the import confirm is open', () => {
   for (const [choice, press] of CHOICES) {
     describe(choice, () => {
       it('A → B: refused, whether or not this tab has heard of the switch yet', async () => {
-        const c = await askedAsA()
+        const asked = await askedAsA()
         otherTab('B')
-        expect(useStore.getState().importIsCurrent(c)).toBe(false)
-        expectNothingImported(() => press(c))
+        expect(store().importIsCurrent(asked.token)).toBe(false)
+        expectNothingImported(() => press(asked))
 
-        const c2 = await askedAsA()
-        otherTab('B')
-        ownerEvent()
-        useStore.setState({ user: { id: 'B' } })   // as followSignIn takes B on
-        expectNothingImported(() => press(c2))
+        const asked2 = await askedAsA()
+        followed('B')
+        expectNothingImported(() => press(asked2))
       })
 
       it('A → signed out: refused', async () => {
-        const c = await askedAsA()
+        const asked = await askedAsA()
         otherTab(null)
-        expectNothingImported(() => press(c))
+        expectNothingImported(() => press(asked))
 
-        const c2 = await askedAsA()
+        const asked2 = await askedAsA()
         otherTab(null)
         ownerEvent()
-        expect(useStore.getState().user).toBeNull()
-        expectNothingImported(() => press(c2))
+        expect(store().user).toBeNull()
+        expectNothingImported(() => press(asked2))
       })
 
       it('guest → B: refused', async () => {
-        const c = await askedAsGuest()
+        const asked = await askedAsGuest()
         otherTab('B')
-        expect(useStore.getState().importIsCurrent(c)).toBe(false)
-        expectNothingImported(() => press(c))
+        expect(store().importIsCurrent(asked.token)).toBe(false)
+        expectNothingImported(() => press(asked))
 
-        const c2 = await askedAsGuest()
-        otherTab('B')
-        ownerEvent()
-        useStore.setState({ user: { id: 'B' } })
-        expectNothingImported(() => press(c2))
+        const asked2 = await askedAsGuest()
+        followed('B')
+        expectNothingImported(() => press(asked2))
       })
     })
   }
 
   it('the plain "Import backup?" confirm (no conflict to warn about) is refused the same way', async () => {
     signedIn('A', clone(DEF), 6)
+    const token = store().importToken()
     api.mockResolvedValueOnce({ state: clone(BACKUP), rev: 7 })
-    expect(await useStore.getState().importConflict(BACKUP)).toBeNull()
+    expect(await store().importConflict(BACKUP, token)).toBeNull()
     otherTab('B')
-    expect(useStore.getState().importIsCurrent(null)).toBe(false)
-    expectNothingImported(() => useStore.getState().importBackup(BACKUP))
+    expect(store().importIsCurrent(token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
 
     guest(clone(DEF))
-    expect(await useStore.getState().importConflict(BACKUP)).toBeNull()
+    const token2 = store().importToken()
+    expect(await store().importConflict(BACKUP, token2)).toBeNull()
     otherTab('B')
-    expectNothingImported(() => useStore.getState().importBackup(BACKUP))
+    expectNothingImported(() => store().importBackup(BACKUP, { token: token2 }))
   })
 
   it('a switch while the check is still asking the server leaves nothing to confirm', async () => {
     signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    const token = store().importToken()
     let answer
     api.mockReturnValueOnce(new Promise(r => { answer = r }))
-    const asking = useStore.getState().importConflict(BACKUP)
+    const asking = store().importConflict(BACKUP, token)
     otherTab('B')
     answer({ state: clone(SERVER_A), rev: 7 })
-    const c = await asking
-    expect(c).toBeNull()
-    expect(useStore.getState().importIsCurrent(c)).toBe(false)
-    expectNothingImported(() => useStore.getState().importBackup(BACKUP))
+    expect(await asking).toEqual({ stale: true, token })
+    expect(store().importIsCurrent(token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
+  })
+})
+
+// The Security Analyst's schedules (SEC-01, SEC-02): each import is judged by its own token, never
+// by what another import's check left behind, and a check for a stale import asks nothing.
+describe('an import is held to the token it began with', () => {
+  it('overlapping imports: A\'s, still asking the server, is refused after B\'s confirm is cancelled', async () => {
+    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    const tokenA = store().importToken()
+    let answerA
+    api.mockReturnValueOnce(new Promise(r => { answerA = r }))
+    const askingA = store().importConflict(BACKUP, tokenA)
+
+    // Another tab signs in as B; this tab follows. A second import, as B, reads B's server copy,
+    // and its confirm is cancelled: B's read is the last one the store holds.
+    followed('B')
+    useStore.setState({ S: { ...clone(SERVER_B) } })
+    const tokenB = store().importToken()
+    api.mockResolvedValueOnce({ state: clone(SERVER_B), rev: 21 })
+    expect(await store().importConflict(BACKUP, tokenB)).toMatchObject({ token: tokenB })
+
+    answerA({ state: clone(SERVER_A), rev: 7 })
+    expect(await askingA).toEqual({ stale: true, token: tokenA })
+    expect(store().importIsCurrent(tokenA)).toBe(false)
+    // A's plain Import, had its confirm opened: B's read does not make it current.
+    expectNothingImported(() => store().importBackup(BACKUP, { token: tokenA }))
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: null, token: tokenA }))
+    expect(ids(store().S.workouts)).toEqual(['b1'])
+    // B's own import is still B's.
+    expect(store().importIsCurrent(tokenB)).toBe(true)
+  })
+
+  it('an account switch while the file is still being read: the check asks nothing, the import is refused', async () => {
+    signedIn('A', clone(DEF), 6)
+    const token = store().importToken()
+    followed('B')   // during readBackupFile
+    expect(await store().importConflict(BACKUP, token)).toEqual({ stale: true, token })
+    expect(reads()).toHaveLength(0)
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
+
+    guest(clone(DEF))
+    const guestToken = store().importToken()
+    otherTab('B')
+    expect(await store().importConflict(BACKUP, guestToken)).toEqual({ stale: true, token: guestToken })
+    expectNothingImported(() => store().importBackup(BACKUP, { token: guestToken }))
+  })
+
+  it('this tab still names A while the owner key says B: no request goes, and A coming back does not revive the import', async () => {
+    signedIn('A', clone(DEF), 6)
+    otherTab('B')   // the storage event has not run: user A, owner key B
+    const taken = store().importToken()
+    expect(taken).toMatchObject({ uid: 'A', owner: 'B' })
+    const asked = await store().importConflict(BACKUP)   // no token handed in: one is taken now
+    expect(asked.stale).toBe(true)
+    expect(reads()).toHaveLength(0)
+    otherTab('A')
+    expect(store().importIsCurrent(taken)).toBe(false)
+    expect(store().importIsCurrent(asked.token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { token: taken }))
+
+    // Taken while all agreed, then the owner key moves before the check goes, and back after.
+    const token = store().importToken()
+    otherTab('B')
+    expect(await store().importConflict(BACKUP, token)).toEqual({ stale: true, token })
+    expect(reads()).toHaveLength(0)
+    otherTab('A')
+    expect(store().importIsCurrent(token)).toBe(false)
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
+  })
+
+  it('A → B → A while the check is asking the server: the answer is not taken as A\'s', async () => {
+    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    const token = store().importToken()
+    let answer
+    api.mockReturnValueOnce(new Promise(r => { answer = r }))
+    const asking = store().importConflict(BACKUP, token)
+    followed('B')
+    followed('A')
+    answer({ state: clone(SERVER_B), rev: 21 })
+    expect(await asking).toEqual({ stale: true, token })
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
+  })
+
+  it('an answer from another import\'s check is refused, and so is a stale one', async () => {
+    const asked = await askedAsA()
+    const other = store().importToken()
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: asked.c, token: other }))
+    expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: { stale: true, token: other }, token: other }))
   })
 })
