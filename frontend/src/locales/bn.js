@@ -2778,7 +2778,6 @@ export default {
   'Shared, {0} waiting': 'শেয়ার করা, {0}টি অপেক্ষায়',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'এতে {0} জনের সাথে শেয়ার করাও চিরতরে বন্ধ হবে: পরে আবার শেয়ার করলে নতুন আমন্ত্রণ যাবে।',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'এতে {0} জনের সাথে শেয়ার করাও চিরতরে বন্ধ হবে: পরে আবার শেয়ার করলে নতুন আমন্ত্রণ যাবে।',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'এই ওয়ার্কআউটটি আপনার সাথে শেয়ার করা একটি রুটিন থেকে, তাই এটি আপনার নিজের রুটিন হিসেবে সেভ করা যাবে না।',
   'Not available · it’s too large to open': 'পাওয়া যাচ্ছে না · খোলার জন্য খুব বড়',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}-এ এই অ্যাপ যত সেট, ড্রপ বা ব্যায়াম খুলতে পারে তার চেয়ে বেশি আছে। এটি আপনার প্ল্যানে থাকবে আর ছোট করা হলেই ফিরে আসবে।',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}-এ এই অ্যাপ যত সেট, ড্রপ বা ব্যায়াম খুলতে পারে তার চেয়ে বেশি আছে। এটি আপনার প্ল্যানে থাকবে আর {1} ছোট করলেই ফিরে আসবে।',

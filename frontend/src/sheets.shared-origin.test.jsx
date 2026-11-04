@@ -1,9 +1,10 @@
 // @vitest-environment happy-dom
-// SEC-486-02: a workout from a routine shared with you can't be saved as a routine of your own,
-// however it is reached. "Repeat today" builds a session with no routine ids at all, so the
-// shared origin is said on the session itself (`sharedOrigin`), carried into the saved workout,
-// into a repeat and a repeat of that, through a push to the server, and kept after the share
-// has ended. The whole sequence, with the real store, session builders and detail sheet.
+// SEC-486-02: a workout from a routine shared with you keeps saying so, however it is reached.
+// "Repeat today" builds a session with no routine ids at all, so the shared origin is said on the
+// session itself (`sharedOrigin`), carried into the saved workout, into a repeat and a repeat of
+// that, through a push to the server, and kept after the share has ended. Save as routine works
+// on each of them as it does on your own (NATG-500). The whole sequence, with the real store,
+// session builders and detail sheet.
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
@@ -62,7 +63,7 @@ const saveButtonFor = w => {
   return { save, host, done: () => { act(() => root.unmount()); host.remove() } }
 }
 
-it('a shared workout, repeated twice after the share ended, still can’t be saved as a routine', async () => {
+it('a shared workout, repeated twice after the share ended, keeps its origin and saves as a routine', async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   await useStore.getState().loadShares()
   sheets.beginWorkout(['shared:s1'], null)
@@ -94,17 +95,15 @@ it('a shared workout, repeated twice after the share ended, still can’t be sav
   await useStore.getState().pushState()
   expect(net.puts.at(-1).state.workouts.map(w => w.sharedOrigin)).toEqual([true, true, true])
 
-  // Save as routine: refused by the helper, disabled with its reason in the sheet.
+  // Save as routine (NATG-500): the helper makes a routine of your own from it, and the sheet's
+  // button is the enabled one your own workouts have.
   const draft = clone(useStore.getState().S)
-  expect(saveSessionAsRoutine(draft, third, third.name)).toBeNull()
-  expect(draft.routines.map(r => r.id)).toEqual(['r1'])
-  const { save, host, done } = saveButtonFor(third)
-  try {
-    expect(save.disabled).toBe(true)
-    expect(host.querySelector('#save-routine-why')).toBeTruthy()
-    act(() => save.click())
-    expect(useStore.getState().S.routines.map(r => r.id)).toEqual(['r1'])
-  } finally { done() }
+  const id = saveSessionAsRoutine(draft, third, third.name)
+  expect(draft.routines.map(r => r.id)).toEqual(['r1', id])
+  expect(id.startsWith('shared:')).toBe(false)
+  expect(draft.routines[1].ex.map(cfg => [cfg.id, cfg.sets, cfg.reps, cfg.weight])).toEqual([['0025', 2, 5, 100]])
+  const { save, done } = saveButtonFor(third)
+  try { expect(save.disabled).toBe(false) } finally { done() }
 })
 
 it('a workout from your own routine, and a repeat of it, still save as a routine', async () => {

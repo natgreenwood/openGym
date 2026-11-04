@@ -140,8 +140,6 @@ export function routineFromSession(session, name = session?.name, routines = [])
 
 /**
  * Whether any of the session was trained from a routine shared with you (`shared:<id>`, NATG-486).
- * Such a session is never saved as a routine: that would be a copy of someone else's routine,
- * editable and outside their changes, which sharing doesn't allow (NATG-483 AC14, NATG-500).
  * `sharedOrigin` (SEC-486-02) is what says so once the routine ids are gone: a repeat of the
  * workout has none, and the share itself may have ended since. See markSharedOrigin.
  */
@@ -159,10 +157,16 @@ export function fromSharedRoutine(session) {
  */
 export const markSharedOrigin = session => (fromSharedRoutine(session) ? { sharedOrigin: true } : {})
 
-/** Null, and nothing saved, for a session from a shared routine (fromSharedRoutine). */
-export function saveSessionAsRoutine(state, session, name) {
-  if (fromSharedRoutine(session)) return null
-  const routine = routineFromSession(session, name, state.routines)
+/**
+ * A session from a routine shared with you saves the way one of your own does (NATG-500): the
+ * copy is yours, with a new id and nothing linking it to the share. `shared` (the shared-routine
+ * view) is only where its exercises' progression rule is read from (copiedEntry), since a
+ * `shared:` routine isn't in `state.routines`. A share that has ended is read like a deleted
+ * routine of your own: the copy keeps what the workout itself carried.
+ */
+export function saveSessionAsRoutine(state, session, name, shared = null) {
+  const sources = [...(state.routines || []), ...(Array.isArray(shared?.routines) ? shared.routines : [])]
+  const routine = routineFromSession(session, name, sources)
   state.routines.push(routine)
   return routine.id
 }

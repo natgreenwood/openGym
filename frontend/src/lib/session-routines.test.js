@@ -215,4 +215,32 @@ describe('a routine saved from a planned session', () => {
     const saved = train(st, source, { r: 9 })
     expect(routineFromSession(saved, 'Copy', []).ex[0]).not.toHaveProperty('prog')
   })
+
+  // NATG-500: a routine shared with you isn't in `state.routines`, so its rule comes from the
+  // shared-routine view. The copy is yours: a new id, and nothing that points back at the share.
+  it('reads a shared routine’s rule from the shared view, and the copy is your own', () => {
+    const source = { id: 'shared:s1', name: 'Leg Day', prog: 'double', shared: { id: 's1', from: { id: 'u1', name: 'Sam' } },
+      ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }] }
+    const st = stateOf([])
+    const saved = train(st, source, { r: 9 })
+    const sourceBefore = structuredClone(source)
+    const id = saveSessionAsRoutine(st, saved, saved.name, { routines: [source] })
+    const copy = st.routines.find(r => r.id === id)
+    expect(st.routines).toHaveLength(1)
+    expect(copy.id).not.toBe(source.id)
+    expect(JSON.stringify(copy)).not.toContain('shared')
+    expect(copy).toMatchObject({ name: 'Leg Day', ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60, prog: 'double' }] })
+    expect(source).toEqual(sourceBefore)
+  })
+
+  it('saves a shared workout after the share has ended, like one whose routine is gone', () => {
+    const source = { id: 'shared:s1', name: 'Leg Day', prog: 'double', ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }] }
+    const st = stateOf([])
+    const saved = train(st, source, { r: 9 })
+    const id = saveSessionAsRoutine(st, { ...saved, sharedOrigin: true }, saved.name)
+    const copy = st.routines.find(r => r.id === id)
+    expect(JSON.stringify(copy)).not.toContain('shared')
+    expect(copy.ex[0]).toMatchObject({ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 })
+    expect(copy.ex[0]).not.toHaveProperty('prog')
+  })
 })
