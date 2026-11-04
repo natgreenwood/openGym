@@ -1787,7 +1787,8 @@ export const useStore = create((set, get) => {
         saveShares(shares)
       }
       // Nor is it named as gone by the next load: the user removed it.
-      const held = sharesBefore?.uid === user?.id ? sharesBefore.lists : null
+      // Only for a user still signed in: after a sign-out there is nobody to hold lists for.
+      const held = user && sharesBefore?.uid === user.id ? sharesBefore.lists : null
       if (held) sharesBefore = { uid: user.id, lists: { ...held, incoming: held.incoming.filter(i => i?.id !== id) } }
       get().update(s => { deleteRoutine(s, sharedPointer(id)) })
       get().loadSharesNewer()

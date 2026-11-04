@@ -181,3 +181,17 @@ it('AC3: a revoke that a stale request sees first is still told, once', async ()
   await tick()
   expect(ui.toast).toHaveBeenCalledTimes(1)
 })
+
+it('NATG-510: a Remove whose DELETE is answered after a sign-out does not throw', async () => {
+  await signedIn({ ...clone(DEF), week: { 2: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const real = api.getMockImplementation()
+  let done
+  api.mockImplementation((path, o = {}) => o.method === 'DELETE' ? new Promise(resolve => { done = resolve }) : real(path, o))
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  useStore.setState({ user: null, shares: null })
+  done({ ok: true })
+  await expect(removing).resolves.toBe(true)
+  expect(ui.toast).not.toHaveBeenCalled()
+})
