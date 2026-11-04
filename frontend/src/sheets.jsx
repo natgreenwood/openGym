@@ -3202,7 +3202,8 @@ export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
 export function repeatWorkout(w, close) {
   const st = S()
   if (st.active) { toast(t('Finish the current workout first.')); return }
-  const { entries, skipped } = repeatSessionEntries(st, w)
+  // The shared view too: an exercise from a routine shared with you keeps that routine's rule.
+  const { entries, skipped } = repeatSessionEntries(st, w, { shared: sharedNow() })
   if (!entries.length) { toast(t('Nothing to repeat. Its exercises no longer exist.')); return }
   const go = bw => {
     if (S().active) { toast(t('Finish the current workout first.')); return }
