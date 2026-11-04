@@ -30,6 +30,7 @@ import {
   effortHistogram, isHardSet, HARD_RIR
 } from '../lib/effort.js'
 import { anchorsByWorkout, resolveSetRir } from '../lib/recovery.js'
+import { useSharedRoutines } from '../lib/use-shared-routines.js'
 import { Button, Segmented, SelectRow } from '../components/ui.jsx'
 import { tappable } from '../lib/use-sheet-keyboard.js'
 import { isWarmupRow } from '../lib/workout-model.js'
@@ -164,6 +165,8 @@ function profileBodyweightKg(S) {
 
 function MuscleBalance({ S }) {
   const nav = useNavigate()
+  // The plan's routines shared with you count in the planned layer too (NATG-498).
+  const shared = useSharedRoutines()
   const [view, setView] = useState('balance')
   const [win, setWin] = useState(7)
   const [weekOffset, setWeekOffset] = useState(0)
@@ -208,7 +211,7 @@ function MuscleBalance({ S }) {
   const rated = inWin.some(w => w.entries.some(e => e.sets.some(s => s.done && isHardSet(s))))
   const on = !weekly && hard && rated
   const load = loadOfWorkouts(inWin, on ? isHardSet : null)
-  const planned = weekly && weekOffset === 0 ? loadOfWeeklyPlan(S) : {}
+  const planned = weekly && weekOffset === 0 ? loadOfWeeklyPlan(S, shared) : {}
   const comparisonMuscles = MUSCLES
     .filter(muscle => (planned[muscle] || 0) > 0 || (load[muscle] || 0) > 0)
     .sort((a, b) => (load[b] || 0) - (load[a] || 0) || (planned[b] || 0) - (planned[a] || 0) || MUSCLES.indexOf(a) - MUSCLES.indexOf(b))
@@ -445,13 +448,14 @@ function EffortCard({ S }) {
 }
 
 // Stats = the analytics hub: all charts, progress and history live here.
-// The muscle volume your plan programs in a week: every weekday routine once, plus each session
-// of a running rotation (lib/muscles.js loadOfWeeklyPlan). It used to sit on Plan; it is analysis,
+// The muscle volume your plan programs in a week: every weekday routine once, shared ones included
+// (NATG-498), plus each session of a running rotation (lib/muscles.js loadOfWeeklyPlan). It used to sit on Plan; it is analysis,
 // so it lives here now, next to Muscle balance, and Plan links to it (/stats?focus=weekly-volume).
 const PLAN_VOLUME_ROWS = 5
 export function WeeklyPlanVolume({ S }) {
   const [all, setAll] = useState(false)
-  const load = loadOfWeeklyPlan(S)
+  const shared = useSharedRoutines()
+  const load = loadOfWeeklyPlan(S, shared)
   const muscles = rankOf(load).worked
   const shown = all ? muscles : muscles.slice(0, PLAN_VOLUME_ROWS)
   const max = muscles.length ? load[muscles[0]] : 0
@@ -474,6 +478,7 @@ export function WeeklyPlanVolume({ S }) {
 export default function Stats() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const [range, setRange] = useState(90)
   // Plan's "Weekly muscle volume" row lands here (/stats?focus=weekly-volume). The router is a
   // HashRouter, so the query sits in the hash; the scroll waits a frame for the page's own
@@ -748,8 +753,9 @@ export default function Stats() {
       />
     </div>
 
-    {(workouts.length > 0 || Object.keys(loadOfWeeklyPlan(S)).length > 0) && <MuscleBalance S={S} />}
-    {S.routines.length > 0 && <WeeklyPlanVolume S={S} />}
+    {(workouts.length > 0 || Object.keys(loadOfWeeklyPlan(S, shared)).length > 0) && <MuscleBalance S={S} />}
+    {/* Routines shared with you count: a plan made only of them has a weekly volume (NATG-498). */}
+    {(S.routines.length > 0 || shared.routines.length > 0) && <WeeklyPlanVolume S={S} />}
     {workouts.length > 0 && <div className="card row between" style={{ alignItems: 'center', gap: 12 }}>
       <div style={{ minWidth: 0 }}><h2 style={{ margin: 0 }}>{t('Structural balance')}</h2>
         <div className="muted small" style={{ marginTop: 4 }}>{t('See which lift is holding back the rest.')}</div></div>

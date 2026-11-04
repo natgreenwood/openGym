@@ -6,8 +6,8 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const mocks = vi.hoisted(() => ({ S: null }))
-vi.mock('../store/useStore.js', () => ({ useStore: selector => selector({ S: mocks.S }) }))
+const mocks = vi.hoisted(() => ({ S: null, user: null, shares: null }))
+vi.mock('../store/useStore.js', () => ({ useStore: selector => selector({ S: mocks.S, user: mocks.user, shares: mocks.shares }) }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => vi.fn() }))
 vi.mock('../sheets.jsx', () => ({
   bwSheet: vi.fn(), goalSheet: vi.fn(), calendarSheet: vi.fn(), workoutDetailSheet: vi.fn(),
@@ -89,6 +89,23 @@ describe('Stats — weekly muscle volume from the plan', () => {
     mocks.S = state({ routines: [], week: {} })
     act(() => root.render(<Stats />))
     expect(card()).toBeNull()
+  })
+
+  it('shows for a plan made only of routines shared with you, with their planned sets (NATG-498)', () => {
+    mocks.user = { id: 'u2', name: 'Jo' }
+    mocks.shares = { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h',
+      routine: { id: 'r9', name: 'Leg Day', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] } }] }
+    try {
+      mocks.S = state({ routines: [], customEx: [], week: { 1: ['shared:s1'] } })
+      act(() => root.render(<Stats />))
+      expect(card()).toBeTruthy()
+      expect(card().querySelectorAll('.mrow').length).toBeGreaterThan(0)
+      expect(card().textContent).not.toContain('No muscle volume planned.')
+      // the same plan without the shared routines is no plan at all, as before
+      mocks.shares = null
+      act(() => root.render(<Stats />))
+      expect(card()).toBeNull()
+    } finally { mocks.user = null; mocks.shares = null }
   })
 
   it('scrolls itself into view when Plan links here', () => {

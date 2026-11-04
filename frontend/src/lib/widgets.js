@@ -15,6 +15,7 @@ import { t, dateLocale } from './i18n.js'
 import { effectiveRoutines, streakWeeks, exLine, bestWeightForEntry } from './history.js'
 import { deriveSessionName } from './session-merge.js'
 import { queueOf, weekTally } from './queue.js'
+import { sharedViewOf } from './shared-routines.js'
 import { todayISO, isoOf, fmtNum, weekStartOf, startOfWeek, exerciseNameText } from './format.js'
 import { accentPair, accentValue } from './accent.js'
 import { speedUnitOf } from './speed.js'
@@ -83,13 +84,17 @@ function activeOf (S) {
   return { id: A.id || null, name: A.name || '', start: typeof A.start === 'number' ? A.start : null, done, total }
 }
 
-/** Everything the widgets show, as plain JSON (the `today` argument pins the clock for tests). */
-export function buildWidgetSnapshot (S, { today = todayISO() } = {}) {
+/**
+ * Everything the widgets show, as plain JSON (the `today` argument pins the clock for tests).
+ * `shared` (optional, lib/shared-routines.js sharedViewOf): the routines shared with you, so the
+ * week's fraction counts a day planned with one, as the Home streak card does (NATG-498).
+ */
+export function buildWidgetSnapshot (S, { today = todayISO(), shared = null } = {}) {
   const st = { ...S, routines: S?.routines || [], week: S?.week || {}, dayPlan: S?.dayPlan || {}, workouts: S?.workouts || [] }
   const days = []
   for (let i = 0; i < WIDGET_DAYS; i++) days.push(dayOf(st, shift(today, i), today))
   let week = { done: 0, planned: 0 }
-  try { week = weekTally(st, today) } catch { /* the widget shows no fraction then */ }
+  try { week = weekTally(st, today, shared) } catch { /* the widget shows no fraction then */ }
   let streak = 0
   try { streak = streakWeeks(st) } catch { streak = 0 }
   const ws = weekStartOf(st)
@@ -144,14 +149,16 @@ export async function startWidgetSync ({ useStore }) {
   const write = async () => {
     tm = null
     try {
-      const json = JSON.stringify(buildWidgetSnapshot(useStore.getState().S))
+      const state = useStore.getState()
+      const json = JSON.stringify(buildWidgetSnapshot(state.S, { shared: sharedViewOf(state) }))
       if (json === last) return
       await p.WidgetBridge.write({ json })
       last = json
     } catch { /* not now: the next change writes it */ }
   }
   const schedule = () => { clearTimeout(tm); tm = setTimeout(write, WRITE_DEBOUNCE_MS) }
-  const off = useStore.subscribe((s, prev) => { if (s.S !== prev.S) schedule() })
+  // The shared routines arrive in their own slice, after the document: they change the fraction too.
+  const off = useStore.subscribe((s, prev) => { if (s.S !== prev.S || s.shares !== prev.shares || s.user !== prev.user) schedule() })
   const onVisible = () => { if (document.visibilityState === 'visible') schedule() }
   document.addEventListener('visibilitychange', onVisible)
   write()
