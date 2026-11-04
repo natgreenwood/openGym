@@ -1717,7 +1717,13 @@ export const useStore = create((set, get) => {
           }
           return shares
         } catch {
-          if (get().user?.id === user.id) set({ sharesError: true })
+          // The lists held now may be older than the server's (a stale answer whose fresh request
+          // failed, NATG-511): their etag is forgotten in memory, so the next revision poll can't
+          // take them as current and loads again. No retry of its own.
+          if (get().user?.id === user.id) {
+            const held = sharesOf(get().shares, user)
+            set({ sharesError: true, ...(held ? { shares: { ...held, etag: null } } : {}) })
+          }
           return null
         } finally { if (sharesFetch === mine) sharesFetch = null }
       })()

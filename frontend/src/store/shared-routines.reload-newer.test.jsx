@@ -195,3 +195,38 @@ it('NATG-510: a Remove whose DELETE is answered after a sign-out does not throw'
   await expect(removing).resolves.toBe(true)
   expect(ui.toast).not.toHaveBeenCalled()
 })
+
+it('NATG-511: when the fresh request after a stale answer fails, the next poll loads again, and the sweep and toast run once', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const real = api.getMockImplementation()
+  const pending = []
+  api.mockImplementation((path, o = {}) => path === '/api/shares' && pending.length < 2
+    ? new Promise((resolve, reject) => pending.push({ resolve, reject }))
+    : real(path, o))
+  const older = useStore.getState().loadShares()
+  useStore.getState().loadSharesNewer()
+  // The server revokes the share; the stale answer sees it and is stored, and the fresh one fails.
+  net.incoming = []; net.etag = 'e2'
+  pending[0].resolve(lists([], 'e2'))
+  await older
+  await tick(0)
+  expect(pending).toHaveLength(2)
+  pending[1].reject(Object.assign(new Error('offline'), { status: 0 }))
+  await tick()
+  expect(useStore.getState().sharesError).toBe(true)
+  expect(useStore.getState().S.week[1]).toEqual(['shared:s1'])
+  expect(ui.toast).not.toHaveBeenCalled()
+  // The next poll sees the etag the stale answer stored, and still loads again.
+  const before = loads()
+  await poll()
+  expect(loads()).toBe(before + 1)
+  expect(useStore.getState().sharesError).toBe(false)
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+  // And only once: the poll after it has nothing to load.
+  await poll()
+  expect(loads()).toBe(before + 1)
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+})
