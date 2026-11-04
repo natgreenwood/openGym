@@ -39,6 +39,31 @@ command above uses strict mode. There is no separate lint or TypeScript check.
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
 
+## Plan import and Coach-created plans
+
+From `frontend/`, run the slot allowlist, export/import round-trip, API parity,
+Coach validation/application and shared-routine regression tests together:
+
+```sh
+npx vitest run src/lib/plan-share.test.js src/lib/shared-routine-parity.test.js src/lib/coach.test.js src/lib/shared-routines.test.js src/lib/shared-routines.boundary.test.js src/sheets.save-as-routine-shared.test.jsx --maxWorkers=2
+```
+
+For browser checks, use a synthetic plan JSON through Plan's file input. Check
+Cancel, Add, malformed JSON, unchanged scheduling when the schedule switch is
+off, and persistence after reload. Unknown slot fields must not survive import.
+
+## API checks
+
+From `api/` (Node 22):
+
+```sh
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+```
+
+The suite uses local fixtures and mock providers; no real Coach credentials are
+needed. Neither package defines a separate lint or type-check command.
+
 ## Known gaps
 
 `scripts/app-icons.test.mjs` currently has two failures comparing committed icons
