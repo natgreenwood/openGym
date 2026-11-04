@@ -295,3 +295,74 @@ describe('an import is held to the token it began with', () => {
     expectNothingImported(() => store().importBackup(BACKUP, { mergeWith: { stale: true, token: other }, token: other }))
   })
 })
+
+// SEC-02-R1: a tab that slept through another tab's round trip (A signs out and in again, or
+// A → B → A) gets the owner events late, with the key already back at A. Each event's own
+// before and after ends the imports begun before it; the key now still decides the handoff.
+describe('owner events this tab hears of only after the key is back where it was', () => {
+  const historical = (oldValue, newValue) =>
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gym_owner', oldValue, newValue }))
+  // This tab's own idea of the owner made the key's (the listener's seenOwner), as after a load.
+  const settled = owner => { otherTab(owner); ownerEvent() }
+
+  for (const [label, trip] of [
+    ['A → signed out → A', [['A', null], [null, 'A']]],
+    ['A → B → A', [['A', 'B'], ['B', 'A']]],
+  ]) {
+    it(`${label}: the old token is refused, subscribers hear of it, the copy is not handed over`, async () => {
+      settled('A')
+      const asked = await askedAsA()
+      const S = store().S
+      const heard = vi.fn(() => store().importIsCurrent(asked.token))   // as Settings' watcher
+      const off = useStore.subscribe(heard)
+      otherTab('A')   // the key is back at A before any event reaches this tab
+      for (const [from, to] of trip) historical(from, to)
+      off()
+      expect(heard).toHaveBeenCalled()
+      expect(heard.mock.results.at(-1).value).toBe(false)
+      expect(store().S).toBe(S)              // same owner now: no handoff
+      expect(store().user?.id).toBe('A')
+      expect(store().importIsCurrent(asked.token)).toBe(false)
+      for (const [, press] of CHOICES) expectNothingImported(() => press(asked))
+      expectNothingImported(() => store().importBackup(BACKUP, { token: asked.token }))
+    })
+  }
+
+  it('a check still asking the server across such a round trip comes back stale: no late confirm', async () => {
+    settled('A')
+    signedIn('A', { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    const token = store().importToken()
+    let answer
+    api.mockReturnValueOnce(new Promise(r => { answer = r }))
+    const asking = store().importConflict(BACKUP, token)
+    otherTab('A')
+    historical('A', 'B')
+    historical('B', 'A')
+    answer({ state: clone(SERVER_A), rev: 7 })
+    expect(await asking).toEqual({ stale: true, token })
+    expectNothingImported(() => store().importBackup(BACKUP, { token }))
+  })
+
+  it('guest → A → guest: a guest\'s old token is refused too', async () => {
+    settled(null)
+    const asked = await askedAsGuest()
+    const S = store().S
+    const heard = vi.fn(() => store().importIsCurrent(asked.token))
+    const off = useStore.subscribe(heard)
+    otherTab(null)
+    historical(null, 'A')
+    historical('A', null)
+    off()
+    expect(heard.mock.results.at(-1).value).toBe(false)
+    expect(store().S).toBe(S)
+    expect(store().importIsCurrent(asked.token)).toBe(false)
+    for (const [, press] of CHOICES) expectNothingImported(() => press(asked))
+  })
+
+  it('an event that changes nothing ends nothing', async () => {
+    settled('A')
+    const asked = await askedAsA()
+    historical('A', 'A')
+    expect(store().importIsCurrent(asked.token)).toBe(true)
+  })
+})

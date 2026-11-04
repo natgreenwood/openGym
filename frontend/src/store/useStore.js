@@ -401,7 +401,7 @@ export const useStore = create((set, get) => {
   let replaceRev = null
   let importRead = null    // what importConflict last read: { token, state, rev }
   // Each import is held to the account it began under (importToken). The counter moves with every
-  // owner change, another tab's (the gym_owner listener) or this tab's own (setUser, a sign-out),
+  // owner change, another tab's (each gym_owner event) or this tab's own (setUser, a sign-out),
   // so an import outlives no switch, back again included; a token once found stale stays stale
   // (importIsCurrent).
   let ownerEpoch = 0
@@ -926,8 +926,16 @@ export const useStore = create((set, get) => {
   // this runs before the new owner's copy reaches this tab.
   window.addEventListener('storage', e => {
     if (e.key !== 'gym_owner') return
+    // Each owner change another tab made ends the imports begun before it, judged by the event's
+    // own before and after, not by the key now: a tab that slept through A signing out and back
+    // in, or A → B → A, finds the key back at A when these events reach it, and an import begun
+    // before the round trip must not go on as if nothing happened (NATG-535 SEC-02-R1). Store
+    // subscribers hear of it, so an open import confirm closes (Settings doImport).
+    const moved = e.oldValue !== e.newValue
+    if (moved) ownerEpoch++
     const owner = readOwner()
-    if (owner === seenOwner) return
+    // The copy this tab holds needs handing over only when the owner now is not the one it holds.
+    if (owner === seenOwner) { if (moved) set({}); return }
     clearTimeout(pushTm)
     pushTm = null
     // A guest's workout running here went along with the sign-in in the other tab (it joined this
@@ -943,7 +951,7 @@ export const useStore = create((set, get) => {
     meta.set(S, { base: null, owed: false })
     seenWid = readWid()
     seenOwner = owner
-    ownerEpoch++
+    ownerEpoch++   // also for an event that carries no before and after
     handedOver = true
     const user = get().user
     set({ ...(user && user.id !== owner ? { user: null } : {}), S })
