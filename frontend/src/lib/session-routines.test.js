@@ -215,4 +215,53 @@ describe('a routine saved from a planned session', () => {
     const saved = train(st, source, { r: 9 })
     expect(routineFromSession(saved, 'Copy', []).ex[0]).not.toHaveProperty('prog')
   })
+
+  // NATG-500: a routine shared with you isn't in `state.routines`, so its rule comes from the
+  // shared-routine view. The copy is yours: a new id, and nothing that points back at the share.
+  it('reads a shared routine’s rule from the shared view, and the copy is your own', () => {
+    const source = { id: 'shared:s1', name: 'Leg Day', prog: 'double', shared: { id: 's1', from: { id: 'u1', name: 'Sam' } },
+      ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }] }
+    const st = stateOf([])
+    const saved = train(st, source, { r: 9 })
+    const sourceBefore = structuredClone(source)
+    const id = saveSessionAsRoutine(st, saved, saved.name, { routines: [source], byId: new Map([[source.id, source]]) })
+    const copy = st.routines.find(r => r.id === id)
+    expect(st.routines).toHaveLength(1)
+    expect(copy.id).not.toBe(source.id)
+    expect(JSON.stringify(copy)).not.toContain('shared')
+    expect(copy).toMatchObject({ name: 'Leg Day', ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60, prog: 'double' }] })
+    expect(source).toEqual(sourceBefore)
+  })
+
+  // An own routine and a shared one can carry the same bare id ('s1' and 'shared:s1'). Each entry
+  // takes its rule from its own routine, and a routine of your own that somehow carries a
+  // `shared:` id (the server strips them) never stands in for the shared one, even once it's gone.
+  it('resolves an own id among your routines and a shared: id only among the shared ones', () => {
+    const own = { id: 's1', name: 'Mine', prog: 'linear', ex: [{ id: PUSHUP, sets: 2, reps: 10, weight: 0, bodyweight: true }] }
+    const shared = { id: 'shared:s1', name: 'Theirs', prog: 'double', ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }] }
+    const stray = { id: 'shared:s1', name: 'Stray', prog: 'triple', ex: [{ id: BENCH, sets: 1, reps: 5, weight: 40 }] }
+    const st = stateOf([own, stray])
+    const session = { id: 'combined', name: 'Both', routineIds: ['s1', 'shared:s1'],
+      entries: [...train(st, own, { r: 10 }).entries, ...train(st, shared, { r: 9 }).entries] }
+    const id = saveSessionAsRoutine(st, session, 'Both', { routines: [shared], byId: new Map([[shared.id, shared]]) })
+    const copy = st.routines.find(r => r.id === id)
+    expect(copy.ex.map(cfg => [cfg.id, cfg.prog])).toEqual([[PUSHUP, 'linear'], [BENCH, 'double']])
+
+    // The share has ended: the shared entry has no routine to read a rule from, not the stray one.
+    const endedId = saveSessionAsRoutine(st, session, 'Both')
+    const ended = st.routines.find(r => r.id === endedId)
+    expect(ended.ex[0].prog).toBe('linear')
+    expect(ended.ex[1]).not.toHaveProperty('prog')
+  })
+
+  it('saves a shared workout after the share has ended, like one whose routine is gone', () => {
+    const source = { id: 'shared:s1', name: 'Leg Day', prog: 'double', ex: [{ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }] }
+    const st = stateOf([])
+    const saved = train(st, source, { r: 9 })
+    const id = saveSessionAsRoutine(st, { ...saved, sharedOrigin: true }, saved.name)
+    const copy = st.routines.find(r => r.id === id)
+    expect(JSON.stringify(copy)).not.toContain('shared')
+    expect(copy.ex[0]).toMatchObject({ id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 })
+    expect(copy.ex[0]).not.toHaveProperty('prog')
+  })
 })

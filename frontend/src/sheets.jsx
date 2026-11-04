@@ -54,7 +54,7 @@ import { buildCompletedWorkout, sessionEnd } from './lib/finish-workout.js'
 import { refillAfter } from './lib/rotation.js'
 import { isWarmupRow, hasCompletedWork } from './lib/workout-model.js'
 import { ownExerciseRest } from './lib/supersetFlow.js'
-import { saveSessionAsRoutine, routineAdditions, addToRoutine, fromSharedRoutine, markSharedOrigin } from './lib/session-routines.js'
+import { saveSessionAsRoutine, routineAdditions, addToRoutine, markSharedOrigin } from './lib/session-routines.js'
 import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
@@ -2810,7 +2810,6 @@ function WorkoutDetail({ w, close }) {
   const onNoteFocus = useSheetKeyboard(noteRef)
   const st = useStore(s => s.S)
   const shared = useSharedRoutines()
-  const fromShared = fromSharedRoutine(w)
   const update = useStore(s => s.update)
   // The session note is editable here rather than only at the finish sheet: what you want to
   // record about a session is often clearer once you have looked at what you actually did.
@@ -2950,27 +2949,20 @@ function WorkoutDetail({ w, close }) {
       initial.current = latest.current.trim().slice(0, NOTE_MAX)
       workoutDurationSheet(w, close)
     }}>{t('Change duration')}</Button>
-    {/* A workout from a routine shared with you can't become a routine of your own: that would be
-        a copy of someone else's routine (NATG-483 AC14, NATG-500). The button stays, disabled,
-        with the reason under it, the way the routine page gates its share action. */}
-    {fromShared
-      ? <>
-        <Button icon="plus" disabled aria-describedby="save-routine-why">{t('Save as routine')}</Button>
-        <div id="save-routine-why" className="small dim" style={{ margin: '6px 2px 0' }}>{t('This workout is from a routine shared with you, so it can’t be saved as a routine of your own.')}</div>
-      </>
-      : <Button icon="plus" onClick={() => confirmSheet({
+    {/* A workout from a routine shared with you saves the same way (NATG-500): the copy is an
+        independent routine of your own. The shared routine is passed only for its progression rule. */}
+    <Button icon="plus" onClick={() => confirmSheet({
       title: t('Save as routine?'),
       message: t('Create an independent routine from these exercise targets. Your workout history is kept.'),
       confirmText: t('Save'),
       onConfirm: () => {
         let id
-        try { update(s => { id = saveSessionAsRoutine(s, w, w.name) }) }
+        try { update(s => { id = saveSessionAsRoutine(s, w, w.name, shared) }) }
         catch (e) { toast(t(e.message)); return }
-        if (!id) return
         close()
         nav('/plan/r/' + id)
       }
-    })}>{t('Save as routine')}</Button>}
+    })}>{t('Save as routine')}</Button>
     <div style={{ height: 8 }} />
     <Button icon="copy" onClick={copyAsText}>{t('Copy as text')}</Button>
     <div style={{ height: 8 }} />
@@ -3210,7 +3202,8 @@ export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
 export function repeatWorkout(w, close) {
   const st = S()
   if (st.active) { toast(t('Finish the current workout first.')); return }
-  const { entries, skipped } = repeatSessionEntries(st, w)
+  // The shared view too: an exercise from a routine shared with you keeps that routine's rule.
+  const { entries, skipped } = repeatSessionEntries(st, w, { shared: sharedNow() })
   if (!entries.length) { toast(t('Nothing to repeat. Its exercises no longer exist.')); return }
   const go = bw => {
     if (S().active) { toast(t('Finish the current workout first.')); return }

@@ -2699,7 +2699,6 @@ export default {
   'Shared, {0} waiting': 'Partagées, {0} en attente',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Le partage avec {0} personne s’arrête aussi définitivement : partager à nouveau plus tard envoie une nouvelle invitation.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Le partage avec {0} personnes s’arrête aussi définitivement : partager à nouveau plus tard envoie une nouvelle invitation.',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Cette séance vient d’une routine partagée avec toi, elle ne peut donc pas être enregistrée comme ta propre routine.',
   'Not available · it’s too large to open': 'Indisponible · trop grande pour être ouverte',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} compte plus de séries, de dégressives ou d’exercices que cette app ne peut en ouvrir. Elle reste dans ton plan et revient dès qu’elle est réduite.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} compte plus de séries, de dégressives ou d’exercices que cette app ne peut en ouvrir. Elle reste dans ton plan et revient dès que {1} la réduit.',

@@ -2746,7 +2746,6 @@ export default {
   'Shared, {0} waiting': 'Delade, {0} väntar',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Det slutar också dela med {0} person för gott: delar du igen senare skickas en ny inbjudan.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Det slutar också dela med {0} personer för gott: delar du igen senare skickas en ny inbjudan.',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Det här passet kommer från en rutin som delats med dig, så det kan inte sparas som en egen rutin.',
   'Not available · it’s too large to open': 'Inte tillgänglig · för stor att öppna',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0} har fler set, drops eller övningar än appen kan öppna. Den ligger kvar i din plan och kommer tillbaka när den har gjorts mindre.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0} har fler set, drops eller övningar än appen kan öppna. Den ligger kvar i din plan och kommer tillbaka när {1} gör den mindre.',

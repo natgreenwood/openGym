@@ -1,7 +1,7 @@
 import { uid } from './format.js'
 import { modeOf, defaultConfig, isPerSide, entryRoutineId, setsFromRows } from './history.js'
 import { isSideSet, isWarmupRow, hasCompletedWork, modeForEntry } from './workout-model.js'
-import { isSharedId } from './routine-lookup.js'
+import { isSharedId, routineById } from './routine-lookup.js'
 
 // A saved workout is evidence of what was logged, not a live routine. Copy only its flat
 // exercise setup on this explicit action; finishing a workout never calls this helper.
@@ -129,19 +129,23 @@ function copiedEntry(entry, source) {
 const SESSION_ONLY = ['planned', 'plan', 'carried', 'rid', 'noProg', 'muscleSnapshot', 'rowReps']
 
 // `routines` are the ones the session was built from, when they still exist: the rule each copied
-// exercise is read under comes from there (see copiedEntry).
+// exercise is read under comes from there (see copiedEntry). Either a list to look an id up in, or
+// a function from an id to its routine, so a caller can resolve ids the way routineById does.
 export function routineFromSession(session, name = session?.name, routines = []) {
-  const byId = new Map((Array.isArray(routines) ? routines : []).filter(r => r?.id != null).map(r => [r.id, r]))
+  const find = typeof routines === 'function' ? routines : listLookup(routines)
   const ex = groupIds(sessionEntries(session).filter(entry => entry?.sets?.length)
-    .map(entry => copiedEntry(entry, byId.get(entryRoutineId(session, entry)))))
+    .map(entry => copiedEntry(entry, find(entryRoutineId(session, entry)))))
   if (!ex.length) throw new Error('no exercises')
   return { id: uid(), name: String(name || 'Workout').trim() || 'Workout', ex }
 }
 
+function listLookup(routines) {
+  const byId = new Map((Array.isArray(routines) ? routines : []).filter(r => r?.id != null).map(r => [r.id, r]))
+  return id => byId.get(id)
+}
+
 /**
  * Whether any of the session was trained from a routine shared with you (`shared:<id>`, NATG-486).
- * Such a session is never saved as a routine: that would be a copy of someone else's routine,
- * editable and outside their changes, which sharing doesn't allow (NATG-483 AC14, NATG-500).
  * `sharedOrigin` (SEC-486-02) is what says so once the routine ids are gone: a repeat of the
  * workout has none, and the share itself may have ended since. See markSharedOrigin.
  */
@@ -159,10 +163,16 @@ export function fromSharedRoutine(session) {
  */
 export const markSharedOrigin = session => (fromSharedRoutine(session) ? { sharedOrigin: true } : {})
 
-/** Null, and nothing saved, for a session from a shared routine (fromSharedRoutine). */
-export function saveSessionAsRoutine(state, session, name) {
-  if (fromSharedRoutine(session)) return null
-  const routine = routineFromSession(session, name, state.routines)
+/**
+ * A session from a routine shared with you saves the way one of your own does (NATG-500): the
+ * copy is yours, with a new id and nothing linking it to the share. `shared` (the shared-routine
+ * view) is only where its exercises' progression rule is read from (copiedEntry), since a
+ * `shared:` routine isn't in `state.routines`. Ids resolve as routineById resolves them: a
+ * `shared:` id only among the shared routines, any other only among your own. A share that has
+ * ended is read like a deleted routine of your own: the copy keeps what the workout itself carried.
+ */
+export function saveSessionAsRoutine(state, session, name, shared = null) {
+  const routine = routineFromSession(session, name, id => routineById(state, id, shared))
   state.routines.push(routine)
   return routine.id
 }

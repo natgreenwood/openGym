@@ -2696,7 +2696,6 @@ export default {
   'Shared, {0} waiting': { one: 'Спільні, {0} чекає', few: 'Спільні, {0} чекають', many: 'Спільні, {0} чекають' },
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Також назавжди закриється доступ для {0} людини: якщо поділитися знову, піде нове запрошення.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': { one: 'Також назавжди закриється доступ для {0} людини: якщо поділитися знову, піде нове запрошення.', few: 'Також назавжди закриється доступ для {0} людей: якщо поділитися знову, піде нове запрошення.', many: 'Також назавжди закриється доступ для {0} людей: якщо поділитися знову, піде нове запрошення.' },
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Це тренування з програми, якою з тобою поділилися, тож його не можна зберегти як власну програму.',
   'Not available · it’s too large to open': 'Недоступна · завелика, щоб відкрити',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': 'У «{0}» більше підходів, дропів або вправ, ніж може відкрити застосунок. Вона лишається у твоєму плані й повернеться, щойно її зменшать.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': 'У «{0}» більше підходів, дропів або вправ, ніж може відкрити застосунок. Вона лишається у твоєму плані й повернеться, щойно {1} її зменшить.',

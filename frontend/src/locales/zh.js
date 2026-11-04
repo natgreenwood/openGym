@@ -2699,7 +2699,6 @@ export default {
   'Shared, {0} waiting': '已分享，{0}个待回复',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': '还会永久停止与{0}人的分享：之后再次分享会发送新的邀请。',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': '还会永久停止与{0}人的分享：之后再次分享会发送新的邀请。',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': '这次训练来自别人分享给你的训练日，因此不能保存为你自己的训练日。',
   'Not available · it’s too large to open': '不可用 · 太大无法打开',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}的组数、递减组或动作超出了本应用能打开的范围。它仍留在你的计划中，缩小后就会回来。',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}的组数、递减组或动作超出了本应用能打开的范围。它仍留在你的计划中，{1}缩小后就会回来。',

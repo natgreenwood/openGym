@@ -2699,7 +2699,6 @@ export default {
   'Shared, {0} waiting': '공유됨, {0}개 대기 중',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': '또한 {0}명과의 공유가 영구히 끝납니다. 나중에 다시 공유하면 새 초대가 전송됩니다.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': '또한 {0}명과의 공유가 영구히 끝납니다. 나중에 다시 공유하면 새 초대가 전송됩니다.',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': '이 운동은 나와 공유된 루틴에서 나온 것이라 내 루틴으로 저장할 수 없습니다.',
   'Not available · it’s too large to open': '사용할 수 없음 · 너무 커서 열 수 없음',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}에는 이 앱이 열 수 있는 것보다 많은 세트, 드롭 또는 운동이 있습니다. 계획에 그대로 남아 있고 작아지면 돌아옵니다.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}에는 이 앱이 열 수 있는 것보다 많은 세트, 드롭 또는 운동이 있습니다. 계획에 그대로 남아 있고 {1}님이 줄이면 돌아옵니다.',

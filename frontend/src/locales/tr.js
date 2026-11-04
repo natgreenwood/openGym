@@ -2699,7 +2699,6 @@ export default {
   'Shared, {0} waiting': 'Paylaşılan, {0} bekliyor',
   'It also stops sharing with {0} person for good: sharing again later sends a new invite.': 'Ayrıca {0} kişiyle paylaşım kalıcı olarak sona erer: daha sonra yeniden paylaşırsan yeni bir davet gider.',
   'It also stops sharing with {0} people for good: sharing again later sends a new invite.': 'Ayrıca {0} kişiyle paylaşım kalıcı olarak sona erer: daha sonra yeniden paylaşırsan yeni bir davet gider.',
-  'This workout is from a routine shared with you, so it can’t be saved as a routine of your own.': 'Bu antrenman seninle paylaşılan bir rutinden, bu yüzden kendi rutinin olarak kaydedilemez.',
   'Not available · it’s too large to open': 'Kullanılamıyor · açılamayacak kadar büyük',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once it’s made smaller.': '{0}, bu uygulamanın açabileceğinden fazla set, drop ya da egzersiz içeriyor. Planında kalır ve küçültüldüğünde geri gelir.',
   '{0} has more sets, drops or exercises than this app can open. It stays in your plan and comes back once {1} makes it smaller.': '{0}, bu uygulamanın açabileceğinden fazla set, drop ya da egzersiz içeriyor. Planında kalır ve {1} onu küçülttüğünde geri gelir.',

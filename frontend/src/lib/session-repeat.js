@@ -9,6 +9,7 @@
 // narrowed to this one entry of this one workout, so "last time" is that day.
 import { EXIDX } from './exercises.js'
 import { routineFromSession } from './session-routines.js'
+import { routineById } from './routine-lookup.js'
 import { buildSets, applyIntensifierPlan, modeOf, setsFromRows } from './history.js'
 import { isWarmupRow } from './workout-model.js'
 import { dropGrid } from './plates.js'
@@ -17,14 +18,19 @@ import { weightIncrement, defaultIncrement } from './progression.js'
 const sourceEntries = w => (Array.isArray(w?.entries) ? w.entries : []).filter(entry => entry?.sets?.length)
 
 /**
+ * `shared` is the shared-routine view (sharedViewOf). With it, each exercise's routine resolves
+ * the way routineById resolves it, so one from a routine shared with you keeps that routine's
+ * progression rule (NATG-520) — a `shared:` id only among the shared routines, any other only
+ * among your own. Without it, only `st.routines` is looked in, as before.
  * @returns {{ entries: object[], skipped: number }} the new session's entries (every row
  *   unchecked), and how many exercises were left out because they no longer exist (a deleted
  *   custom exercise).
  */
-export function repeatSessionEntries(st, w, { exists = id => !!EXIDX[id] } = {}) {
+export function repeatSessionEntries(st, w, { exists = id => !!EXIDX[id], shared } = {}) {
   const src = sourceEntries(w)
+  const routines = shared === undefined ? st?.routines : id => routineById(st, id, shared)
   let ex
-  try { ex = routineFromSession(w, w?.name, st?.routines).ex }
+  try { ex = routineFromSession(w, w?.name, routines).ex }
   catch { return { entries: [], skipped: 0 } }
   const entries = []
   let skipped = 0
