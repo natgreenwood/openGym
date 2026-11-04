@@ -11,11 +11,15 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 // nothing is imported, whichever choice it offered; a click that lands before it closes does
 // nothing either, and "Backup imported" is never said for an import that did not go.
 const mocks = vi.hoisted(() => {
-  const state = { S: null, user: null, current: true, conflict: null, listeners: new Set(), sheets: [] }
+  const state = { S: null, user: null, conflict: null, listeners: new Set(), sheets: [], tokens: [], stale: new Set() }
+  // One token per import, as the store's importToken; an account change makes every one taken so
+  // far stale, for good (useStore importIsCurrent).
+  state.importToken = vi.fn(() => { const t = Object.freeze({ n: state.tokens.length }); state.tokens.push(t); return t })
   state.importConflict = vi.fn(async () => state.conflict)
-  state.importIsCurrent = vi.fn(() => state.current)
-  state.importBackup = vi.fn(() => state.current)
+  state.importIsCurrent = vi.fn(t => !!t && !state.stale.has(t))
+  state.importBackup = vi.fn((b, { token } = {}) => state.importIsCurrent(token))
   state.toast = vi.fn()
+  state.readBackupFile = vi.fn(async () => ({ state: { workouts: [], routines: [] }, files: [] }))
   state.handle = id => {
     const h = { id, close: vi.fn(() => { state.sheets = state.sheets.filter(x => x.id !== id) }) }
     state.sheets.push({ id })
@@ -24,13 +28,13 @@ const mocks = vi.hoisted(() => {
   state.menuSheet = vi.fn(() => state.handle('menu'))
   state.confirmSheet = vi.fn(() => state.handle('confirm'))
   // Another tab changed the account: the store moves (its owner listener), and its subscribers run.
-  state.accountChanges = () => { state.current = false; for (const l of [...state.listeners]) l() }
+  state.accountChanges = () => { for (const t of state.tokens) state.stale.add(t); for (const l of [...state.listeners]) l() }
   state.storeMoves = () => { for (const l of [...state.listeners]) l() }
   state.snapshot = () => ({
     S: state.S, user: state.user, config: null,
     update: vi.fn(), replaceState: vi.fn(), resetEverything: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), pushState: vi.fn(),
     signOut: vi.fn(), signOutAll: vi.fn(), resetDemo: vi.fn(), disconnectServer: vi.fn(),
-    importConflict: state.importConflict, importBackup: state.importBackup, importIsCurrent: state.importIsCurrent,
+    importConflict: state.importConflict, importBackup: state.importBackup, importIsCurrent: state.importIsCurrent, importToken: state.importToken,
   })
   return state
 })
@@ -47,7 +51,7 @@ vi.mock('../store/useUI.js', () => {
   return { useUI }
 })
 vi.mock('../lib/backup-media.js', () => ({
-  readBackupFile: async () => ({ state: { workouts: [], routines: [] }, files: [] }),
+  readBackupFile: (...a) => mocks.readBackupFile(...a),
   backupImportError: () => 'error',
   storeBackupMedia: vi.fn(),
 }))
@@ -70,11 +74,12 @@ let host, root
 beforeEach(() => {
   mocks.S = { unit: 'kg', restSec: 90, workouts: [], routines: [], exWeights: {} }
   mocks.user = { id: 'A', name: 'Ana' }
-  mocks.current = true
   mocks.conflict = null
   mocks.listeners.clear()
   mocks.sheets = []
-  for (const f of [mocks.importConflict, mocks.importIsCurrent, mocks.importBackup, mocks.toast, mocks.menuSheet, mocks.confirmSheet]) f.mockClear()
+  mocks.tokens = []
+  mocks.stale = new Set()
+  for (const f of [mocks.importToken, mocks.importConflict, mocks.importIsCurrent, mocks.importBackup, mocks.toast, mocks.menuSheet, mocks.confirmSheet, mocks.readBackupFile]) f.mockClear()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -84,12 +89,15 @@ afterEach(() => {
   host.remove()
 })
 
-const CONFLICT = { workouts: 1, state: { workouts: [] }, rev: 7, uid: 'A', owner: 'A' }
-async function pickBackup() {
-  act(() => root.render(<Settings page="data" />))
+const CONFLICT = { workouts: 1, state: { workouts: [] }, rev: 7 }
+const choose = async () => {
   const input = [...host.querySelectorAll('input[type="file"]')].find(i => i.accept.startsWith('.json'))
   Object.defineProperty(input, 'files', { value: [new File(['{}'], 'backup.json')], configurable: true })
   await act(async () => { input.dispatchEvent(new Event('change', { bubbles: true })) })
+}
+async function pickBackup() {
+  act(() => root.render(<Settings page="data" />))
+  await choose()
   await vi.waitFor(() => expect(mocks.importConflict).toHaveBeenCalled())
   await act(async () => {})
 }
@@ -104,7 +112,7 @@ describe('Settings import confirm, when the account changes while it is open', (
     expect(sheet.close).not.toHaveBeenCalled()
     mocks.accountChanges()
     expect(sheet.close).toHaveBeenCalledTimes(1)
-    expect(mocks.importIsCurrent).toHaveBeenLastCalledWith(CONFLICT)
+    expect(mocks.importIsCurrent).toHaveBeenLastCalledWith(mocks.tokens[0])
     // a click that got in before the confirm closed
     await press(menuItem('Merge them in').onClick)
     await press(menuItem('Replace anyway').onClick)
@@ -123,8 +131,7 @@ describe('Settings import confirm, when the account changes while it is open', (
   })
 
   it('no confirm opens when the account changed while the server was being asked', async () => {
-    mocks.conflict = CONFLICT
-    mocks.importConflict.mockImplementationOnce(async () => { mocks.current = false; return CONFLICT })
+    mocks.importConflict.mockImplementationOnce(async (b, token) => { mocks.accountChanges(); return { stale: true, token } })
     await pickBackup()
     expect(mocks.menuSheet).not.toHaveBeenCalled()
     expect(mocks.confirmSheet).not.toHaveBeenCalled()
@@ -147,7 +154,7 @@ describe('Settings import confirm, with no account change', () => {
     mocks.storeMoves()
     expect(sheet.close).not.toHaveBeenCalled()
     await press(menuItem('Merge them in').onClick)
-    expect(mocks.importBackup).toHaveBeenCalledWith(expect.anything(), { mergeWith: CONFLICT })
+    expect(mocks.importBackup).toHaveBeenCalledWith(expect.anything(), { mergeWith: CONFLICT, token: mocks.tokens[0] })
     expect(mocks.toast).toHaveBeenCalledWith('Backup imported')
   })
 
@@ -157,5 +164,62 @@ describe('Settings import confirm, with no account change', () => {
     mocks.sheets = []   // dismissed: Cancel, a swipe, Escape
     mocks.storeMoves()
     expect(mocks.listeners.size).toBe(0)
+  })
+})
+
+// The Security Analyst's schedules (SEC-01, SEC-02), from the Settings side: the import's token is
+// taken when the file is chosen, before anything is awaited, and that same token goes to every
+// step; nothing another import did makes this one current again.
+describe('Settings import, held to the token taken when the file was chosen', () => {
+  it('takes the token before reading the file, and hands that same token to the check and the import', async () => {
+    let finishRead
+    mocks.readBackupFile.mockImplementationOnce(() => new Promise(r => { finishRead = r }))
+    act(() => root.render(<Settings page="data" />))
+    await choose()
+    expect(mocks.importToken).toHaveBeenCalledTimes(1)
+    const token = mocks.tokens[0]
+    await act(async () => { finishRead({ state: { workouts: [], routines: [] }, files: [] }) })
+    await vi.waitFor(() => expect(mocks.importConflict).toHaveBeenCalled())
+    await act(async () => {})
+    expect(mocks.importConflict).toHaveBeenCalledWith(expect.anything(), token)
+    await press(mocks.confirmSheet.mock.calls[0][0].onConfirm)
+    expect(mocks.importBackup).toHaveBeenCalledWith(expect.anything(), { mergeWith: null, token })
+    expect(mocks.toast).toHaveBeenCalledWith('Backup imported')
+  })
+
+  it('an account switch while the file is still being read: no check, no confirm, no import', async () => {
+    let finishRead
+    mocks.readBackupFile.mockImplementationOnce(() => new Promise(r => { finishRead = r }))
+    act(() => root.render(<Settings page="data" />))
+    await choose()
+    mocks.accountChanges()
+    await act(async () => { finishRead({ state: { workouts: [], routines: [] }, files: [] }) })
+    await act(async () => {})
+    expect(mocks.importConflict).not.toHaveBeenCalled()
+    expect(mocks.confirmSheet).not.toHaveBeenCalled()
+    expect(mocks.menuSheet).not.toHaveBeenCalled()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalledWith('Backup imported')
+  })
+
+  it('overlapping imports: A\'s check, answered after B\'s confirm was cancelled, opens nothing and imports nothing', async () => {
+    let answerA
+    mocks.importConflict.mockImplementationOnce((b, token) => new Promise(r => { answerA = () => r({ stale: true, token }) }))
+    act(() => root.render(<Settings page="data" />))
+    await choose()                                   // A's import, still asking the server
+    await vi.waitFor(() => expect(mocks.importConflict).toHaveBeenCalledTimes(1))
+    const tokenA = mocks.tokens[0]
+    mocks.accountChanges()                           // another tab signs in as B
+    await choose()                                   // B's import
+    await vi.waitFor(() => expect(mocks.confirmSheet).toHaveBeenCalledTimes(1))
+    const tokenB = mocks.tokens[1]
+    expect(tokenB).not.toBe(tokenA)
+    mocks.sheets = []                                // B's confirm: Cancel
+    await act(async () => { answerA() })
+    await act(async () => {})
+    expect(mocks.confirmSheet).toHaveBeenCalledTimes(1)   // none for A
+    expect(mocks.menuSheet).not.toHaveBeenCalled()
+    expect(mocks.importBackup).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalledWith('Backup imported')
   })
 })
