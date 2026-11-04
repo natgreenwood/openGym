@@ -527,17 +527,30 @@ function readStateCached(uid) {
 // reminder — until 21:30 on the user's clock, the same catch-up idea as the reminder's window: a
 // restart inside the evening still sends it. Once per local date (`user.lastNudge`), never while
 // a workout is on screen, and nudgeFor() decides the day and the back-off.
-function nudgeTick(user, S, now) {
+function nudgeTick(user, S, now, sum) {
   if (!S.reminder.nudge || user.lastNudge === now.date) return;
   if (!nudgeWindowOpen(S.reminder.time, now.hhmm)) return;
   if (livePresence(user.id)) return; // a session is under way — today's workout in the making
   const rid = nudgeFor(S, now.date, sharedRoutineIds(user.id));
   if (!rid) return;
   const routine = (S.routines || []).find(r => r?.id === rid) || sharedRoutineFor(user.id, rid);
+  let payload;
+  try { payload = nudgePush(S.lang, toneOf(S.reminder), routine, now.date); }
+  catch (e) { payloadFailed(sum, 'nudge', user.id, rid, now.date, e); return; }
   console.log('nudge firing', user.id, rid);
   user.lastNudge = now.date;
   saveDb();
-  sendPush(user.id, nudgePush(S.lang, toneOf(S.reminder), routine, now.date));
+  sendPush(user.id, payload);
+}
+// The push is built before the day's marker is written: a build that throws leaves
+// lastReminder / lastNudge unset and nothing saved, so a later tick in the window retries and a
+// user who fixes their data inside it still gets that day's push. The tick runs every 10 s, so
+// the failure is logged once per kind per user per local date, kept in memory on the state
+// summary: a new date no longer matches, and a changed state file drops the summary.
+function payloadFailed(sum, kind, uid, rid, date, e) {
+  if (sum.failed[kind] === date) return;
+  sum.failed[kind] = date;
+  console.error(`${kind} payload`, uid, rid, e);
 }
 // What the tick needs to know before it reads a whole state: the reminder settings and whether
 // the Coach was agreed to, kept per user against the state file's mtime and size. The state cache
@@ -546,7 +559,7 @@ function nudgeTick(user, S, now) {
 // handful of accounts with multi-megabyte states stalled the instance for everyone. A summary is
 // a few bytes, so there is one for every user, and a full read happens only while one of that
 // user's windows is open and something could still be sent.
-const stateSummaries = new Map(); // uid -> { mtimeMs, size, rem, consent, settled }
+const stateSummaries = new Map(); // uid -> { mtimeMs, size, rem, consent, settled, failed }
 // Forget a "nothing owed today" the tick settled for `uid` (routine sharing: see the tick).
 function clearSettled(uid) {
   const sum = stateSummaries.get(uid);
@@ -564,6 +577,7 @@ function stateSummary(uid) {
     rem: r && typeof r === 'object' ? { on: !!r.on, tz: r.tz, time: r.time, nudge: !!r.nudge } : { on: false },
     consent: !!S?.coach?.consent?.agreedAt,
     settled: '',   // a local date the reminder was found to owe nothing on, for this file
+    failed: { reminder: '', nudge: '' },   // the local date a payload build last failed and was logged (payloadFailed)
   };
   stateSummaries.set(uid, sum);
   return sum;
@@ -586,7 +600,7 @@ setInterval(() => {
       if (!reminderOpen && !nudgeOpen) continue;
       const S = readStateCached(user.id);
       if (!S?.reminder?.on) continue;
-      if (nudgeOpen) nudgeTick(user, S, now);
+      if (nudgeOpen) nudgeTick(user, S, now, sum);
       if (!reminderOpen) continue;
       // Nothing below depends on anything but the file, so an answer of "nothing owed today"
       // holds until the file changes (which drops the summary) or the date does. The one
@@ -598,10 +612,14 @@ setInterval(() => {
       const rid = effectiveRoutineId(S, now.date, sharedRoutineIds(user.id));
       if (!rid) { sum.settled = now.date; continue; } // rest day — nothing planned
       const routine = (S.routines || []).find(r => r?.id === rid) || sharedRoutineFor(user.id, rid);
+      // Not settled on a failed build: something is still owed today (payloadFailed).
+      let payload;
+      try { payload = dayReminderPush(S.lang, routine); }
+      catch (e) { payloadFailed(sum, 'reminder', user.id, rid, now.date, e); continue; }
       console.log('reminder firing', user.id, rid);
       user.lastReminder = now.date;
       saveDb();
-      sendPush(user.id, dayReminderPush(S.lang, routine));
+      sendPush(user.id, payload);
     } catch (e) {
       console.error('reminder tick', user.id, e);
     }

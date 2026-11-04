@@ -456,3 +456,71 @@ it('NATG-523: a Remove in another account does not drop the first account\'s mar
   await tick()
   expect(ui.toast).not.toHaveBeenCalled()
 })
+
+// NATG-531: A removes a share, signs out, and B signs in before the DELETE is answered. The answer
+// is A's: B's lists and copy are left as they are (no stamp, no push), and A's pointer is swept on
+// A's next load without telling the removal as a revoke.
+const PUTS = () => api.mock.calls.filter(c => c[0] === '/api/data' && c[1]?.method === 'PUT').length
+const B = { id: 'u3', name: 'Al' }
+const removeThenSwitch = async () => {
+  const SA = { ...clone(DEF), week: { 1: ['shared:s1'] } }
+  await signedIn(SA)
+  await useStore.getState().loadShares()
+  const del = holdDelete()
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  await useStore.getState().signOut({ force: true })
+  // B signs in, with a share of its own and a plan day that points at it.
+  localStorage.setItem('gym_owner', B.id)
+  net.incoming = [{ ...share('s2'), routine: PUSH }]; net.etag = 'b1'
+  const SB = { ...clone(DEF), _ts: 1000, week: { 2: ['shared:s2'] } }
+  useStore.setState({ S: SB, user: B, ready: true, sync: { ...fresh }, config: { shares: true }, shares: null })
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: SB._ts }))
+  await useStore.getState().pushState()
+  await useStore.getState().loadShares()
+  await tick()
+  return { SA, del, removing }
+}
+
+it('NATG-531 AC1: a Remove answered after a switch to another account leaves that account\'s copy, stamp and lists alone, and pushes nothing', async () => {
+  const { del, removing } = await removeThenSwitch()
+  const S = useStore.getState().S
+  const ts = S._ts
+  const saved = localStorage.getItem('gym_state_v1')
+  // The reload after the DELETE still runs, as B, so B's lists are saved again: the same lists,
+  // fetched later.
+  const listsOf = v => v && { ...v, fetchedAt: 0 }
+  const shares = listsOf(useStore.getState().shares)
+  const savedShares = listsOf(JSON.parse(localStorage.getItem('gym_shared_v1')))
+  const puts = PUTS()
+  del.answer()
+  await expect(removing).resolves.toBe(true)
+  // Past the push debounce (1.5 s): a change stamped by the Remove would have been PUT by now.
+  await tick(1700)
+  expect(useStore.getState().S).toBe(S)
+  expect(useStore.getState().S._ts).toBe(ts)
+  expect(useStore.getState().S.week[2]).toEqual(['shared:s2'])
+  expect(localStorage.getItem('gym_state_v1')).toBe(saved)
+  expect(PUTS()).toBe(puts)
+  expect(shares.uid).toBe(B.id)
+  expect(listsOf(useStore.getState().shares)).toEqual(shares)
+  expect(listsOf(JSON.parse(localStorage.getItem('gym_shared_v1')))).toEqual(savedShares)
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-531 AC2: on A\'s next load after the switch, A\'s pointer to the removed share is swept, and no revoke is told', async () => {
+  const { SA, del, removing } = await removeThenSwitch()
+  del.answer()
+  await expect(removing).resolves.toBe(true)
+  await tick()
+  await useStore.getState().signOut({ force: true })
+  // A signs back in: its copy still points at s1, which the server no longer lists.
+  localStorage.setItem('gym_owner', USER.id)
+  net.incoming = []; net.etag = 'a2'
+  await signedIn(SA)
+  expect(useStore.getState().S.week[1]).toEqual(['shared:s1'])
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).not.toHaveBeenCalled()
+})

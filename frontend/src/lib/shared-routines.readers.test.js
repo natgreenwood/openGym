@@ -24,6 +24,41 @@ const state = over => ({
 // 2026-11-02 is a Monday.
 const MON = '2026-11-02', TUE = '2026-11-03'
 
+describe('shared weekdays beside a coach queue', () => {
+  const coach = ['d1', 'd2', 'd3'].map(id => ({ id, name: id, ex: [{ id: '0025', sets: 2, reps: 5 }] }))
+  const own = { id: 'own', name: 'Own press', ex: [{ id: '0025', sets: 3, reps: 5 }] }
+  const plan = () => state({
+    routines: [...coach, own],
+    queue: { ids: ['d1', 'd2', 'd3'], since: Date.parse(MON + 'T08:00:00'), startsOn: MON, label: 'Coach week' },
+    week: { 1: ['d1'], 3: ['d2', 'own', 'shared:s1'], 5: ['d3', 'shared:s1'] },
+    workouts: [{ id: 'merged', d: MON, start: Date.parse(MON + 'T09:00:00'), routineIds: ['d1', 'shared:s1'], name: 'd1 + Shared press', entries: [] }],
+  })
+
+  it('counts each queue session once and mixed weekdays once, preserving merged completion credit', () => {
+    const S = plan(), shared = viewOf([accepted('s1')])
+    expect(weekTally(S, TUE, shared)).toEqual({ done: 2, planned: 5 })
+    // Three coach sessions at two sets, one own day at three, and two shared days at five.
+    expect(loadOfWeeklyPlan(S, shared).chest).toBe(19)
+    expect(buildWidgetSnapshot(S, { today: TUE, shared }).week).toEqual({ done: 2, planned: 5 })
+  })
+
+  it('removes revoked or unavailable volume while retaining the own weekday and completed credit', () => {
+    const S = plan()
+    for (const shared of [viewOf([]), viewOf([accepted('s1', LEG, { unavailable: 'custom-exercise' })])]) {
+      expect(weekTally(S, TUE, shared)).toEqual({ done: 2, planned: 4 })
+      expect(loadOfWeeklyPlan(S, shared).chest).toBe(9)
+      expect(buildWidgetSnapshot(S, { today: TUE, shared }).week).toEqual({ done: 2, planned: 4 })
+    }
+  })
+
+  it('keeps a future coach queue out of the tally until its start, while counting shared weekdays', () => {
+    const S = plan(), shared = viewOf([accepted('s1')])
+    S.queue.startsOn = '2026-11-09'
+    expect(weekTally(S, TUE, shared)).toEqual({ done: 1, planned: 3 })
+    expect(buildWidgetSnapshot(S, { today: TUE, shared }).week).toEqual({ done: 1, planned: 3 })
+  })
+})
+
 describe('the schedule plans a shared routine like your own (AC4)', () => {
   const S = state({ week: { 1: ['shared:s1'], 2: ['r1', 'shared:s1'] } })
   it('makes a day whose only routine is shared a training day', () => {

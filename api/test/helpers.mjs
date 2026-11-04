@@ -43,6 +43,50 @@ export function boundPort(child, tail = () => '') {
   });
 }
 
+/* The first whole line of a spawned server's output that starts with `prefix`, once it is there.
+ *
+ * Having the HTTP answer in hand says nothing about the child's log. The server writes the line
+ * before it answers, but the line travels down a different pipe, and this process reads the socket
+ * and the pipe in whatever order its event loop gets to them. Under load the answer can be read and
+ * asserted on with the line still in the pipe: 34 of 48 concurrent runs of
+ * server-origin-hint.test.js on one box found no line at all. So wait for it, with a limit.
+ *
+ * It keeps its own copy of the output: what the caller has collected so far (`tail()`, since the
+ * line may already be there) plus every chunk on stdout and stderr from then on. So it does not
+ * matter whether the caller's own 'data' listeners run before or after these. Only
+ * newline-terminated lines count, so a line split across two chunks is never matched half-written.
+ * The 15 s limit is in line with the other waits on this output (20 s for the boot line above,
+ * 15 s in the `until` helpers); the wait ends the moment the line arrives, so a long one costs
+ * nothing on the pass path.
+ *
+ * `tail` supplies whatever the caller has collected of the child's output, as for boundPort.
+ */
+export function logLine(child, prefix, tail = () => '', ms = 15000) {
+  return new Promise((resolve, reject) => {
+    let seen = tail();
+    const find = () => seen.split('\n').slice(0, -1).find(l => l.startsWith(prefix));
+    const done = () => {
+      clearTimeout(give);
+      child.stdout.off('data', look);
+      child.stderr.off('data', look);
+      child.off('exit', gone);
+    };
+    const look = d => {
+      if (d !== undefined) seen += d;
+      const line = find();
+      if (line === undefined) return;
+      done();
+      resolve(line);
+    };
+    const gone = code => { done(); reject(new Error(`server exited (${code}) before logging "${prefix}":\n${tail() || seen}`)); };
+    const give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${tail() || seen}`)); }, ms);
+    child.stdout.on('data', look);
+    child.stderr.on('data', look);
+    child.once('exit', gone);
+    look();
+  });
+}
+
 export function tempData() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-test-'));
   fs.writeFileSync(path.join(dir, 'secret'), 'a'.repeat(64), { mode: 0o600 });

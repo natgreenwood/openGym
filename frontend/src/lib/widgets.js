@@ -33,10 +33,11 @@ const routineIdsOf = w => (Array.isArray(w?.routineIds) ? w.routineIds : w?.rout
 const shift = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return isoOf(d) }
 
 // One day of the plan as the widget shows it. The exercises only for today: the other days are a
-// name and a count, which is all a widget has room for.
-function dayOf (S, iso, today) {
+// name and a count, which is all a widget has room for. `shared` as buildWidgetSnapshot takes it:
+// without it a day planned only with a shared routine reads as rest.
+function dayOf (S, iso, today, shared = null) {
   let routines = []
-  try { routines = effectiveRoutines(S, iso).filter(r => (r.ex || []).length) } catch { routines = [] }
+  try { routines = effectiveRoutines(S, iso, shared).filter(r => (r.ex || []).length) } catch { routines = [] }
   const weekday = new Date(iso + 'T12:00:00').toLocaleDateString(dateLocale(), { weekday: 'long' })
   if (!routines.length) return { iso, weekday, name: null, count: 0 }
   const day = {
@@ -87,12 +88,13 @@ function activeOf (S) {
 /**
  * Everything the widgets show, as plain JSON (the `today` argument pins the clock for tests).
  * `shared` (optional, lib/shared-routines.js sharedViewOf): the routines shared with you, so the
- * week's fraction counts a day planned with one, as the Home streak card does (NATG-498).
+ * week's fraction counts a day planned with one, as the Home streak card does (NATG-498), and the
+ * day list shows that day as the training day it is, as the Home today row does (NATG-526).
  */
 export function buildWidgetSnapshot (S, { today = todayISO(), shared = null } = {}) {
   const st = { ...S, routines: S?.routines || [], week: S?.week || {}, dayPlan: S?.dayPlan || {}, workouts: S?.workouts || [] }
   const days = []
-  for (let i = 0; i < WIDGET_DAYS; i++) days.push(dayOf(st, shift(today, i), today))
+  for (let i = 0; i < WIDGET_DAYS; i++) days.push(dayOf(st, shift(today, i), today, shared))
   let week = { done: 0, planned: 0 }
   try { week = weekTally(st, today, shared) } catch { /* the widget shows no fraction then */ }
   let streak = 0
