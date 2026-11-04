@@ -1786,10 +1786,10 @@ export const useStore = create((set, get) => {
     // and the request still out sweeps as usual. Never rejects (loadShares answers null on failure).
     // `etag`: the `shares` etag the caller saw, if it knows one (see loadShares).
     async loadSharesNewer(etag = null) {
+      const uid = get().user?.id   // the user this call is for: a request for whoever signs in next is not waited on
       let answer = await get().loadShares({ newer: true, etag })
       for (let n = 0; n < SHARES_NEWER_MAX; n++) {
-        const user = get().user
-        if (!sharesFetch || !user || sharesFetch.uid !== user.id) break
+        if (!uid || sharesFetch?.uid !== uid) break
         answer = await sharesFetch.promise
       }
       return answer

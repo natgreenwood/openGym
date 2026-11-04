@@ -649,9 +649,9 @@ it('NATG-522 AC3: with every follow-up made stale, loadSharesNewer still settles
       await tick(0)
     }
     expect(settled).toBe(true)
-    // It gave up waiting with a request still out: the one it joined plus a few follow-ups.
-    expect(n).toBeGreaterThan(1)
-    expect(n).toBeLessThan(20)
+    // It gave up waiting with a request still out: the one it joined plus five follow-ups
+    // (SHARES_NEWER_MAX).
+    expect(n).toBe(1 + 5)
     expect(answers).toHaveLength(n + 1)
     await expect(first).resolves.toMatchObject({ uid: USER.id })
     // The refreshes stop; the request still out lands, and every caller settles.
@@ -661,5 +661,29 @@ it('NATG-522 AC3: with every follow-up made stale, loadSharesNewer still settles
     await tick()
   } finally { process.off('unhandledRejection', onUnhandled) }
   expect(unhandled).toEqual([])
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-522: a reload for one account settles when its own request lands, not on the request of the account signed in next', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  net.hold = true
+  let settled = false
+  const a = useStore.getState().loadSharesNewer().then(v => { settled = true; return v })
+  await tick(0)
+  expect(answers).toHaveLength(1)
+  // A signs out and B signs in; B's own request goes out while A's is still in flight.
+  await useStore.getState().signOut({ force: true })
+  localStorage.setItem('gym_owner', B.id)
+  useStore.setState({ S: { ...clone(DEF), week: { 2: ['shared:s2'] } }, user: B, ready: true, config: { shares: true }, shares: null })
+  const b = useStore.getState().loadShares()
+  expect(answers).toHaveLength(2)
+  // A's answer lands: it is not B's, and A's call is done.
+  answers[0](lists([share('s1')], 'a1'))
+  await tick()
+  expect(settled).toBe(true)
+  await expect(a).resolves.toBeNull()
+  answers[1](lists([{ ...share('s2'), routine: PUSH }], 'b1'))
+  await expect(b).resolves.toMatchObject({ uid: B.id })
   expect(ui.toast).not.toHaveBeenCalled()
 })
