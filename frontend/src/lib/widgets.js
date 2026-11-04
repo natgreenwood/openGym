@@ -19,6 +19,7 @@ import { sharedViewOf } from './shared-routines.js'
 import { todayISO, isoOf, fmtNum, weekStartOf, startOfWeek, exerciseNameText } from './format.js'
 import { accentPair, accentValue } from './accent.js'
 import { speedUnitOf } from './speed.js'
+import { MAX_WIDGET_TEXT } from './limits.js'
 
 export const WIDGET_SNAPSHOT_VERSION = 1
 // Today and the week after it: enough for "next workout" to still be right a few days on.
@@ -27,8 +28,20 @@ export const WIDGET_DAYS = 8
 export const WIDGET_EXERCISES_MAX = 8
 const WRITE_DEBOUNCE_MS = 1000
 
+// Text that comes from routine data, a shared routine's included, cut to MAX_WIDGET_TEXT code
+// points so the snapshot's size is bounded whatever the names are (SEC-526-01). Counted by code
+// point, so an emoji at the cut is kept or dropped whole, never split into half a surrogate pair.
+function clipText (s) {
+  const str = String(s ?? '')
+  // A string no longer than the limit in UTF-16 units is no longer than it in code points.
+  if (str.length <= MAX_WIDGET_TEXT) return str
+  let i = 0
+  for (let n = 0; n < MAX_WIDGET_TEXT && i < str.length; n++) i += str.codePointAt(i) > 0xffff ? 2 : 1
+  return str.slice(0, i)
+}
+
 // Title-cased as the app shows it; a widget has no CSS to do it (lib/format.js exerciseNameText).
-const nameOfCfg = cfg => (EXIDX[cfg?.id] ? exerciseNameText(EXIDX[cfg.id]) : String(cfg?.name || cfg?.n || cfg?.id || ''))
+const nameOfCfg = cfg => clipText(EXIDX[cfg?.id] ? exerciseNameText(EXIDX[cfg.id]) : String(cfg?.name || cfg?.n || cfg?.id || ''))
 const routineIdsOf = w => (Array.isArray(w?.routineIds) ? w.routineIds : w?.routineId ? [w.routineId] : [])
 const shift = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + days); return isoOf(d) }
 
@@ -43,7 +56,7 @@ function dayOf (S, iso, today, shared = null) {
   const day = {
     iso,
     weekday,
-    name: deriveSessionName(routines.map(r => r.name || '')) || '',
+    name: deriveSessionName(routines.map(r => clipText(r.name || ''))) || '',
     count: routines.reduce((n, r) => n + (r.ex || []).length, 0),
   }
   if (iso === today) {
@@ -70,7 +83,8 @@ function lastPrOf (S) {
   const w = ws.reduce((a, b) => ((b.d || '') > (a.d || '') || ((b.d || '') === (a.d || '') && (b.end || 0) > (a.end || 0)) ? b : a))
   const id = w.prs[0]
   const entry = (w.entries || []).find(e => e && e.id === id)
-  const name = EXIDX[id] ? exerciseNameText(EXIDX[id]) : String(entry?.target?.name || entry?.name || id)
+  // A custom exercise's name is free text from the routine it was logged from, like a routine name.
+  const name = clipText(EXIDX[id] ? exerciseNameText(EXIDX[id]) : String(entry?.target?.name || entry?.name || id))
   let best = 0
   try { best = entry ? bestWeightForEntry(entry) : 0 } catch { best = 0 }
   const unit = S.unit === 'lb' ? 'lb' : 'kg'
@@ -82,7 +96,8 @@ function activeOf (S) {
   if (!A || !Array.isArray(A.entries) || A.editingWorkoutId) return null
   let done = 0, total = 0
   for (const e of A.entries) for (const s of e?.sets || []) { total++; if (s?.done) done++ }
-  return { id: A.id || null, name: A.name || '', start: typeof A.start === 'number' ? A.start : null, done, total }
+  // The session's name is its routines' names joined (sheets.jsx), a shared routine's included.
+  return { id: A.id || null, name: clipText(A.name || ''), start: typeof A.start === 'number' ? A.start : null, done, total }
 }
 
 /**

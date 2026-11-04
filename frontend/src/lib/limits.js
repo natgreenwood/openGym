@@ -14,6 +14,11 @@ export const MAX_BURST_REPS = 1000     // a rest-pause set's total reps (LOG_LIM
 export const MAX_DROPS = 10            // drops on one drop set
 export const MAX_ROUTINE_ROWS = 500    // rows a routine, or a whole session, can be built with
 
+// The longest text, in Unicode code points, the iPhone widget snapshot carries in one field
+// (lib/widgets.js). A routine name, a shared one included, has no length limit of its own, and the
+// widget extension reads the whole snapshot into memory (SEC-526-01).
+export const MAX_WIDGET_TEXT = 200
+
 /** A whole number from 1 to `max`, or null: what a count driving a loop must be. */
 export const boundedCount = (v, max) => (Number.isInteger(v) && v >= 1 && v <= max ? v : null)
 
