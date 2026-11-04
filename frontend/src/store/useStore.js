@@ -374,7 +374,7 @@ export const useStore = create((set, get) => {
   let toldTooLarge = false
   let toldNoRoom = false   // the save itself was refused — said once per streak, like the above
   let pushing = null       // the PUT in flight, so a second push waits for it instead of racing it
-  let pushAgain = false    // a push asked for while one was in flight — run once more after it
+  let pushAgain = false    // a push asked for while one was in flight — run once more after it, for the account (uid) that asked
   let pulling = null       // the GET /api/data in flight, `{ uid, promise }`: two resume signals for the same user make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
@@ -594,14 +594,16 @@ export const useStore = create((set, get) => {
   const sameCopy = (a, b) => JSON.stringify({ ...a, _ts: 0 }) === JSON.stringify({ ...b, _ts: 0 })
   const readWid = () => { try { return localStorage.getItem(WID_KEY) } catch { return null } }
   const readOwner = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
-  // A request's answer is still for this tab: `uid`, the user it was sent for, is the one signed in
-  // here, and the browser's owner too (undefined: sent with nobody signed in). The owner key is
-  // what another tab's sign-out or sign-in writes first, so it has moved even while this tab's
-  // storage event for it is still queued and the store names the previous user (NATG-528). An
-  // answer for anyone else is dropped whole: taken or saved, it put the previous account's copy
-  // back into the browser after its sign-out, and persist() then moved seenOwner, so the owner
-  // event, once it ran, found nothing to clear.
-  const answerIsFor = uid => get()?.user?.id === uid && (uid === undefined || readOwner() === uid)
+  // Whether `uid`, the account a sync request is for, is still this tab's: the one signed in here,
+  // and the browser's owner too. Asked before each request goes and again when its answer lands.
+  // The owner key is what another tab's sign-out or sign-in writes first, so it has moved even
+  // while this tab's storage event for it is still queued and the store names the previous user
+  // (NATG-528). Nobody (no uid) is never an account: a request for nobody does not go, and an
+  // answer to one is not taken (SEC-02). An answer for anyone else is dropped whole: taken or
+  // saved, it put the previous account's copy back into the browser after its sign-out, and
+  // persist() then moved seenOwner, so the owner event, once it ran, found nothing to clear; a
+  // request sent for them went out under whichever session the browser holds now (SEC-01).
+  const answerIsFor = uid => !!uid && get()?.user?.id === uid && readOwner() === uid
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
   const readWidOwner = () => { try { return localStorage.getItem(WID_OWNER_KEY) } catch { return null } }
   // The saved copy is the one this tab may join: written under the owner this tab holds. QA
@@ -703,18 +705,20 @@ export const useStore = create((set, get) => {
       // Before boot has pulled, the copy in hand may be older than the server's: a push now
       // would carry it with a stale (or no) baseRev. It waits for finishBoot.
       if (!get().ready) { pushPending = true; return }
-      clearTimeout(pushTm)
-      pushTm = setTimeout(() => get().pushState(), 1500)
+      queuePush()
     }
+  }
+  // The debounced push, for the account it was queued for: dropped if that account has gone.
+  const queuePush = () => {
+    const uid = get().user?.id
+    clearTimeout(pushTm)
+    pushTm = setTimeout(() => { if (answerIsFor(uid)) get().pushState(); else pushTm = null }, 1500)
   }
   // Boot's last step: from here on changes push, and one made during boot goes now.
   const finishBoot = (extra = {}) => {
     set({ ready: true, ...extra })
     if (sweepOwed) { const known = sweepOwed; sweepOwed = null; get().sweepSharedPointers(null, known) }
-    if (pushPending && get().user) {
-      clearTimeout(pushTm)
-      pushTm = setTimeout(() => get().pushState(), 1500)
-    }
+    if (pushPending && get().user) queuePush()
     pushPending = false
   }
 
@@ -726,6 +730,7 @@ export const useStore = create((set, get) => {
   const checkRev = async (force = false) => {
     if (!get().user || !get().ready || document.visibilityState === 'hidden') return
     if (!force && Date.now() - lastCheck < CHECK_MIN_MS) return
+    const uid = get().user.id   // the account the check is for; what its answer starts is for it too (SEC-02)
     lastCheck = Date.now()
     // A sign-in still deciding what becomes of this copy: no check of its own. One whose adoption
     // never ran or did not get through (no server, a pairing that failed on the way to it) runs it
@@ -735,14 +740,18 @@ export const useStore = create((set, get) => {
     const { base } = metaOf()
     if (!base || owes()) return get().pullState()
     try {
+      if (!answerIsFor(uid)) return
       const { rev, wid, shares: sharesEtag } = await api('/api/data/rev')
+      if (!answerIsFor(uid)) return
       // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
       if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer(sharesEtag)
+      if (!answerIsFor(uid)) return
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
+      if (!answerIsFor(uid)) return
       if (isNetworkError(e) || refused(e)) failed(e)
       else return get().pullState()   // a server that lacks the route (older API) — the full pull knows the old protocol
     }
@@ -816,6 +825,7 @@ export const useStore = create((set, get) => {
     const body = { state: S, stamped: !(legacy && legacy.owner === get().user?.id) }
     if (asReplace != null) { body.baseRev = asReplace.rev; if (asReplace.wid) body.baseWid = asReplace.wid }
     else if (!force && base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
+    if (!answerIsFor(uid)) return   // its account has gone: nothing goes out for it
     try {
       const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
       if (!answerIsFor(uid)) return
@@ -1197,6 +1207,7 @@ export const useStore = create((set, get) => {
     const user = get().user
     if (!user) return
     const all = await readStashes()
+    if (!answerIsFor(user.id)) return   // the account left meanwhile: its stash stays for it
     const exact = stashKey(serverBase(), user.id)
     const keys = Object.keys(all).filter(k => k === exact || (all[k]?.uid === user.id && !all[k]?.server))
     if (!keys.length) return
@@ -1211,6 +1222,7 @@ export const useStore = create((set, get) => {
     markOwed(true)
     if (MOBILE) await nativePersist(true)   // the durable copy holds it before the stash goes
     await get().pushState()
+    if (!answerIsFor(user.id)) return   // nor is it dropped for a push that did not go
     for (const k of keys) delete all[k]
     await writeStashes(all)
   }
@@ -1232,7 +1244,14 @@ export const useStore = create((set, get) => {
   // adoptProfile's work (see there). Every way out answers the question — releaseAdopt — before
   // the decision is written and pushed; only a server that could not be reached leaves it owed.
   const runAdopt = async (ask, { alwaysAsk = false } = {}) => {
+    // The account signing in. Another tab can sign out, or in as someone else, while this runs (the
+    // question can stay open for minutes): from then on nothing here asks the server, writes, pushes
+    // or answers the question, which is no longer this tab's to settle. Only this tab's hold goes.
+    const uid = get().user?.id
+    const left = () => { if (answerIsFor(uid)) return false; setHold(false); return true }
+    const gone = { adopted: false, added: false, gone: true }
     if (pulling) await pulling.promise
+    if (left()) return gone
     // An adoption resumed after a restart is the sign-in's own: whether this copy already belonged
     // to the account was decided then — boot's sign-in sees the owner that sign-in wrote.
     const owedMark = adoptOwed()
@@ -1241,12 +1260,14 @@ export const useStore = create((set, get) => {
     let res
     try { res = await api('/api/data') }
     catch (e) {
+      if (left()) return gone
       failed(e)
       // Nothing decided: with a sign-in that marked it, sync stays held and the next check asks
       // again (checkRev); a bare call has nothing to hold for.
       if (!owedMark) releaseAdopt()
       throw e   // the caller's toast: sign-in needed the server anyway
     }
+    if (left()) return gone
     let { state, rev } = res
     reached()
     let asked = false
@@ -1272,9 +1293,11 @@ export const useStore = create((set, get) => {
     const S0 = get().S
     if (!state) {
       const push = hasData(S0) && (!alwaysAsk || sameAccount || await askAbout(localExtras(S0, null)))
+      if (left()) return gone
       releaseAdopt()
       if (hasData(get().S) && !push) {
         if (asked) await keepDeviceCopy()
+        if (left()) return gone
         takeServer()
         await applyStash()
         return { adopted: true, added: false }
@@ -1312,7 +1335,9 @@ export const useStore = create((set, get) => {
     // "Keep profile as is", but merged like any change of the account's.
     const pre = owedMark?.pre
     const keep = await askAbout(localExtras(pre ? splitByPre(S0, pre).before : S0, state))
+    if (left()) return gone
     await reread()
+    if (left()) return gone
     releaseAdopt()
     if (keep) {
       const S = get().S
@@ -1332,6 +1357,7 @@ export const useStore = create((set, get) => {
     }
     const later = pre ? splitByPre(get().S, pre).later : null
     if (asked) await keepDeviceCopy()
+    if (left()) return gone
     takeServer()
     if (later) {
       const S = get().S
@@ -1516,7 +1542,9 @@ export const useStore = create((set, get) => {
       S.resetIds = mergeResetIds(cur.resetIds, resetIdsOf(cur))
       get().replaceState(S, !!get().user)
       if (!get().user) return Promise.resolve()
+      const uid = get().user.id
       return api('/api/data').then(res => {
+        if (!answerIsFor(uid)) return
         const now = get().S
         if (!res?.state || now.resetAt !== S.resetAt) return
         const ids = mergeResetIds(now.resetIds, mergeResetIds(res.state.resetIds, resetIdsOf(res.state)))
@@ -1538,10 +1566,12 @@ export const useStore = create((set, get) => {
         const here = (get().S.workouts || []).filter(w => w && !inBackup.has(key(w))).length
         return here ? { workouts: here, state: get().S, rev: null, device: true } : null
       }
+      const uid = get().user.id
       let res
       try { res = await api('/api/data') } catch { return null }
+      if (!answerIsFor(uid)) return null   // the account the confirm would be about has gone
       const state = res?.state
-      importRead = { uid: get().user?.id, state: state || null, rev: res?.rev ?? null }
+      importRead = { uid, state: state || null, rev: res?.rev ?? null }
       if (!state) return null
       const key = w => entryKey('workouts', w)
       const inBackup = new Set((Array.isArray(backup?.workouts) ? backup.workouts : []).filter(Boolean).map(key))
@@ -1693,7 +1723,7 @@ export const useStore = create((set, get) => {
       mine.promise = (async () => {
         try {
           const r = await api('/api/shares')
-          if (get().user?.id !== user.id) return null
+          if (!answerIsFor(user.id)) return null
           const stale = mine.stale || (mine.seen != null && mine.seen !== (r?.etag || null))
           const stored = sharesOf(get().shares, user)
           // What went is named against the lists as they were before the first stale answer since
@@ -1731,7 +1761,7 @@ export const useStore = create((set, get) => {
           // The lists held now may be older than the server's (a stale answer whose fresh request
           // failed, NATG-511): their etag is forgotten in memory, so the next revision poll can't
           // take them as current and loads again. No retry of its own.
-          if (get().user?.id === user.id) {
+          if (answerIsFor(user.id)) {
             const held = sharesOf(get().shares, user)
             set({ sharesError: true, ...(held ? { shares: { ...held, etag: null } } : {}) })
           }
@@ -1790,12 +1820,15 @@ export const useStore = create((set, get) => {
       finally { await get().loadSharesNewer() }
     },
     async removeShare(id) {
+      const uid = get().user?.id
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
       } catch (e) {
         // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
         if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadSharesNewer(); throw e }
       }
+      // Signed out, or another account, meanwhile: nothing of this one's is changed or saved here.
+      if (!answerIsFor(uid)) return true   // the removal itself went through
       const user = get().user
       const mine = sharesOf(get().shares, user)
       if (mine) {
@@ -1893,10 +1926,14 @@ export const useStore = create((set, get) => {
       clearTimeout(pushTm)
       pushTm = null
       if (adoptHold) return   // the sign-in has not decided what this copy is yet (adoptProfile)
-      if (pushing) { pushAgain = true; return pushing.then(() => pushing) }
+      if (pushing) { pushAgain = get().user.id; return pushing.then(() => pushing) }
       pushing = doPush().finally(() => {
         pushing = null
-        if (pushAgain) { pushAgain = false; get().pushState() }
+        // A follow-up asked for by an account that has gone since is dropped, not sent under the
+        // session the browser holds now (SEC-01).
+        const again = pushAgain
+        pushAgain = false
+        if (again && answerIsFor(again)) get().pushState()
       })
       return pushing
     },
@@ -1910,6 +1947,7 @@ export const useStore = create((set, get) => {
       // is not this copy's: it is dropped, neither taken nor saved (NATG-496), and the user signed
       // in now gets a request of their own.
       const uid = get().user?.id
+      if (!uid) return   // nobody signed in: there is no account to ask for (SEC-02)
       if (pulling && pulling.uid === uid) return pulling.promise
       const mine = { uid, promise: null }
       pulling = mine
@@ -1917,6 +1955,7 @@ export const useStore = create((set, get) => {
         try {
           if (pushTm) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
+          if (!answerIsFor(uid)) return
           const res = await api('/api/data')
           if (!answerIsFor(uid)) return
           lastCheck = Date.now()
@@ -2292,7 +2331,12 @@ export const useStore = create((set, get) => {
         if (logoutOwed()) { finishBoot(); return }
       }
       try {
+        const owner0 = readOwner()
         const me = await api('/api/me')
+        // Another tab signed out (or in) while this asked: the answer is about a session this
+        // browser no longer holds, and setUser would sign it back in here. This tab follows that
+        // tab instead (the storage events, followSignIn).
+        if (readOwner() !== owner0 || logoutOwed()) { finishBoot(); return }
         if (!me.user?.id) throw Object.assign(new Error('no user'), { status: 200, code: 'bad-response' })
         get().setUser(me.user)
         // Re-stamp the reminder's timezone on every load — keeps it correct if you're travelling,
