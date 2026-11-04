@@ -46,6 +46,7 @@ beforeEach(() => {
   other = clone(now)   // device B, synced to rev 5, then offline with an unsent change
   other = change(other, S => { S.workouts.push(workout('w5', Date.now() - 1000)) })
   localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: now._ts }))
+  localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
   useStore.setState({ S: clone(now), user: { id: 'u1' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
   serve()
 })
