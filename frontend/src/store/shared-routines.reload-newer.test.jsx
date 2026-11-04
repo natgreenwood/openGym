@@ -245,3 +245,109 @@ it('a share first listed by a stale answer keeps its name when the fresh answer 
   await tick()
   expect(useStore.getState().shares.names.s1).toBe('Leg Day')
 })
+
+// NATG-512: a share the user is removing is never told as revoked, even when a load the server
+// answered after applying the DELETE lands before removeShare has its response.
+// The DELETE is applied on the server at once and answered when the test says (`answer`).
+const holdDelete = (outcome = 'ok') => {
+  const real = api.getMockImplementation()
+  const held = {}
+  api.mockImplementation((path, o = {}) => {
+    if (o.method !== 'DELETE') return real(path, o)
+    if (outcome !== 'unapplied') { net.incoming = net.incoming.filter(i => !path.endsWith(i.id)); net.etag = 'e-remove' }
+    return new Promise((resolve, reject) => { held.answer = () => outcome === 'ok' ? resolve({ ok: true }) : reject(Object.assign(new Error('server'), { status: 500 })) })
+  })
+  return held
+}
+const PUSH = { id: 'r8', name: 'Push Day', ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }] }
+
+it('NATG-512 AC1: a load that lands before the DELETE response does not tell the removed share as revoked', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete()
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  del.answer()
+  await expect(removing).resolves.toBe(true)
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-512 AC2: another share revoked by its owner during the Remove is still told, once', async () => {
+  net.incoming = [share('s1'), { ...share('s2'), routine: PUSH }]
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'], 2: ['shared:s2'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete()
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  // The owner of s2 revokes it while the DELETE is out.
+  net.incoming = net.incoming.filter(i => i.id !== 's2')
+  await useStore.getState().loadShares()
+  await tick()
+  del.answer()
+  await removing
+  await tick()
+  expect(useStore.getState().S.week[2]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Push Day is no longer shared with you. It’s off your schedule too.')
+})
+
+it('NATG-512 AC3: a DELETE the server applied but whose answer failed still throws, and its reload does not tell the share as revoked', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete('applied-then-failed')
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  del.answer()
+  await expect(removing).rejects.toThrow('server')
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-512 AC3: after a failed Remove has reloaded, a revoke of the same share is told as usual', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete('unapplied')
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  del.answer()
+  await expect(removing).rejects.toThrow('server')
+  await tick()
+  expect(useStore.getState().shares.incoming.map(i => i.id)).toEqual(['s1'])
+  expect(ui.toast).not.toHaveBeenCalled()
+  // Later, its owner revokes it.
+  net.incoming = []; net.etag = 'e2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+})
+
+it('NATG-512 AC4: the mark is per user: the account signed in next during the Remove is still told of its revokes, and nothing throws', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete('unapplied')
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  // Another account signs in while the DELETE is out, and holds a share with the same id.
+  useStore.setState({ user: null, shares: null })
+  localStorage.setItem('gym_owner', 'u3')
+  useStore.setState({ S: { ...clone(DEF), week: { 4: ['shared:s1'] } }, user: { id: 'u3', name: 'Al' }, shares: null })
+  await useStore.getState().loadShares()
+  net.incoming = []; net.etag = 'e3'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[4]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+  del.answer()
+  await expect(removing).rejects.toThrow('server')
+  await tick()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+})

@@ -381,6 +381,10 @@ export const useStore = create((set, get) => {
   // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
   // after it names what went from these, so a revoke the stale one saw first is still told (NATG-502).
   let sharesBefore = null
+  // The shares this user is removing, `{ uid, ids }`: marked before the DELETE is sent and cleared
+  // once the reload it starts has settled, so a load that lands meanwhile, even one the server
+  // answered after applying the DELETE, does not name them as gone (NATG-512).
+  let sharesRemoving = null
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
   let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
   const saveShares = v => {
@@ -1754,7 +1758,8 @@ export const useStore = create((set, get) => {
       const gone = known ? orphans.filter(id => known.has(id)) : orphans
       if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
       if (gone.length < orphans.length && !sharesFetch) get().loadShares()
-      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id))
+      const removing = sharesRemoving?.uid === user.id ? sharesRemoving.ids : null
+      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !removing?.has(i.id))
       if (!left.length) return
       import('./useUI.js').then(({ useUI }) => {
         for (const i of left) {
@@ -1779,11 +1784,23 @@ export const useStore = create((set, get) => {
       finally { await get().loadSharesNewer() }
     },
     async removeShare(id) {
+      // Marked as being removed until the reload below has settled, on every path: a DELETE the
+      // server applied but whose answer failed is covered too (sharesRemoving).
+      const uid = get().user?.id
+      if (uid) {
+        if (sharesRemoving?.uid !== uid) sharesRemoving = { uid, ids: new Set() }
+        sharesRemoving.ids.add(id)
+      }
+      const reload = () => get().loadSharesNewer().finally(() => {
+        if (sharesRemoving?.uid !== uid) return
+        sharesRemoving.ids.delete(id)
+        if (!sharesRemoving.ids.size) sharesRemoving = null
+      })
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
       } catch (e) {
         // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
-        if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadSharesNewer(); throw e }
+        if ((e?.data?.code || e?.code) !== 'share-missing') { reload(); throw e }
       }
       const user = get().user
       const mine = sharesOf(get().shares, user)
@@ -1797,7 +1814,7 @@ export const useStore = create((set, get) => {
       const held = user && sharesBefore?.uid === user.id ? sharesBefore.lists : null
       if (held) sharesBefore = { uid: user.id, lists: { ...held, incoming: held.incoming.filter(i => i?.id !== id) } }
       get().update(s => { deleteRoutine(s, sharedPointer(id)) })
-      get().loadSharesNewer()
+      reload()
       return true
     },
 
