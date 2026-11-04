@@ -351,3 +351,42 @@ it('NATG-512 AC4: the mark is per user: the account signed in next during the Re
   await tick()
   expect(ui.toast).toHaveBeenCalledTimes(1)
 })
+
+it('NATG-512: a Remove made while nobody is signed in, with no mark held, leaves no unhandled rejection, whether the DELETE succeeds or is refused', async () => {
+  const unhandled = []
+  const onUnhandled = e => unhandled.push(e)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    useStore.setState({ user: null, shares: null, ready: true })
+    await expect(useStore.getState().removeShare('s1')).resolves.toBe(true)
+    await tick()
+    const real = api.getMockImplementation()
+    api.mockImplementation((path, o = {}) => o.method === 'DELETE'
+      ? Promise.reject(Object.assign(new Error('Sign in again'), { status: 401 }))
+      : real(path, o))
+    await expect(useStore.getState().removeShare('s1')).rejects.toThrow('Sign in again')
+    await tick()
+  } finally { process.off('unhandledRejection', onUnhandled) }
+  expect(unhandled).toEqual([])
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-512: a Remove whose local steps throw after the DELETE still reloads and clears the mark, so a later revoke is told', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  // The DELETE is answered but, as far as the lists show, the share is still there.
+  const real = api.getMockImplementation()
+  api.mockImplementation((path, o = {}) => o.method === 'DELETE' ? Promise.resolve({ ok: true }) : real(path, o))
+  const update = useStore.getState().update
+  useStore.setState({ update: () => { throw new Error('local step failed') } })
+  try {
+    await expect(useStore.getState().removeShare('s1')).rejects.toThrow('local step failed')
+  } finally { useStore.setState({ update }) }
+  await tick()
+  expect(useStore.getState().shares.incoming.map(i => i.id)).toEqual(['s1'])
+  net.incoming = []; net.etag = 'e2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+})
