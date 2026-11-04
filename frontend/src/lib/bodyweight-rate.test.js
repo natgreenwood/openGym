@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { weightRate, rateCorridor, rateStatus } from './bodyweight.js'
 import { convertStateUnit } from './units.js'
+import { isoOf } from './format.js'
 
 // #759: the weekly rate of change over the last three weeks, and a corridor to hold it against.
 const NOW = new Date('2026-10-21T09:00:00').getTime()
@@ -35,6 +36,43 @@ describe('weekly rate', () => {
     expect(weightRate(old, { now: NOW }).n).toBe(0)
     expect(weightRate(undefined, { now: NOW })).toEqual({ enough: false, n: 0 })
   })
+})
+
+// NATG-525: the window and the weigh-ins go by calendar day, so a clock change inside the window
+// neither moves its first day for an hour a day nor bends the line with a 23- or 25-hour day.
+// London moved its clocks forward on 29 March 2026 and back on 25 October 2026.
+describe('weekly rate across a clock change', () => {
+  const inLondon = fn => {
+    const was = process.env.TZ
+    try { process.env.TZ = 'Europe/London'; fn() } finally {
+      if (was === undefined) delete process.env.TZ; else process.env.TZ = was
+    }
+  }
+  // The iso date `back` calendar days before y-m-d, and a weigh-in on it gaining 0.1 a day.
+  const before = (y, m, d, back) => isoOf(new Date(y, m - 1, d - back, 12))
+  const steady = (y, m, d, backs) => backs.map(back => ({ d: before(y, m, d, back), w: 80 + 0.1 * (20 - back), t: 1 }))
+  const BACKS = [20, 16, 12, 8, 4, 0]
+
+  it('keeps the first day of the window in the last hour before midnight after the autumn change', () => inLondon(() => {
+    const bw = steady(2026, 11, 3, BACKS)
+    for (const [h, min] of [[22, 30], [23, 30]]) {
+      expect(weightRate(bw, { now: new Date(2026, 10, 3, h, min).getTime() }), `${h}:${min}`).toMatchObject({ enough: true, n: 6 })
+    }
+  }))
+
+  it('does not reach a day further back in the first hour after midnight after the spring change', () => inLondon(() => {
+    const now = new Date(2026, 3, 10, 0, 30).getTime()
+    expect(weightRate([{ d: before(2026, 4, 10, 21), w: 80 }], { now }).n).toBe(0)
+    expect(weightRate([{ d: before(2026, 4, 10, 20), w: 80 }], { now }).n).toBe(1)
+    expect(weightRate(steady(2026, 4, 10, [21, ...BACKS]), { now })).toMatchObject({ enough: true, n: 6 })
+  }))
+
+  it('reads a steady 0.1 a day as exactly 0.7 a week, either side of the year', () => inLondon(() => {
+    for (const [y, m, d] of [[2026, 11, 3], [2026, 4, 10]]) {
+      const r = weightRate(steady(y, m, d, BACKS), { now: new Date(y, m - 1, d, 12).getTime() })
+      expect(Math.abs(r.perWeek - 0.7), `${y}-${m}-${d}`).toBeLessThan(1e-9)
+    }
+  }))
 })
 
 describe('target corridor', () => {
