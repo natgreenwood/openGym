@@ -187,8 +187,13 @@ export function queueView(S, today) {
  * session through the queue, your Core day as training on top, the two units `planned` added.
  * A queue still ahead of its `startsOn` (queueView's `waiting`) is next week's plan, so until
  * then the card is the calendar-week count alone and the progress row speaks for the coming week.
+ *
+ * `shared` (optional, lib/shared-routines.js sharedViewOf): the routines shared with you, so a
+ * weekday planned with one (`shared:<id>`) counts as planned like one of your own (NATG-498). Only
+ * a shared routine that still resolves counts; a revoked or unavailable one reads as rest, as on
+ * the strip. Without it such a day reads as it always did, rest. `done` never depends on it.
  */
-export function weekTally(S, today) {
+export function weekTally(S, today, shared = null) {
   const ws = weekStartOf(S)
   const week = weekKey(today, ws)
   const thisWeek = S.workouts.filter(w => weekKey(w.d, ws) === week)
@@ -199,7 +204,8 @@ export function weekTally(S, today) {
   // the queue" is tested against the raw ids: a queue routine deleted mid-week is gone from
   // `q.ids`, but a weekday pointer to it is still not a day you planned yourself.
   const unqueued = id => !(q && S.queue.ids.includes(id))
-  const ownIds = ids => [].concat(ids || []).filter(id => S.routines.some(r => r.id === id) && unqueued(id))
+  const known = isKnown(S, shared?.ids ?? null)
+  const ownIds = ids => [].concat(ids || []).filter(id => known(id) && unqueued(id))
   const ownDays = Object.values(S.week || {}).filter(ids => ownIds(ids).length).length
   if (!q) return { done: thisWeek.length, planned: ownDays }
   // The workout that earns each session its credit is the earliest one the DONE RULE accepts

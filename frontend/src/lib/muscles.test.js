@@ -230,6 +230,32 @@ describe('planned weekly muscle volume', () => {
     expect(loadOfWeeklyPlan()).toEqual({})
     expect(loadOfWeeklyPlan({ routines: [], week: { 1: ['missing'] } })).toEqual({})
   })
+
+  // NATG-498: the routines shared with you (lib/shared-routines.js sharedViewOf); this reads its
+  // `byId`, the shared routines that resolve on this device right now.
+  const sharedOf = (...routines) => ({ byId: new Map(routines.map(r => [r.id, r])), ids: new Set(routines.map(r => r.id)) })
+  const LEGS = [{ id: '0025', sets: 5 }]
+
+  it('adds the sets of a shared routine planned on a weekday, the same as your own', () => {
+    const shared = sharedOf({ id: 'shared:s1', name: 'Leg Day', ex: LEGS })
+    const viaShare = { ...state, week: { 1: ['push'], 2: ['shared:s1'], 4: ['push', 'shared:s1'], 5: ['shared:gone'] } }
+    const asOwn = { ...state, routines: [...state.routines, { id: 'legs', ex: LEGS }], week: { 1: ['push'], 2: ['legs'], 4: ['push', 'legs'] } }
+    const load = loadOfWeeklyPlan(viaShare, shared)
+    expect(load).toEqual(loadOfWeeklyPlan(asOwn))
+    // …and it is more than the plan's own push days on their own
+    expect(load).not.toEqual(loadOfWeeklyPlan(viaShare))
+  })
+
+  it('adds nothing for a shared routine that no longer resolves, or without the shared routines', () => {
+    const viaShare = { ...state, week: { 1: ['push'], 2: ['shared:s1'] } }
+    expect(loadOfWeeklyPlan(viaShare, sharedOf())).toEqual({ chest: 2, triceps: 0.8 })
+    expect(loadOfWeeklyPlan(viaShare)).toEqual({ chest: 2, triceps: 0.8 })
+  })
+
+  it('looks a shared pointer up only among the shared routines', () => {
+    const impostor = { ...state, routines: [{ id: 'shared:s1', ex: [{ id: 'curl', sets: 3 }] }], week: { 1: ['shared:s1'] } }
+    expect(loadOfWeeklyPlan(impostor)).toEqual({})
+  })
 })
 
 // A custom exercise that was deleted from the catalogue survives in history only as the
