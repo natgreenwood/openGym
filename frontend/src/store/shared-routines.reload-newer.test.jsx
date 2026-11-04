@@ -390,3 +390,69 @@ it('NATG-512: a Remove whose local steps throw after the DELETE still reloads an
   expect(ui.toast).toHaveBeenCalledTimes(1)
   expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
 })
+
+// Each DELETE is held until the test answers it, in the order they were sent, and applies nothing
+// on the server by itself.
+const heldDeletes = () => {
+  const real = api.getMockImplementation()
+  const held = []
+  api.mockImplementation((path, o = {}) => o.method === 'DELETE' ? new Promise((resolve, reject) => held.push({ resolve, reject })) : real(path, o))
+  return held
+}
+
+it('NATG-521: a retried Remove stays marked when the failed attempt\'s reload settles first', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const held = heldDeletes()
+  net.hold = true
+  // The first attempt fails without being applied; its reload is still out when the user retries.
+  const first = useStore.getState().removeShare('s1')
+  const failed = expect(first).rejects.toThrow('server')
+  held[0].reject(Object.assign(new Error('server'), { status: 500 }))
+  await failed
+  expect(answers).toHaveLength(1)
+  const retry = useStore.getState().removeShare('s1')
+  answers[0](lists([share('s1')], 'e1'))
+  await tick()
+  // The retry's DELETE is applied on the server; a load lands before its answer.
+  net.hold = false; net.incoming = []; net.etag = 'e2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(ui.toast).not.toHaveBeenCalled()
+  held[1].resolve({ ok: true })
+  await expect(retry).resolves.toBe(true)
+  await tick()
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-523: a Remove in another account does not drop the first account\'s mark (A to B to A)', async () => {
+  const S = { ...clone(DEF), week: { 1: ['shared:s1'] } }
+  await signedIn(S)
+  await useStore.getState().loadShares()
+  const held = heldDeletes()
+  const a = useStore.getState().removeShare('s1')
+  await useStore.getState().signOut({ force: true })
+  // Account B signs in and removes a share of its own while A's DELETE is still out.
+  localStorage.setItem('gym_owner', 'u3')
+  useStore.setState({ S: { ...clone(DEF), week: { 2: ['shared:s2'] } }, user: { id: 'u3', name: 'Al' }, shares: null })
+  net.incoming = [{ ...share('s2'), routine: PUSH }]; net.etag = 'b1'
+  await useStore.getState().loadShares()
+  const b = useStore.getState().removeShare('s2')
+  await useStore.getState().signOut({ force: true })
+  // A comes back and loads s1 before its DELETE is applied; then it is applied, and a load lands
+  // before either DELETE is answered.
+  localStorage.setItem('gym_owner', USER.id)
+  net.incoming = [share('s1')]; net.etag = 'a1'
+  await signedIn(S)
+  await useStore.getState().loadShares()
+  net.incoming = []; net.etag = 'a2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(ui.toast).not.toHaveBeenCalled()
+  held[0].resolve({ ok: true })
+  held[1].resolve({ ok: true })
+  await expect(a).resolves.toBe(true)
+  await expect(b).resolves.toBe(true)
+  await tick()
+  expect(ui.toast).not.toHaveBeenCalled()
+})

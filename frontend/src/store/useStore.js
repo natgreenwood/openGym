@@ -381,11 +381,13 @@ export const useStore = create((set, get) => {
   // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
   // after it names what went from these, so a revoke the stale one saw first is still told (NATG-502).
   let sharesBefore = null
-  // The shares this user is removing, `{ uid, ids }`: marked before the DELETE is sent and cleared
-  // once the reload it starts has settled, so a load that lands meanwhile, even one the server
-  // answered after applying the DELETE, does not name them as gone (NATG-512).
+  // The shares each user is removing, uid → (share id → Removes in flight): each Remove counts
+  // itself in before its DELETE is sent and out once the reload it starts has settled, so a load
+  // that lands meanwhile, even one the server answered after applying the DELETE, does not name
+  // the share as gone (NATG-512). A count, per user, so a retry still out (NATG-521) or another
+  // account's Remove (NATG-523) keeps the mark.
   // Not reset in clearLocalSession on purpose: signing out and back in mid-DELETE would bring the toast back.
-  let sharesRemoving = null
+  const sharesRemoving = new Map()
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
   let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
   const saveShares = v => {
@@ -1759,8 +1761,8 @@ export const useStore = create((set, get) => {
       const gone = known ? orphans.filter(id => known.has(id)) : orphans
       if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
       if (gone.length < orphans.length && !sharesFetch) get().loadShares()
-      const removing = sharesRemoving?.uid === user.id ? sharesRemoving.ids : null
-      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !removing?.has(i.id))
+      const removing = sharesRemoving.get(user.id)
+      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !(removing?.get(i.id) > 0))
       if (!left.length) return
       import('./useUI.js').then(({ useUI }) => {
         for (const i of left) {
@@ -1789,13 +1791,16 @@ export const useStore = create((set, get) => {
       // server applied but whose answer failed is covered too (sharesRemoving).
       const uid = get().user?.id
       if (uid) {
-        if (sharesRemoving?.uid !== uid) sharesRemoving = { uid, ids: new Set() }
-        sharesRemoving.ids.add(id)
+        const counts = sharesRemoving.get(uid) || new Map()
+        counts.set(id, (counts.get(id) || 0) + 1)
+        sharesRemoving.set(uid, counts)
       }
       const reload = () => get().loadSharesNewer().finally(() => {
-        if (!uid || sharesRemoving?.uid !== uid) return
-        sharesRemoving.ids.delete(id)
-        if (!sharesRemoving.ids.size) sharesRemoving = null
+        if (!uid) return
+        const counts = sharesRemoving.get(uid)
+        if (!counts?.has(id)) return
+        if (counts.get(id) > 1) counts.set(id, counts.get(id) - 1)
+        else { counts.delete(id); if (!counts.size) sharesRemoving.delete(uid) }
       })
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
