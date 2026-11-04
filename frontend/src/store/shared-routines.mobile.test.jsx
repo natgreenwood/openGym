@@ -8,7 +8,7 @@ const h = vi.hoisted(() => {
   return { files: new Map(), offline: false }
 })
 vi.mock('@capacitor/filesystem', () => ({
-  Directory: { Data: 'DATA', Documents: 'DOCUMENTS', Cache: 'CACHE' },
+  Directory: { Data: 'DATA', Documents: 'DOCUMENTS', Cache: 'CACHE', LibraryNoCloud: 'LIBRARY_NO_CLOUD' },
   Encoding: { UTF8: 'utf8' },
   Filesystem: {
     readFile: async ({ path, directory }) => {
@@ -32,8 +32,9 @@ vi.mock('@capacitor/core', () => ({
 }))
 vi.mock('../lib/mobile.js', async original => ({
   ...await original(),
-  // A native read boundary. Capacitor's browser fallback needs IndexedDB in happy-dom;
-  // these tests exercise the store's restoration and account checks independently of it.
+  // Works around vitest-dev/vitest#11460 on Vitest 4.1.x: when two import()s of a mocked
+  // module overlap, the second caller gets the real plugin, so boot()'s shared-file read would
+  // hit Capacitor's IndexedDB fallback. Remove this override once Vitest is 5.1 or later.
   readJsonFile: async name => {
     const data = h.files.get('DATA/' + name)
     return data == null ? null : JSON.parse(data)
@@ -64,7 +65,6 @@ beforeEach(() => {
 afterEach(() => { store?.setState({ user: null, ready: false }); vi.unstubAllEnvs() })
 
 async function load() {
-  vi.stubEnv('VITE_MOBILE', '1')
   const { useStore, DEF } = await import('./useStore.js')
   store = useStore
   store.setState({ user: USER, S: structuredClone(DEF), ready: false })
@@ -90,7 +90,8 @@ it.each([false, true])('offline cold boot after storage eviction, foreign owner=
   const state = { ...structuredClone(DEF), _ts: 1000, week: { 1: ['shared:test-share'] } }
   h.files.set('DATA/opengym-state.json', JSON.stringify(state))
   h.files.set('DATA/opengym-state-owner.json', JSON.stringify({ owner: USER.id, ts: state._ts }))
-  h.files.set('DATA/opengym-remote.json', JSON.stringify({ mode: 'remote', base: 'https://gym.example.com', token: 'test-token', user: USER }))
+  // iOS keeps the pairing in Library/NoCloud; seeding it there takes the normal boot path.
+  h.files.set('LIBRARY_NO_CLOUD/opengym-remote.json', JSON.stringify({ mode: 'remote', base: 'https://gym.example.com', token: 'test-token', user: USER }))
   h.files.set('DATA/opengym-shared.json', JSON.stringify(foreign ? { ...saved, uid: 'test-other-recipient' } : saved))
   h.offline = true
   const { useStore } = await import('./useStore.js')
