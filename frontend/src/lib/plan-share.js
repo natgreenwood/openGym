@@ -328,7 +328,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
     })
   }))
   return {
-    name: (data.name || '').trim(),
+    name: typeof data.name === 'string' ? data.name.trim() : '',
     routines,
     week: data.week || {},
     customEx,
