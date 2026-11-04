@@ -54,18 +54,22 @@ import { buildCompletedWorkout, sessionEnd } from './lib/finish-workout.js'
 import { refillAfter } from './lib/rotation.js'
 import { isWarmupRow, hasCompletedWork } from './lib/workout-model.js'
 import { ownExerciseRest } from './lib/supersetFlow.js'
-import { saveSessionAsRoutine, routineAdditions, addToRoutine } from './lib/session-routines.js'
+import { saveSessionAsRoutine, routineAdditions, addToRoutine, fromSharedRoutine, markSharedOrigin } from './lib/session-routines.js'
 import { repeatSessionEntries } from './lib/session-repeat.js'
 import { swapActiveExercise } from './lib/active-exercise-swap.js'
 import { useSheetKeyboard, useRevealActiveChip, tappable } from './lib/use-sheet-keyboard.js'
-import { useSharedCounts } from './lib/use-shared-counts.js'
+import { useShareGuard } from './lib/use-shared-counts.js'
+import { guardHolds, guardTag } from './lib/shares.js'
+import { useSharedRoutines, sharedNow } from './lib/use-shared-routines.js'
+import { routineById } from './lib/routine-lookup.js'
+import { unavailableOf } from './lib/shared-routines.js'
 import { useAutoMore } from './lib/use-auto-more.js'
 import { isFav, toggleFav, sortFavouritesFirst, sortYoursFirst } from './lib/favourites.js'
 import { buildSessionEntries, buildPlannedEntry, buildSessionEntry, plannedConfigOf } from './lib/session-start.js'
 import { finishCompare, finishCardio } from './lib/finish-compare.js'
 import { workoutFit, fitFileName } from './lib/fit-export.js'
 import { joinSessionNoProg } from './lib/session-noprog.js'
-import { buildCombinedEntries, deriveSessionName } from './lib/session-merge.js'
+import { buildCombinedEntries, deriveSessionName, fitsSession, sessionRoutines } from './lib/session-merge.js'
 import { workoutsOn, backfillStart, backfillEnd, completeBackfill, historyAsOf, sessionHistory } from './lib/backfill.js'
 import { moveWorkout, sameWorkout, startTimeOf, durationMinOf, setWorkoutDuration, rebuildPrHistory, MAX_DURATION_MIN, endsInFuture } from './lib/workout-date.js'
 import { editCompletedSession, editLeftEmpty, editedRecord, editChangesNothing } from './lib/session-edit.js'
@@ -214,6 +218,7 @@ const dayList = days => new Intl.ListFormat(dateLocale()).format(days.map(d => t
 function StarterPlanChooser({ close }) {
   const week = useStore(s => s.S.week)
   const routines = useStore(s => s.S.routines)
+  const shared = useSharedRoutines()
   const profiles = useStore(s => s.S.equipProfiles) || []
   // Fitting starts on for the profile you already filter by; '' leaves the plan as written.
   const [fitId, setFitId] = useState(() => activeProfile(useStore.getState().S)?.id || '')
@@ -223,7 +228,7 @@ function StarterPlanChooser({ close }) {
     close()
     // A confirmation is only worth showing when one of those days is actually occupied — by a
     // routine that still exists, not by a stale id the Plan already shows as "Rest".
-    const taken = day => [].concat(week[day] || []).some(id => routines.some(r => r.id === id))
+    const taken = day => [].concat(week[day] || []).some(id => !!routineById({ routines }, id, shared))
     if (!days.some(taken)) { loadStarterPlan(id, fit); return }
     confirmSheet({
       title: t('Load {0}?', name),
@@ -1264,9 +1269,10 @@ export const exerciseHistorySheet = exId => ui().openSheet(close => <ExerciseHis
 function AddToRoutine({ ex, close }) {
   const st = useStore(s => s.S)
   // A custom exercise can't go into a routine that is shared (NATG-483 AC11): that routine's row
-  // stays, says why, and does nothing. "New routine" is never shared, so it stays open.
-  const shared = useSharedCounts()
-  const blocked = rid => isCustomEx(ex) && shared[rid] > 0
+  // stays, says why, and does nothing. "New routine" is never shared, so it stays open. With no
+  // share list to go by (not loaded yet, or the load failed), every routine is held back.
+  const guard = useShareGuard()
+  const blocked = rid => isCustomEx(ex) && guardHolds(guard, rid)
   const pick = rid => {
     if (blocked(rid)) return
     close()
@@ -1290,7 +1296,7 @@ function AddToRoutine({ ex, close }) {
         ? <div key={r.id} className="item add-blocked" role="button" tabIndex={0} aria-disabled="true" aria-describedby={'blk-' + r.id}>
           <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
           <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-          <span className="tag" id={'blk-' + r.id}>{t('Shared, unshare first')}</span><Icon name="lock" className="chev" />
+          <span className="tag" id={'blk-' + r.id}>{guardTag(guard)}</span><Icon name="lock" className="chev" />
         </div>
         : <div key={r.id} className="item" {...tappable(() => pick(r.id))}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -1656,7 +1662,7 @@ function commitActiveSwap(index, ex, cfg) {
   // A swap is an in-place substitution — routine identity is unchanged, so the replacement
   // keeps the slot's own `rid` and reads its prescription from that routine (not a
   // session-wide one). A slot with no `rid` is freestyle.
-  const slotRoutine = current.rid ? st.routines.find(r => r.id === current.rid) : null
+  const slotRoutine = current.rid ? routineById(st, current.rid, sharedNow()) : null
   // Same rows the add flow builds (buildSessionEntry).
   const built = buildSessionEntry(st, ex.id, cfg, slotRoutine, current)
   const replacement = {
@@ -2560,6 +2566,9 @@ function PlanImport({ bundle, close }) {
 /* ============================ day override / assign ============================ */
 function DayOverride({ iso, close }) {
   const st = useStore(s => s.S)
+  // The routines shared with you plan a day like your own (NATG-486 AC4).
+  const shared = useSharedRoutines()
+  const nameOf = id => routineById(st, id, shared)?.name
   const hasOvr = st.dayPlan[iso] !== undefined
   // A fulfilled pin (a coach session pinned here and since done) reads as no override, as it does
   // everywhere else — the row to clear the leftover entry stays.
@@ -2567,11 +2576,11 @@ function DayOverride({ iso, close }) {
   // The plan the day would have without its override — the weekday's routines, and in a coach
   // week the queue's session for the day in front of them, same as the Home row shows.
   const { [iso]: _ovr, ...noOvr } = st.dayPlan
-  const weeklyNames = effectiveRoutineIds({ ...st, dayPlan: noOvr }, iso).map(id => st.routines.find(r => r.id === id)?.name).filter(Boolean)
+  const weeklyNames = effectiveRoutineIds({ ...st, dayPlan: noOvr }, iso, todayISO(), shared.ids).map(nameOf).filter(Boolean)
   // A weekday can hold several routines; the per-date override stays single-pick, so picking
   // one here collapses a combined day to it (docs/dev/COMBINE_ROUTINES.md §8). The check marks
   // show everything currently planned for the day.
-  const effIds = effectiveRoutineIds(st, iso)
+  const effIds = effectiveRoutineIds(st, iso, todayISO(), shared.ids)
   // A planned day in the past with nothing logged was missed — or trained and never logged,
   // like a run you forgot to start the app for (#284). Logging it opens "Log a past workout" on
   // that date with the day's routines picked, where the time and the duration can still change.
@@ -2596,7 +2605,7 @@ function DayOverride({ iso, close }) {
   const set = v => {
     update(s => { if (!v) delete s.dayPlan[iso]; else s.dayPlan[iso] = v })
     close()
-    toast(v === '' ? t('Back to weekly plan') : v === 'rest' ? t('{0} set to rest', fmtDate(iso)) : t('{0} planned for {1}', (st.routines.find(r => r.id === v) || {}).name, fmtDate(iso)))
+    toast(v === '' ? t('Back to weekly plan') : v === 'rest' ? t('{0} set to rest', fmtDate(iso)) : t('{0} planned for {1}', nameOf(v), fmtDate(iso)))
   }
   const row = r => <div key={r.id} className="item" {...tappable(() => set(r.id))}>
     <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
@@ -2621,6 +2630,7 @@ function DayOverride({ iso, close }) {
     </>}
     <div className="list">
       {st.routines.filter(r => !remaining.includes(r.id)).map(row)}
+      {shared.routines.map(row)}
       <div className="item" {...tappable(() => set('rest'))}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="moon" /></span><div className="grow"><div className="tt">{t('Rest / skip this day')}</div></div>{effIds.length === 0 && <Icon name="check" className="accent" />}</div>
       {hasOvr && <div className="item" {...tappable(() => set(''))}><span className="lrow-i" style={{ background: 'var(--surface-3)' }}><Icon name="reset" /></span><div className="grow"><div className="tt">{t('Back to weekly plan')}</div></div></div>}
     </div>
@@ -2671,7 +2681,11 @@ export const dayNoteSheet = iso => ui().openSheet(close => <DayNote iso={iso} cl
 // for a second pick, so "Done" closes it. The weekday never stores [] (the key goes instead).
 function DayAssign({ day, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const cur = [].concat(st.week[day] || [])
+  // A shared routine that is not available right now but is on this day stays listed, ticked,
+  // so it can be taken off the day (NATG-486 AC9).
+  const offHere = cur.map(id => unavailableOf(shared, id)).filter(Boolean)
   const toggle = id => update(s => {
     const ids = [].concat(s.week[day] || [])
     const next = ids.includes(id) ? ids.filter(x => x !== id) : [...ids, id]
@@ -2692,6 +2706,25 @@ function DayAssign({ day, close }) {
         </div>
       })}
     </div>
+    {/* The routines shared with you, scheduled the same way (NATG-486 AC4). */}
+    {(shared.routines.length > 0 || offHere.length > 0) && <>
+      <h4 className="sec">{t('Shared with you')}</h4>
+      <div className="list menu-list">
+        {shared.routines.map(r => {
+          const on = cur.includes(r.id)
+          return <div key={r.id} className="item menu-item" aria-pressed={on} {...tappable(() => toggle(r.id))}>
+            <span className="lrow-i has-badge"><Icon name={glyphOf(r.emoji)} /><span className="shared-badge" aria-hidden="true"><Icon name="people" /></span></span>
+            <div className="grow"><div className="tt">{r.name}</div><div className="ss">{[r.shared.from.name ? t('From {0}', r.shared.from.name) : '', exCount(r.ex.length)].filter(Boolean).join(' · ')}</div></div>
+            <span className={'menu-on' + (on ? ' is-on' : '')}><Icon name="check" /></span>
+          </div>
+        })}
+        {offHere.map(u => <div key={u.id} className="item menu-item" aria-pressed="true" {...tappable(() => toggle(u.id))}>
+          <span className="lrow-i unavail"><Icon name="warning" /></span>
+          <div className="grow"><div className="tt">{u.name || t('Shared routine')}</div><div className="ss">{t('Not available right now')}</div></div>
+          <span className="menu-on is-on"><Icon name="check" /></span>
+        </div>)}
+      </div>
+    </>}
     <div style={{ height: 12 }} />
     <Button variant="primary" onClick={close}>{t('Done')}</Button>
   </>
@@ -2776,6 +2809,8 @@ function WorkoutDetail({ w, close }) {
   const noteRef = useRef(null)
   const onNoteFocus = useSheetKeyboard(noteRef)
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
+  const fromShared = fromSharedRoutine(w)
   const update = useStore(s => s.update)
   // The session note is editable here rather than only at the finish sheet: what you want to
   // record about a session is often clearer once you have looked at what you actually did.
@@ -2865,7 +2900,7 @@ function WorkoutDetail({ w, close }) {
     <h3>{w.name}</h3>
     <div className="muted small" style={{ marginBottom: 12 }}>{[fmtDate(w.d, true), ...durPart(w.end - w.start), fmtVol(sessionVolume(w, st), st.unit), ...(w.bw ? [fmtNum(w.bw) + ' ' + st.unit] : [])].join(' · ')}</div>
     {grouped ? groups.map(g => {
-      const r = g.rid ? st.routines.find(x => x.id === g.rid) : null
+      const r = g.rid ? routineById(st, g.rid, shared) : null
       const items = g.items.map(i => w.entries[i])
       const setN = items.reduce((n, e) => n + e.sets.filter(s => s.done && !isWarmupRow(s)).length, 0)
       const vol = workoutVolume({ entries: items }, { warmups: countsWarmups(st) })
@@ -2915,7 +2950,15 @@ function WorkoutDetail({ w, close }) {
       initial.current = latest.current.trim().slice(0, NOTE_MAX)
       workoutDurationSheet(w, close)
     }}>{t('Change duration')}</Button>
-    <Button icon="plus" onClick={() => confirmSheet({
+    {/* A workout from a routine shared with you can't become a routine of your own: that would be
+        a copy of someone else's routine (NATG-483 AC14, NATG-500). The button stays, disabled,
+        with the reason under it, the way the routine page gates its share action. */}
+    {fromShared
+      ? <>
+        <Button icon="plus" disabled aria-describedby="save-routine-why">{t('Save as routine')}</Button>
+        <div id="save-routine-why" className="small dim" style={{ margin: '6px 2px 0' }}>{t('This workout is from a routine shared with you, so it can’t be saved as a routine of your own.')}</div>
+      </>
+      : <Button icon="plus" onClick={() => confirmSheet({
       title: t('Save as routine?'),
       message: t('Create an independent routine from these exercise targets. Your workout history is kept.'),
       confirmText: t('Save'),
@@ -2923,10 +2966,11 @@ function WorkoutDetail({ w, close }) {
         let id
         try { update(s => { id = saveSessionAsRoutine(s, w, w.name) }) }
         catch (e) { toast(t(e.message)); return }
+        if (!id) return
         close()
         nav('/plan/r/' + id)
       }
-    })}>{t('Save as routine')}</Button>
+    })}>{t('Save as routine')}</Button>}
     <div style={{ height: 8 }} />
     <Button icon="copy" onClick={copyAsText}>{t('Copy as text')}</Button>
     <div style={{ height: 8 }} />
@@ -3039,6 +3083,7 @@ export const workoutDetailSheet = w => ui().openSheet(close => <WorkoutDetail w=
 /* ============================ calendar ============================ */
 function Calendar({ start, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   // A day as 'YYYY-MM-DD' is read at local noon: new Date('2026-09-01') is UTC midnight, which is
   // still August west of UTC, so a tap on the 1st in Stats opened the month before (found by the
   // weekly run in America/Los_Angeles, .github/workflows/audit.yml).
@@ -3061,7 +3106,7 @@ function Calendar({ start, close }) {
   for (let d = 1; d <= daysIn; d++) {
     const iso = y + '-' + String(mo + 1).padStart(2, '0') + '-' + String(d).padStart(2, '0')
     // A fulfilled pin (a coach session pinned here and since done) reads as no override, as it does everywhere else.
-    const ws = byDay[iso], planned = effectiveRoutineIds(st, iso).length > 0, ovr = st.dayPlan[iso] !== undefined && pinState(st, st.dayPlan[iso]) !== 'done'
+    const ws = byDay[iso], planned = effectiveRoutineIds(st, iso, todayISO(), shared.ids).length > 0, ovr = st.dayPlan[iso] !== undefined && pinState(st, st.dayPlan[iso]) !== 'done'
     // A day off with a note on it (#261) shows the note's dot instead of the plan's, and its
     // note as the tooltip; tapping it opens the day sheet, where the note is.
     const note = !ws && dayNoteOf(st, iso)
@@ -3096,7 +3141,8 @@ export const calendarSheet = start => ui().openSheet(close => <Calendar start={s
 /* shared small workout row (used in lists) */
 export function WorkoutRow({ w, onClick }) {
   const st = useStore(s => s.S)
-  const glyph = glyphOf((st.routines.find(r => r.id === w.routineId) || {}).emoji)
+  const shared = useSharedRoutines()
+  const glyph = glyphOf(routineById(st, w.routineId, shared)?.emoji)
   const mediaN = workoutMediaCount(w)
   return <div className="item" {...tappable(onClick)}>
     <span className="lrow-i" style={{ width: 34, height: 34, borderRadius: 8, fontSize: 19 }}><Icon name={glyph} /></span>
@@ -3122,6 +3168,8 @@ export function DayNoteRow({ iso, note }) {
 // `routineIds` accepts `string | string[] | null` — `[r.id]` for one routine,
 // `effectiveRoutineIds(...)` for today's planned session, `[]` / null for explicit freestyle.
 export function startFlow(routineIds) {
+  // More rows than one session holds (SEC-486-01): said before the weigh-in, nothing started.
+  if (!fitsSession(sessionRoutines(S(), routineIds, sharedNow()))) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
   // The weigh-in is a setting (Settings → During a workout, issue #137): off goes straight
   // into the session with no body weight on it, same as "Start without weighing in".
   if (S().weighIn === false) { beginWorkout(routineIds, null); return }
@@ -3131,7 +3179,11 @@ export function startFlow(routineIds) {
 // so the sets ticked on it find it, and its start time, however late the phone hears of it.
 export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
   const st = S()
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(st, routineIds)
+  // A shared routine starts from the version this device last synced (NATG-486 AC4, AC8).
+  const built = buildCombinedEntries(st, routineIds, sharedNow())
+  // Refused, not started as a freestyle session in its place (SEC-486-01).
+  if (built.tooLarge) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
+  const { entries, routineIds: rids, routines } = built
   const startAt = Number.isFinite(start) && start > 0 ? start : Date.now()
   update(s => {
     s.active = {
@@ -3139,6 +3191,8 @@ export function beginWorkout(routineIds, bw, { id = null, start = null } = {}) {
       // A session tracks its routines as a list; per-entry `rid` carries which one each
       // exercise came from. No top-level `excludeFromProgression` — per-entry `noProg` does it.
       routineIds: rids,
+      // From a routine shared with you: said on the session itself, for good (SEC-486-02).
+      ...markSharedOrigin({ routineIds: rids }),
       name: routines.length ? deriveSessionName(routines.map(r => r.name)) : t('Freestyle'),
       bw: bw || null, cur: 0, entries,
       // Snapshot the layout at start so the header ⋮ can change it for this session only —
@@ -3163,6 +3217,8 @@ export function repeatWorkout(w, close) {
     update(s => {
       s.active = {
         id: uid(), d: todayISO(), start: Date.now(), routineIds: [],
+        // A repeat has no routine ids, so a shared origin is carried over as it is (SEC-486-02).
+        ...markSharedOrigin(w),
         name: w.name || t('Freestyle'), bw: bw || null, cur: 0, entries,
         workoutView: s.workoutView || 'cards',
       }
@@ -3185,8 +3241,9 @@ export function repeatWorkout(w, close) {
 const PLANNED_DAY = '__planned-day'
 function LogPastWorkout({ initial, close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1)
-  const planned = [].concat(initial?.routineIds || []).map(id => st.routines.find(r => r.id === id)).filter(Boolean)
+  const planned = [].concat(initial?.routineIds || []).map(id => routineById(st, id, shared)).filter(Boolean)
   const [date, setDate] = useState(initial?.iso || isoOf(yesterday))
   const [time, setTime] = useState('18:00')
   const [dur, setDur] = useState(60)
@@ -3196,6 +3253,7 @@ function LogPastWorkout({ initial, close }) {
     { value: '', label: t('Freestyle') },
     ...(planned.length > 1 ? [{ value: PLANNED_DAY, label: deriveSessionName(planned.map(r => r.name)) }] : []),
     ...st.routines.map(r => ({ value: r.id, label: r.name })),
+    ...shared.routines.map(r => ({ value: r.id, label: r.name })),
   ]
 
   const go = replaceId => {
@@ -3265,11 +3323,14 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
   const st = S()
   const start = backfillStart(iso, time)
   const past = historyAsOf(st, { d: iso, start, replaceId })
-  const { entries, routineIds: rids, routines } = buildCombinedEntries(past, routineIds || [])
+  const built = buildCombinedEntries(past, routineIds || [], sharedNow())
+  if (built.tooLarge) { toast(t('That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.')); return }
+  const { entries, routineIds: rids, routines } = built
   update(s => {
     s.active = {
       id: uid(), d: iso, start,
       routineIds: rids,
+      ...markSharedOrigin({ routineIds: rids }),
       name: routines.length ? deriveSessionName(routines.map(r => r.name)) : t('Freestyle'),
       bw: null, cur: 0, entries,
       backfill: { durationMin, replaceId: replaceId || null },
@@ -3288,10 +3349,16 @@ function beginBackfill({ iso, time, durationMin, routineIds, replaceId }) {
 // `s.active.cur` is left where it is — the appended block is reached by scrolling / Next.
 function AddRoutineToSession({ close }) {
   const st = useStore(s => s.S)
+  const shared = useSharedRoutines()
   const active = st.active
   if (!active) return null
   const inSession = new Set([].concat(active.routineIds || []))
+  // One session is held to MAX_ROUTINE_ROWS however its routines come together (SEC-486-01): a
+  // routine that would take it past that is offered disabled, with the reason, and refused
+  // before a row is built if the session grew meanwhile. Never a cut-down copy.
+  const fits = r => fitsSession([r], active.entries)
   const add = r => {
+    if (!fitsSession([r], S().active?.entries)) { toast(t('{0} is too much to add to this workout.', r.name)); return }
     const entries = buildSessionEntries(sessionHistory(st), r).map(e => ({ ...e, rid: r.id }))
     update(s => {
       if (!s.active) return
@@ -3299,8 +3366,9 @@ function AddRoutineToSession({ close }) {
       // exercises out too, the same as an exercise added on its own.
       s.active.entries.push(...entries.map(e => joinSessionNoProg(s.active, e)))
       s.active.routineIds = [...[].concat(s.active.routineIds || []), r.id]
+      if (markSharedOrigin({ routineIds: [r.id] }).sharedOrigin) s.active.sharedOrigin = true
       if (!s.active.customName) {
-        s.active.name = deriveSessionName(s.active.routineIds.map(id => s.routines.find(x => x.id === id)?.name).filter(Boolean))
+        s.active.name = deriveSessionName(s.active.routineIds.map(id => routineById(s, id, shared)?.name).filter(Boolean))
       }
     })
     close()
@@ -3309,15 +3377,17 @@ function AddRoutineToSession({ close }) {
   return <>
     <h3>{t('Add routine')}</h3>
     <div className="list">
-      {st.routines.map(r => {
+      {[...st.routines, ...shared.routines].map(r => {
         const already = inSession.has(r.id)
         const empty = !(r.ex || []).length
-        const disabled = already || empty
+        const tooMuch = !already && !empty && !fits(r)
+        const disabled = already || empty || tooMuch
         return <div key={r.id} className={'item' + (disabled ? ' disabled' : '')} aria-disabled={disabled || undefined}
           {...tappable(disabled ? null : () => add(r))}>
           <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
           <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-          {already ? <span className="tag">{t('already added')}</span> : empty ? <span className="tag">{t('no exercises')}</span> : <Icon name="chevronRight" className="chev" />}
+          {already ? <span className="tag">{t('already added')}</span> : empty ? <span className="tag">{t('no exercises')}</span>
+            : tooMuch ? <span className="tag">{t('too much for this workout')}</span> : <Icon name="chevronRight" className="chev" />}
         </div>
       })}
     </div>
@@ -3623,7 +3693,7 @@ export function setsLine(sets, unit) {
 }
 const TREND = { 1: ['arrowUp', 'var(--green)'], 0: ['minus', 'var(--text-2)'], [-1]: ['arrowDown', 'var(--orange)'] }
 function LastAndNext({ st, w }) {
-  const rows = finishCompare(st, w)
+  const rows = finishCompare(st, w, sharedNow())
   if (!rows.length) return null
   const nextWord = { up: t('step up'), hold: t('same again'), down: t('lighter'), deload: t('deload') }
   return <div style={{ textAlign: 'start', marginBottom: 14 }}>
@@ -3668,10 +3738,10 @@ function CardioDone({ st, w }) {
 // (NATG-483 AC11), and the line under the button says which stayed out and why.
 function KeepInRoutine({ additions }) {
   const [added, setAdded] = useState({})
-  const shared = useSharedCounts()
+  const guard = useShareGuard()
   if (!additions?.length) return null
   const split = a => {
-    const custom = shared[a.routineId] > 0 ? a.ex.filter(cfg => isCustomEx(EXIDX[cfg.id])) : []
+    const custom = guardHolds(guard, a.routineId) ? a.ex.filter(cfg => isCustomEx(EXIDX[cfg.id])) : []
     return { lib: a.ex.filter(cfg => !custom.includes(cfg)), custom }
   }
   const keep = a => {
@@ -3693,7 +3763,9 @@ function KeepInRoutine({ additions }) {
           ? <div className="small accent row" style={{ gap: 6 }}><Icon name="checkCircle" /><span>{t('Added to “{0}”', a.name)}</span></div>
           : lib.length > 0 && <Button icon="plusCircle" onClick={() => keep(a)}>{tn('Add it to “{1}”', 'Add them to “{1}”', lib.length, a.name)}</Button>}
         {custom.length > 0 && <div className="small dim row" style={{ gap: 6, marginTop: 6, alignItems: 'flex-start' }}><Icon name="people" style={{ flex: 'none', marginTop: 2 }} />
-          <span>{t('Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.', a.name, custom.map(nameOf).join(', '))}</span></div>}
+          <span>{guard.state === 'known'
+            ? t('Custom exercises can’t go in “{0}” while it’s shared: {1}. Unshare it first to add them.', a.name, custom.map(nameOf).join(', '))
+            : t('Couldn’t check who has “{0}”, and custom exercises can’t go in a shared routine: {1}. Try again once you’re online.', a.name, custom.map(nameOf).join(', '))}</span></div>}
       </div>
     })}
   </div>

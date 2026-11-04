@@ -26,6 +26,8 @@ import { POLICIES_FOR, POLICY_NAME, POLICY_DESC } from '../lib/progression.js'
 import BodyMap from '../components/BodyMap.jsx'
 import { loadOfRoutine, rankOf, MUSCLE_NAME } from '../lib/muscles.js'
 import RoutineSharing, { useRoutineShares } from '../components/RoutineSharing.jsx'
+import SharedRoutineView from './SharedRoutineView.jsx'
+import { isSharedId } from '../lib/routine-lookup.js'
 
 export const ROUTINE_LONG_PRESS_MS = 380
 export const ROUTINE_DRAG_SLOP = 8
@@ -364,7 +366,14 @@ export function undoRemoveRoutineExercise({ routineId, i, before, after, base, d
   return true
 }
 
+// A routine shared with you opens read-only (NATG-486): none of this page's editing is offered
+// for it. Decided by the id alone, an exact `shared:` prefix (lib/routine-lookup.js).
 export default function RoutineEdit() {
+  const { id } = useParams()
+  return isSharedId(id) ? <SharedRoutineView key={id} id={id} /> : <OwnRoutineEdit />
+}
+
+function OwnRoutineEdit() {
   const nav = useNavigate()
   const { id } = useParams()
   const S = useStore(s => s.S)
@@ -398,9 +407,25 @@ export default function RoutineEdit() {
   // While the routine is shared, a custom exercise can't go into it (NATG-483 AC11: the server
   // would stop showing it to everyone it is shared with). The pick is turned away with the way
   // out: unshare first, from the Sharing section this scrolls to. True when it was turned away.
+  // With no list to go by (not loaded yet, or the load failed and none is kept on this device),
+  // it is turned away too: the routine may be shared, and the server would hide it from everyone
+  // it is shared with (NATG-486, closing the gap NATG-485 left).
   const sharedCount = shares.list?.length || 0
   const turnAway = (picker, ex) => {
-    if (!sharedCount || !isCustomEx(ex)) return false
+    if (!isCustomEx(ex) || !shares.guarded) return false
+    if (!shares.list) {
+      picker?.close()
+      confirmSheet({
+        title: shares.failed ? t('Couldn’t check who has this routine') : t('Still checking who has this routine'),
+        message: shares.failed
+          ? t('Custom exercises can’t go in a shared routine, and the list of people you share {0} with couldn’t be loaded. Try again once you’re online.', r.name)
+          : t('Custom exercises can’t go in a shared routine, and the list of people you share {0} with is still loading. Try again in a moment.', r.name),
+        confirmText: t('Try again'), cancelText: t('Not now'),
+        onConfirm: () => useStore.getState().loadShares(),
+      })
+      return true
+    }
+    if (!sharedCount) return false
     picker?.close()
     confirmSheet({
       title: t('Unshare first'),

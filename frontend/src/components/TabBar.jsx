@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { effectiveRoutineIds, effectiveRoutines } from '../lib/history.js'
+import { useSharedRoutines } from '../lib/use-shared-routines.js'
 import { todayISO } from '../lib/format.js'
 import { t } from '../lib/i18n.js'
 import Icon from './Icon.jsx'
@@ -28,6 +29,7 @@ export default function TabBar({ onStart }) {
   // With the connection banner switched off, a sync problem shows as a dot on Home, the tab
   // Settings lives under (#369, #330).
   const trouble = useConnectionTrouble()
+  const shared = useSharedRoutines()
   if (!user && !isGuest) return null
   const cur = loc.pathname.split('/')[1] || 'home'
   // A screen without a tab of its own lights the tab it is opened from (Muscles from both).
@@ -45,7 +47,8 @@ export default function TabBar({ onStart }) {
     if (!S.active) {
       // A weekday can hold several routines; start the combined session if any of them has
       // exercises, otherwise fall through to the picker.
-      if (effectiveRoutines(S, todayISO()).some(r => r.ex.length)) { onStart(effectiveRoutineIds(S, todayISO())); return }
+      // A routine shared with you counts like your own (NATG-486 AC4).
+      if (effectiveRoutines(S, todayISO(), shared).some(r => r.ex.length)) { onStart(effectiveRoutineIds(S, todayISO(), todayISO(), shared.ids)); return }
     }
     nav('/workout')
   }

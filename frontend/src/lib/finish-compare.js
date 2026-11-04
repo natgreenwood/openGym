@@ -5,6 +5,7 @@
 import { isWarmupRow, isFailureSet } from './workout-model.js'
 import { buildPlannedEntry } from './session-start.js'
 import { workoutAt, modeOf } from './history.js'
+import { routineById } from './routine-lookup.js'
 
 const workSets = entry => (Array.isArray(entry?.sets) ? entry.sets : [])
   .filter(s => s && s.done && !isWarmupRow(s) && Number(s.r) > 0)
@@ -23,8 +24,12 @@ export function trendOf(today, last) {
   return dr ? Math.sign(dr) : 0
 }
 
-/** Rows for the summary of `w`, read from `st` (which already holds `w`). Cardio and timed sets are left out. */
-export function finishCompare(st, w) {
+/**
+ * Rows for the summary of `w`, read from `st` (which already holds `w`). Cardio and timed sets are
+ * left out. `shared` (lib/shared-routines.js sharedViewOf): the routines shared with you, so an
+ * exercise from one gets its "next" the way one from your own routine does (NATG-486).
+ */
+export function finishCompare(st, w, shared = null) {
   const workouts = (st?.workouts || []).filter(x => x && x !== w && x.id !== w?.id && workoutAt(x) < workoutAt(w))
   const rows = []
   const seen = new Set()
@@ -42,7 +47,7 @@ export function finishCompare(st, w) {
       if (sets.length) last = sets
     }
     let next = null
-    const routine = entry.rid ? (st.routines || []).find(r => r.id === entry.rid) : null
+    const routine = entry.rid ? routineById(st, entry.rid, shared) : null
     const cfg = routine && !routine.excludeFromProgression && !entry.noProg && !w.noProg
       ? (routine.ex || []).find(c => c?.id === entry.id) : null
     if (cfg) {

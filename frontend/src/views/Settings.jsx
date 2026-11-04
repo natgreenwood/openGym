@@ -21,6 +21,7 @@ import { api, webauthnOK, passkeyRegister, passkeyError, IS_ANDROID } from '../l
 import { pushSupported, enablePush, disablePush, sendTestPush, syncPushSubscription } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, tn, LANGS, INSTR_LANGS, EXERCISE_NAME_LANGS, baseLang, dateLocale } from '../lib/i18n.js'
+import { sharesOf, sharesLostBy, sharesLostLine } from '../lib/shares.js'
 import { effectiveLang } from '../lib/default-lang.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, isAndroid, shareExport, shareExportBlob, syncReminder } from '../lib/mobile.js'
@@ -121,6 +122,10 @@ export default function Settings({ page = null, find = null, via = null, entryKe
   const credsChanged = () => { passkeys.load(); setCredsV(v => v + 1) }
   const { update, importConflict, importBackup, setUnit, resetEverything: resetAll, setUser, pullState, pushState, resetDemo } = useStore()
   const toast = useUI(s => s.toast)
+  // Your outgoing shares, for the restore and reset warnings below (NATG-487): replacing your
+  // document drops the shares of every routine it no longer holds, for good.
+  const myShares = useStore(s => sharesOf(s.shares, s.user))
+  const lostBy = routines => (user ? sharesLostBy(myShares?.outgoing, routines) : 0)
   const fileRef = useRef(null)
   const importRef = useRef(null)
   const body = useRef(null)
@@ -350,6 +355,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // another device meanwhile, would be deleted from the profile by the replace — said, with the
     // choice to merge those in instead (useStore importConflict / importBackup).
     const conflict = await importConflict(read.state)
+    const lost = sharesLostLine(lostBy(read.state?.routines))
     if (conflict) {
       const n = conflict.workouts
       menuSheet({
@@ -359,7 +365,8 @@ export default function Settings({ page = null, find = null, via = null, entryKe
             : 'This device has {0} workouts that are not in this backup. Replacing deletes them.', n)
           : t(n === 1
             ? 'The server has 1 workout that is not in this backup, logged since it was made or on another device. Replacing deletes it.'
-            : 'The server has {0} workouts that are not in this backup, logged since it was made or on another device. Replacing deletes them.', n),
+            : 'The server has {0} workouts that are not in this backup, logged since it was made or on another device. Replacing deletes them.', n)
+          + (lost ? ' ' + lost : ''),
         items: [
           { icon: 'trash', label: t('Replace anyway'), danger: true, onClick: () => apply(null) },
           { icon: 'merge', label: t('Merge them in'), onClick: () => apply(conflict) },
@@ -369,7 +376,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
       return
     }
     confirmSheet({
-      title: t('Import backup?'), message: t('This replaces all current data with the backup file.'), confirmText: t('Import'), danger: true,
+      title: t('Import backup?'), message: t('This replaces all current data with the backup file.') + (lost ? ' ' + lost : ''), confirmText: t('Import'), danger: true,
       onConfirm: () => apply(null)
     })
   }
@@ -415,6 +422,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     title: t('Reset everything?'),
     message: user
       ? t('Deletes your plan, workouts, body weight, photos and videos from your profile on this server and on every signed-in device. This cannot be undone.')
+        + (lostBy([]) ? ' ' + sharesLostLine(lostBy([])) : '')
       : t('Deletes your plan, workouts, body weight, photos and videos on this device. This cannot be undone.'),
     confirmText: t('Delete everything'), danger: true,
     onConfirm: () => {

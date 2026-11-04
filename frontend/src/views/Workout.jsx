@@ -49,6 +49,8 @@ import { nextOpenSet, workoutKeyAction } from '../lib/workout-keys.js'
 import { MUSCLE_NAME } from '../lib/muscles.js'
 import FocusView from './FocusView.jsx'
 import { SeasonDeco } from '../components/Seasonal.jsx'
+import { useSharedRoutines } from '../lib/use-shared-routines.js'
+import { routineById } from '../lib/routine-lookup.js'
 import { entryDbLoad, bellsIn, ownedWeightsFor, stepOwned } from '../lib/dumbbells.js'
 
 // How long after a key starts a hold the same key is not yet its "Done" (#133). A USB button
@@ -60,12 +62,14 @@ const HOLD_KEY_GRACE_MS = 1500
 function StartChooser() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
-  const todayIds = effectiveRoutineIds(S, todayISO())
-  const todayRoutines = effectiveRoutines(S, todayISO())
+  // The routines shared with you start like your own (NATG-486 AC4).
+  const shared = useSharedRoutines()
+  const todayIds = effectiveRoutineIds(S, todayISO(), todayISO(), shared.ids)
+  const todayRoutines = effectiveRoutines(S, todayISO(), shared)
   const todayName = todayRoutines.map(r => r.name).join(' + ')
   const todayOvr = S.dayPlan[todayISO()] !== undefined && pinState(S, S.dayPlan[todayISO()]) !== 'done' // a fulfilled pin is no override
   const idSet = new Set(todayIds)
-  const others = S.routines.filter(r => !idSet.has(r.id))
+  const others = [...S.routines, ...shared.routines].filter(r => !idSet.has(r.id))
   return <div className="narrow">
     <div className="hdr"><div><h1>{t('Start workout')}</h1><div className="sub">{t(DAYN[new Date().getDay()])} · {todayRoutines.length ? t('today is {0}', todayName) : t('rest day, but no one’s stopping you')}</div></div></div>
     {todayRoutines.length > 0 && <div className="card" style={{ borderColor: 'var(--acc)' }}>
@@ -83,7 +87,7 @@ function StartChooser() {
         <span className="tag acc">{t('Start')}</span></div>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow([])}>{t('Freestyle workout (pick as you go)')}</Button>
-    {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
+    {!S.routines.length && !shared.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
   </div>
 }
 
@@ -974,6 +978,10 @@ function ActiveWorkout() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const update = useStore(s => s.update)
+  // A session started from a routine shared with you reads that routine's settings like one of
+  // your own (NATG-486): its rows are the snapshot taken at the start (AC8), and nothing here
+  // ever writes to it — the routine a write targets is always looked up in `S.routines` itself.
+  const shared = useSharedRoutines()
   // Only what this screen shows of the two timers: the whole UI store here re-rendered every card
   // of the workout once a second while a rest or a hold counted down (`left` changes each tick).
   const liveRest = useUI(s => s.startRest)
@@ -1368,7 +1376,7 @@ function ActiveWorkout() {
   const setNoProg = (idx, on) => update(s => setEntryNoProg(s.active, idx, on))
   // A deload or rehab routine keeps its own exercises out (RoutineEdit). That is the routine's
   // setting, so its entries get the marker but no switch.
-  const routineKeepsOut = e => !!e?.rid && S.routines.some(r => r.id === e.rid && r.excludeFromProgression === true)
+  const routineKeepsOut = e => !!e?.rid && routineById(S, e.rid, shared)?.excludeFromProgression === true
   // The same for the whole session from the header ⋮ (Discord, asierlama: "exclude the current
   // workout" on an injury day): every exercise gets the marker, and one added later joins them.
   // Absent when a deload or rehab routine already keeps every exercise out, since nothing is left
@@ -1383,6 +1391,8 @@ function ActiveWorkout() {
   const restWord = v => (Number(v) > 0 ? fmtRest(v) : Number(v) < 0 ? t('No timer') : t('Default ({0})', fmtRest(S.restSec)))
   const routineUpdateFor = idx => {
     const entry = A.entries[idx]
+    // Your own routines only: this offers to write into the routine, and a routine shared with
+    // you can't be changed (NATG-486 AC5), so a `shared:` rid never finds one here.
     const routine = !editing && entry?.rid ? S.routines.find(r => r.id === entry.rid) : null
     const found = routine ? routineChangesFromEntry(routine, A.entries, idx) : null
     if (!found) return null
@@ -1526,7 +1536,7 @@ function ActiveWorkout() {
     // kept out as a whole (the header ⋮) takes the new one with it (joinSessionNoProg).
     const curEntry = A.entries[A.cur]
     const curRid = curEntry?.rid
-    const routine = curRid ? S.routines.find(r => r.id === curRid) : null
+    const routine = curRid ? routineById(S, curRid, shared) : null
     const freestyle = !routine
     const noProg = !freestyle && builtOutOfProgression(curEntry, routine)
     // Freestyle has no routine prescription to apply: show the last target in the config
@@ -1628,7 +1638,7 @@ function ActiveWorkout() {
     const entryCount = state.active.entries.length
     // A combined session's entries each carry a `rid`; progression settings read from that
     // entry's own routine, not a session-wide one.
-    const routine = state.routines.find(r => r.id === entry.rid)
+    const routine = routineById(state, entry.rid, shared)
     // The sheet opens at the plan's sets and reps rather than today's prescription (see
     // plannedConfigOf), so saving it unchanged rebuilds the rows the entry already has.
     const opened = plannedConfigOf(entry)
@@ -1651,7 +1661,7 @@ function ActiveWorkout() {
         // stamped as the plan, a later edit of the reps would restart from today's load as though
         // it had been typed in (nextPrescription), so the plan keeps its own.
         if ((cfg.weight || 0) === (opened.weight || 0) && activeEntry.planned?.weight != null) full.weight = activeEntry.planned.weight
-        const activeRoutine = s.routines.find(r => r.id === activeEntry.rid)
+        const activeRoutine = routineById(s, activeEntry.rid, shared)
         // A config without a set count keeps the rows the session already has.
         if (!(full.sets > 0)) full.sets = activeEntry.sets.filter(x => !isWarmupRow(x)).length || 1
         // The sheet edits sets, reps, weight and warm-ups as well as the rule — so the rows are

@@ -126,5 +126,8 @@ export function buildCompletedWorkout(active, { end = Date.now(), prs = [], snap
     prs,
     ...(allNoProg ? { excludeFromProgression: true } : {}),
     ...(sessionNote ? { note: sessionNote } : {}),
+    // Trained from a routine shared with you (SEC-486-02): kept with the workout for good, so a
+    // repeat of it, or an edit, can never be saved as a routine of your own.
+    ...(active?.sharedOrigin === true ? { sharedOrigin: true } : {}),
   }
 }

@@ -1,6 +1,7 @@
 import { uid } from './format.js'
 import { modeOf, defaultConfig, isPerSide, entryRoutineId, setsFromRows } from './history.js'
 import { isSideSet, isWarmupRow, hasCompletedWork, modeForEntry } from './workout-model.js'
+import { isSharedId } from './routine-lookup.js'
 
 // A saved workout is evidence of what was logged, not a live routine. Copy only its flat
 // exercise setup on this explicit action; finishing a workout never calls this helper.
@@ -137,7 +138,30 @@ export function routineFromSession(session, name = session?.name, routines = [])
   return { id: uid(), name: String(name || 'Workout').trim() || 'Workout', ex }
 }
 
+/**
+ * Whether any of the session was trained from a routine shared with you (`shared:<id>`, NATG-486).
+ * Such a session is never saved as a routine: that would be a copy of someone else's routine,
+ * editable and outside their changes, which sharing doesn't allow (NATG-483 AC14, NATG-500).
+ * `sharedOrigin` (SEC-486-02) is what says so once the routine ids are gone: a repeat of the
+ * workout has none, and the share itself may have ended since. See markSharedOrigin.
+ */
+export function fromSharedRoutine(session) {
+  return session?.sharedOrigin === true
+    || sessionEntries(session).some(e => isSharedId(entryRoutineId(session, e)))
+    || [].concat(session?.routineIds ?? []).some(isSharedId) || isSharedId(session?.routineId)
+}
+
+/**
+ * The session field that says it came from a routine shared with you, independent of `rid` and
+ * `routineIds` (SEC-486-02): set when such a session starts, carried into the saved workout
+ * (finish-workout.js buildCompletedWorkout), into a repeat of it and a repeat of that, and kept
+ * for good, the share's end included. `{}` for a session that has none of it.
+ */
+export const markSharedOrigin = session => (fromSharedRoutine(session) ? { sharedOrigin: true } : {})
+
+/** Null, and nothing saved, for a session from a shared routine (fromSharedRoutine). */
 export function saveSessionAsRoutine(state, session, name) {
+  if (fromSharedRoutine(session)) return null
   const routine = routineFromSession(session, name, state.routines)
   state.routines.push(routine)
   return routine.id
@@ -149,10 +173,12 @@ export function saveSessionAsRoutine(state, session, name) {
 // One group per routine (a combined day can add to two), only exercises the routine does not
 // have yet and that had a completed set: a skipped one was not part of the workout. A swap keeps
 // its slot and is not an addition.
+// A routine shared with you is never offered (NATG-486 AC5): it can't be changed, so an exercise
+// added to its session stays with the workout only.
 export function routineAdditions(active, routines = []) {
   const groups = new Map()
   for (const entry of sessionEntries(active)) {
-    if (entry?.addedInSession !== true || !entry.rid || !(entry.sets || []).some(hasCompletedWork)) continue
+    if (entry?.addedInSession !== true || !entry.rid || isSharedId(entry.rid) || !(entry.sets || []).some(hasCompletedWork)) continue
     const routine = (Array.isArray(routines) ? routines : []).find(r => r?.id === entry.rid)
     if (!routine || !Array.isArray(routine.ex) || routine.ex.some(x => x?.id === entry.id)) continue
     if (!groups.has(routine.id)) groups.set(routine.id, { routine, entries: [] })

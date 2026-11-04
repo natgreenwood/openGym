@@ -367,7 +367,8 @@ function sessionsIn(S, exId, fallback, rid) {
 // Like everything here it is derived, never stored: each session carries the per-set aim it was
 // built with (`target.rowReps`), and the next one is read off that and what was lifted.
 // Without a `setsMax` above the base sets it is double progression with per-set aims.
-export const MAX_TRIPLE_SETS = 10
+export { MAX_TRIPLE_SETS } from './limits.js'
+import { MAX_TRIPLE_SETS } from './limits.js'
 export function tripleSetsOf(cfg) {
   const setsMin = Math.max(1, Math.round(Number(cfg?.sets)) || 1)
   const setsMax = Math.max(setsMin, Math.min(MAX_TRIPLE_SETS, Math.round(Number(cfg?.setsMax)) || setsMin))

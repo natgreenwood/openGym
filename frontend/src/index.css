@@ -433,6 +433,37 @@ h4.sec{
 .share-alert b{font-size:16px;font-weight:600;line-height:1.25;letter-spacing:-.012em}
 .share-alert span{font-size:13px;line-height:1.38}
 .share-foot{text-align:center;margin-top:8px}
+
+/* ------------------------------------- routines shared with you (NATG-486) --
+   Plan's Shared tab, the read-only routine view and shared days on Schedule. Built from .item,
+   .sect-b/.lrow, .btn and .empty; the people badge, the pending card and the notice are new. */
+.seg-dot{width:7px;height:7px;border-radius:50%;background:var(--acc);flex:none}
+.lrow-i.has-badge{position:relative}
+/* "Shared" never depends on colour: a people badge on the routine's glyph tile. */
+.shared-badge{position:absolute;inset-inline-start:19px;top:19px;width:16px;height:16px;border-radius:8px;
+  background:var(--surface);color:var(--label);display:grid;place-items:center;font-size:12px;--icon-stroke:2}
+.item .lrow-i.unavail,.shared-glyph.unavail{background:var(--surface-3);color:var(--label-2)}
+.shared-pending{background:var(--surface);border-radius:var(--r-card);padding:12px;display:flex;flex-direction:column;gap:12px}
+.shared-pending+.shared-pending{margin-top:8px}
+.shared-pending-top{display:flex;gap:12px;align-items:center;min-width:0}
+.shared-pending-top .lrow-i{background:var(--surface-3);color:var(--label)}
+.shared-pending .tt{font-size:16px;line-height:1.25;letter-spacing:-.009em;overflow-wrap:anywhere}
+.shared-pending .ss,.shared-reason{color:var(--label-2);font-size:13px;line-height:1.38}
+.shared-actions{display:flex;gap:8px}
+.shared-actions>.btn{flex:1 1 0;min-width:0}
+.shared-notice{display:flex;gap:12px;align-items:flex-start;background:var(--surface);border-radius:var(--r-card);
+  padding:12px 14px;margin-bottom:22px}
+.shared-notice>.icn{font-size:20px;color:var(--label-2);flex:none}
+.shared-notice.warn>.icn{color:var(--orange)}
+.shared-notice b{display:block;font-size:16px;font-weight:600;line-height:1.25;letter-spacing:-.012em}
+.shared-notice span{display:block;font-size:13px;color:var(--label-2);line-height:1.38;margin-top:2px}
+.shared-list .item:focus-visible{outline:2.5px solid var(--acc);outline-offset:2px}
+.shared-ro-title{flex:1;min-width:0;margin:0 12px;font-size:20px;font-weight:600;letter-spacing:-.021em;line-height:1.25;overflow-wrap:anywhere}
+.shared-glyph{width:36px;height:36px;border-radius:9px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;
+  font-size:20px;flex:none}
+.shared-owner .lrow-c{color:var(--label-2);font-size:16px}
+.shared-ex-h{display:flex;justify-content:space-between;align-items:baseline;padding:0 0 10px 4px}
+.shared-ex-h h4{margin:0}
 /* A warning under a settings row reads at subtitle size: a sentence, not a row title. */
 .lrow.backup-lost .lrow-t{font-size:13px;line-height:1.3;color:var(--label-2);letter-spacing:0}
 /* The Stats exercise name gets its own line so long names cannot run into the title.
