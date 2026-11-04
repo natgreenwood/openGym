@@ -31,6 +31,7 @@ beforeEach(() => {
 
 describe('store: share lists load once sharing is available', () => {
   it('loads them when a config that says `shares` arrives for a signed-in user, and only once', async () => {
+    localStorage.setItem('gym_owner', ME.id)   // as setUser signs in
     useStore.setState({ user: ME })
     net.config = { shares: true }
     await useStore.getState().refreshConfig()
@@ -50,6 +51,7 @@ describe('store: share lists load once sharing is available', () => {
   })
 
   it('asks nothing while sharing is off, or with nobody signed in', async () => {
+    localStorage.setItem('gym_owner', ME.id)   // as setUser signs in
     useStore.setState({ user: ME })
     net.config = {}
     await useStore.getState().refreshConfig()
@@ -65,6 +67,7 @@ describe('store: share lists load once sharing is available', () => {
   it('asks again for the new user when the sign-in changes while the first request is out', async () => {
     net.hold = []
     const out = (id, routineId) => ({ incoming: [], outgoing: [{ id, to: { id: 'u9', name: 'Kim' }, routineId }], etag: id })
+    localStorage.setItem('gym_owner', 'uA')   // as setUser signs in
     useStore.setState({ user: { id: 'uA', name: 'Alexa' } })
     net.config = { shares: true }
     await useStore.getState().refreshConfig()
@@ -87,6 +90,7 @@ describe('store: share lists load once sharing is available', () => {
 
   it('still shares one request between callers for the same user', async () => {
     net.hold = []
+    localStorage.setItem('gym_owner', ME.id)   // as setUser signs in
     useStore.setState({ user: ME, config: { shares: true } })
     const a = useStore.getState().loadShares()
     const b = useStore.getState().loadShares()

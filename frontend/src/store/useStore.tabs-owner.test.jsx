@@ -517,3 +517,174 @@ describe('a pull still on its way when another tab changes the owner', () => {
     expect(saved().routines.map(r => r.id)).toEqual(['xr', 'xr2'])
   })
 })
+
+// Security review of PR #15 (SEC-01, SEC-02): requests the sync code sends after an await, for an
+// account that has left by then. A server with two accounts, and the session cookie the browser
+// holds: a request is answered as whoever that cookie names when it arrives, as the real API does.
+describe('a request sent after its account has left the browser', () => {
+  function accounts(docs) {
+    const s = { docs: clone(docs), session: null, logoutFails: false, sent: [], held: [] }
+    const answer = (method, path, body, who) => {
+      if (method === 'POST' && path.startsWith('/api/logout')) {
+        if (s.logoutFails) throw Object.assign(new TypeError('Failed to fetch'), { status: 0 })
+        s.session = null
+        return { ok: true }
+      }
+      if (!who) throw httpError(401, { error: 'not signed in' })
+      const doc = s.docs[who] || null
+      if (method === 'GET' && path === '/api/data/rev') return { rev: doc?._rev || 0 }
+      if (method === 'GET' && path === '/api/data') return { state: doc ? clone(doc) : null, rev: doc?._rev || 0 }
+      if (method === 'PUT' && path === '/api/data') {
+        const curRev = doc?._rev || 0
+        if (body.baseRev != null && body.baseRev !== curRev) throw httpError(409, { error: 'conflict', rev: curRev, state: clone(doc) })
+        const next = clone(body.state)
+        delete next.active
+        next._rev = curRev + 1
+        s.docs[who] = next
+        return { ok: true, rev: next._rev }
+      }
+      throw new Error('unexpected ' + method + ' ' + path)
+    }
+    // `hold(method, path)`: the next such request is answered as it arrives, and its answer held
+    // until `release()`, as QA's route held the real one.
+    s.hold = (method, path) => {
+      const g = { method, path }
+      g.asked = new Promise(r => { g.ask = r })
+      const released = new Promise(r => { g.release = r })
+      g.wait = released
+      s.held.push(g)
+      return g
+    }
+    h.api = async (path, opts = {}) => {
+      const method = opts.method || 'GET'
+      const body = opts.body ? JSON.parse(opts.body) : undefined
+      const who = s.session
+      s.sent.push({ method, path, who })
+      const i = s.held.findIndex(g => g.method === method && g.path === path)
+      if (i < 0) return answer(method, path, body, who)
+      const g = s.held.splice(i, 1)[0]
+      let res, err = null
+      try { res = answer(method, path, body, who) } catch (e) { err = e }
+      g.ask()
+      await g.wait
+      if (err) throw err
+      return res
+    }
+    return s
+  }
+  const settleTicks = () => new Promise(r => setTimeout(r, 20))
+
+  // SEC-01: the first upload of a profile (no revision yet, as one created from a guest's copy),
+  // with a change pushed while it was on its way. The upload's answer lands after the other tab
+  // signed out and signed in as B, before this tab has heard of either: dropped, but the push
+  // queued behind it went anyway, without a revision, under B's session, and replaced B's profile
+  // with A's copy.
+  it('SEC-01: a push queued behind a dropped answer is not sent under the next account\'s session', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 5 }
+    const srv = accounts({ [bId]: bDoc })
+    srv.session = aId
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_state_v1', JSON.stringify({ ...account(), _ts: 100 }))   // no gym_sync: never uploaded
+    const A = await openTab({ id: aId, name: 'Xavi' })
+    const B = await openTab({ id: aId, name: 'Xavi' })
+
+    const held = srv.hold('PUT', '/api/data')
+    const first = A.getState().pushState()
+    await held.asked
+    A.getState().pushState()   // asked for while the upload is out, before anything changes owner
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until the answer has landed
+    try {
+      await act(B, () => B.getState().signOut())
+      srv.session = bId   // B signs in through the server in tab 2: the browser's cookie is B's
+      await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+      expect(A.getState().user?.id).toBe(aId)   // not heard of yet
+      writer = tabA
+      held.release()
+      await first
+      await settleTicks()   // whatever the answer's landing started
+    } finally { writer = null; tabA.busy-- }
+    pump()
+
+    expect(srv.sent.filter(r => r.method === 'PUT' && r.who === bId)).toEqual([])
+    expect(ids(srv.docs[bId])).toEqual(['bW1'])
+    expect(srv.docs[bId].routines.map(r => r.id)).toEqual(['br'])
+    expect(srv.docs[bId]._rev).toBe(5)
+    expect(A.getState().user).toBeNull()
+  })
+
+  // Found by the sweep: the sign-in question can stay open for minutes. Answered after the other
+  // tab signed in as B (this tab not having heard yet), it asked the server again under B's
+  // session, then answered the question for the browser, wiping B's own sign-in question.
+  it('a sign-in question answered after the other tab signed in as someone else settles nothing', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const srv = accounts({
+      [aId]: { ...account(), _rev: 3 },
+      [bId]: { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], _rev: 5 },
+    })
+    localStorage.setItem('gym_state_v1', JSON.stringify({ ...clone(DEF), _ts: Date.now(), workouts: [w('gW1', '2026-09-04')] }))   // a guest's copy
+    const A = await openTab(null)
+    const B = await openTab(null)
+    srv.session = aId
+    await act(A, () => A.getState().setUser({ id: aId, name: 'Xavi' }, { adopt: true }))
+    let answer, opened
+    const isOpen = new Promise(r => { opened = r })
+    const adopting = A.getState().adoptProfile(() => { opened(); return new Promise(r => { answer = r }) })
+    await isOpen
+
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++
+    try {
+      srv.session = bId
+      await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+      expect(A.getState().user?.id).toBe(aId)   // not heard of yet
+      writer = tabA
+      answer(false)   // "Keep profile as is"
+      await adopting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+
+    expect(srv.sent.filter(r => r.who === bId)).toEqual([])   // nothing asked or sent under B's session
+    expect(JSON.parse(localStorage.getItem('gym_adopt'))?.uid).toBe(bId)   // B's own question still stands
+    expect(ids(saved())).not.toContain('x1')
+    expect(ids(srv.docs[bId])).toEqual(['bW1'])
+  })
+
+  // SEC-02: a revision check whose answer is held while this tab signs out, with the logout not
+  // reaching the server (the cookie survives, the logout is owed). Released, the check pulled with
+  // nobody signed in, the surviving cookie answered as A, and A's copy was taken as the signed-out
+  // browser's own: an answer for nobody matched nobody signed in.
+  it('SEC-02: a revision answer landing after a sign-out whose logout failed pulls nothing in', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER
+    const srv = accounts({ [aId]: { ...account(), _rev: 1 } })
+    srv.session = aId
+    localStorage.setItem('gym_owner', aId)
+    savedCopy(srv.docs[aId], 1)
+    const A = await openTab({ id: aId, name: 'Xavi' })
+    srv.docs[aId] = { ...srv.docs[aId], routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }   // another device
+
+    const held = srv.hold('GET', '/api/data/rev')
+    window.dispatchEvent(new Event('online'))   // the revision check, unthrottled
+    await held.asked
+    srv.logoutFails = true
+    await act(A, () => A.getState().signOut())
+    expect(A.getState().user).toBeNull()
+    expect(localStorage.getItem('gym_logout_owed')).toBe('1')
+    const sentBefore = srv.sent.length
+
+    held.release()
+    await act(A, settleTicks)
+
+    expect(srv.sent.slice(sentBefore)).toEqual([])   // nothing asked for nobody
+    expect(A.getState().user).toBeNull()
+    expect(A.getState().S.routines).toEqual([])
+    expect(ids(A.getState().S)).toEqual([])
+    expect(saved().routines).toEqual([])
+    expect(ids(saved())).toEqual([])
+  })
+})

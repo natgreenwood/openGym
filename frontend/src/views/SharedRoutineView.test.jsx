@@ -32,6 +32,7 @@ async function mount({ incoming = [accepted()], unit = 'lb', week = { 6: ['share
   S.unit = unit
   S.week = week
   S.routines = [{ id: 'r1', name: 'Push', ex: [] }]
+  localStorage.setItem('gym_owner', ME.id)   // as setUser signs in
   useStore.setState({ S, user: ME, config: { shares: true }, ready: true, shares: { uid: 'u2', incoming, outgoing: [], etag: 'e', fetchedAt: 1, names } })
   host = document.createElement('div')
   document.body.appendChild(host)
