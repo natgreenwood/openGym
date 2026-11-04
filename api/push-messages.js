@@ -1,5 +1,6 @@
 import { NUDGE_COPY } from './nudge-copy.js';
 import { lineIndex } from './nudge.js';
+import { text } from './shared-routine.js';
 
 const COPY = {
   en: {
@@ -20,7 +21,8 @@ const COPY = {
   },
 };
 
-const copyFor = lang => COPY[lang] || COPY.en;
+// Own-property lookups: `lang` is whatever the client stored, and `COPY.constructor` is Object.
+const copyFor = lang => (Object.hasOwn(COPY, lang) ? COPY[lang] : COPY.en);
 
 // A routine's `emoji` field held a literal emoji until the glyph redesign; since then it holds
 // an icon key ('dumbbell', 'figureRun') that the app renders as an SVG. A push notification has
@@ -36,10 +38,14 @@ const GLYPH_EMOJI = {
   stretch: '🤸', moon: '🌙', heart: '❤️', flame: '🔥', bolt: '⚡',
 };
 
+// An own routine's `name` and `emoji` reach here as stored, and PUT /api/data does not check
+// their type, so they go through the same text() rule the shared projection uses: a value that
+// is not text renders as the fallback instead of throwing while the push is built.
 export function routineEmoji(value) {
-  if (!value) return DEFAULT_EMOJI;
-  if (!/^[A-Za-z]+$/.test(value)) return value;
-  return GLYPH_EMOJI[value] || DEFAULT_EMOJI;
+  const v = text(value);
+  if (!v) return DEFAULT_EMOJI;
+  if (!/^[A-Za-z]+$/.test(v)) return v;
+  return Object.hasOwn(GLYPH_EMOJI, v) ? GLYPH_EMOJI[v] : DEFAULT_EMOJI;
 }
 
 export function restTimerPush(lang) {
@@ -53,9 +59,10 @@ export function testPush(lang) {
 
 export function dayReminderPush(lang, routine) {
   const copy = copyFor(lang);
+  const name = routine ? text(routine.name) : '';
   return {
-    title: routine
-      ? `${routineEmoji(routine.emoji)} ${routine.name} ${copy.dayRoutineSuffix}`
+    title: name
+      ? `${routineEmoji(routine.emoji)} ${name} ${copy.dayRoutineSuffix}`
       : copy.dayFallbackTitle,
     body: copy.dayBody,
     tag: 'day-reminder',
@@ -71,11 +78,11 @@ const nudgeCopyFor = lang => {
     const ch = s => s.replace(/ß/g, 'ss');
     return Object.fromEntries(Object.entries(NUDGE_COPY.de).map(([k, c]) => [k, { title: ch(c.title), lines: c.lines.map(ch) }]));
   }
-  return NUDGE_COPY[lang] || NUDGE_COPY.en;
+  return Object.hasOwn(NUDGE_COPY, lang) ? NUDGE_COPY[lang] : NUDGE_COPY.en;
 };
 export function nudgePush(lang, tone, routine, iso) {
   const copy = nudgeCopyFor(lang)[NUDGE_COPY.en[tone] ? tone : 'friendly'];
   const line = copy.lines[lineIndex(iso, copy.lines.length)];
-  const name = routine?.name || 'openGym';
+  const name = text(routine?.name) || 'openGym';
   return { title: copy.title, body: line.replace('{0}', () => name), tag: 'nudge' };
 }
