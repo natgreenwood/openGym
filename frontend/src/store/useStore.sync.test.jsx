@@ -21,7 +21,8 @@ const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP
 const sync = () => JSON.parse(localStorage.getItem('gym_sync'))
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([, o]) => JSON.parse(o.body))
 const gets = () => api.mock.calls.filter(([, o]) => !o)
-const signedIn = (S, extra = {}) => useStore.setState({ S, user: { id: 'user-1' }, ready: true, ...extra })
+// As setUser signs in: the browser's owner is the account (a pull or push checks it).
+const signedIn = (S, extra = {}) => { if (extra.user !== null) localStorage.setItem('gym_owner', extra.user?.id || 'user-1'); useStore.setState({ S, user: { id: 'user-1' }, ready: true, ...extra }) }
 
 beforeEach(() => {
   localStorage.clear()
@@ -228,6 +229,7 @@ describe('push against a revisioned server', () => {
 describe('ordering', () => {
   it('a change made before boot is through does not push until it is', async () => {
     vi.useFakeTimers()
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: false })
     api.mockResolvedValue({ ok: true, rev: 1 })
 
@@ -247,6 +249,7 @@ describe('ordering', () => {
   // rather than overwritten by it, and the merge is what boot pushes.
   it('boot keeps a change made during its pull and pushes the merge', async () => {
     vi.useFakeTimers()
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: false })
     localStorage.setItem('gym_user', JSON.stringify({ id: 'user-1' }))
     api.mockImplementation(async (path, opts) => {

@@ -375,7 +375,7 @@ export const useStore = create((set, get) => {
   let toldNoRoom = false   // the save itself was refused — said once per streak, like the above
   let pushing = null       // the PUT in flight, so a second push waits for it instead of racing it
   let pushAgain = false    // a push asked for while one was in flight — run once more after it
-  let pulling = null       // the GET in flight, so two resume signals make one request
+  let pulling = null       // the GET /api/data in flight, `{ uid, promise }`: two resume signals for the same user make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
   // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
@@ -601,6 +601,14 @@ export const useStore = create((set, get) => {
   const sameCopy = (a, b) => JSON.stringify({ ...a, _ts: 0 }) === JSON.stringify({ ...b, _ts: 0 })
   const readWid = () => { try { return localStorage.getItem(WID_KEY) } catch { return null } }
   const readOwner = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
+  // A request's answer is still for this tab: `uid`, the user it was sent for, is the one signed in
+  // here, and the browser's owner too (undefined: sent with nobody signed in). The owner key is
+  // what another tab's sign-out or sign-in writes first, so it has moved even while this tab's
+  // storage event for it is still queued and the store names the previous user (NATG-528). An
+  // answer for anyone else is dropped whole: taken or saved, it put the previous account's copy
+  // back into the browser after its sign-out, and persist() then moved seenOwner, so the owner
+  // event, once it ran, found nothing to clear.
+  const answerIsFor = uid => get()?.user?.id === uid && (uid === undefined || readOwner() === uid)
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
   const readWidOwner = () => { try { return localStorage.getItem(WID_OWNER_KEY) } catch { return null } }
   // The saved copy is the one this tab may join: written under the owner this tab holds. QA
@@ -730,7 +738,7 @@ export const useStore = create((set, get) => {
     // never ran or did not get through (no server, a pairing that failed on the way to it) runs it
     // here, question and all; one already running is left to answer.
     if (adoptHold) { if (!adopting && adoptOwed()) get().resumeAdoption(); return }
-    if (pulling) return pulling
+    if (pulling && pulling.uid === get().user?.id) return pulling.promise
     const { base } = metaOf()
     if (!base || owes()) return get().pullState()
     try {
@@ -798,6 +806,7 @@ export const useStore = create((set, get) => {
 
   const doPush = async (attempt = 0) => {
     const S = get().S
+    const uid = get().user?.id   // whose copy this is; an answer that lands after they have gone is dropped (answerIsFor)
     const { base } = metaOf()
     // A forced push is one attempt. One that fails is retried as an ordinary push against the
     // revision this copy descends from: kept armed, it went out later without a baseRev and
@@ -816,6 +825,7 @@ export const useStore = create((set, get) => {
     else if (!force && base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     try {
       const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
+      if (!answerIsFor(uid)) return
       // A server from before revisions answers without one — then there is nothing to hold the
       // next push to, and the marker must not pretend otherwise.
       if (r.rev == null) dropSync()
@@ -831,6 +841,7 @@ export const useStore = create((set, get) => {
         import('./useUI.js').then(({ useUI }) => useUI.getState().toast(t('Back online and synced with the server.'))).catch(() => {})
       }
     } catch (e) {
+      if (!answerIsFor(uid)) return   // a 409 would merge the previous account's document in
       if (e.status === 409 && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
         // merge and push once more against that revision. A second refusal in a row leaves the
@@ -1012,7 +1023,7 @@ export const useStore = create((set, get) => {
   // like a change is.
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
-    if (pulling) await pulling
+    if (pulling) await pulling.promise
     await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
     await settleMedia(get().S)
@@ -1228,7 +1239,7 @@ export const useStore = create((set, get) => {
   // adoptProfile's work (see there). Every way out answers the question — releaseAdopt — before
   // the decision is written and pushed; only a server that could not be reached leaves it owed.
   const runAdopt = async (ask, { alwaysAsk = false } = {}) => {
-    if (pulling) await pulling
+    if (pulling) await pulling.promise
     // An adoption resumed after a restart is the sign-in's own: whether this copy already belonged
     // to the account was decided then — boot's sign-in sees the owner that sign-in wrote.
     const owedMark = adoptOwed()
@@ -1919,12 +1930,20 @@ export const useStore = create((set, get) => {
     // and the push itself is what catches a conflict.
     async pullState() {
       if (adoptHold) return   // as pushState: adoptProfile reads the server itself
-      if (pulling) return pulling
-      pulling = (async () => {
+      // As loadShares (NATG-493): the request is kept with the user it is for. An answer that lands
+      // once that user has gone (a sign-out or another account signing in, in this tab or another)
+      // is not this copy's: it is dropped, neither taken nor saved (NATG-496), and the user signed
+      // in now gets a request of their own.
+      const uid = get().user?.id
+      if (pulling && pulling.uid === uid) return pulling.promise
+      const mine = { uid, promise: null }
+      pulling = mine
+      mine.promise = (async () => {
         try {
           if (pushTm) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
           const res = await api('/api/data')
+          if (!answerIsFor(uid)) return
           lastCheck = Date.now()
           reached()
           const { state, rev } = res
@@ -1968,10 +1987,10 @@ export const useStore = create((set, get) => {
           mergeInto(S, state, rev)
           pushPending = false
           await get().pushState()
-        } catch (e) { failed(e) /* keep local; the poll retries */ }
-        finally { pulling = null }
+        } catch (e) { if (answerIsFor(uid)) failed(e) /* keep local; the poll retries */ }
+        finally { if (pulling === mine) pulling = null }
       })()
-      return pulling
+      return mine.promise
     },
 
     // "Sync now": what is waiting goes, the server's copy is checked, and the answer is the
@@ -1980,7 +1999,7 @@ export const useStore = create((set, get) => {
       if (!get().user) { setSync({}); return get().sync }
       // Held for a sign-in's question: "Sync now" is asking it (again), and the sync follows.
       if (adoptHold) { await get().resumeAdoption(); if (adoptHold) return get().sync }
-      if (pulling) await pulling
+      if (pulling) await pulling.promise
       // The share lists first, then the document, the order checkRev keeps (NATG-501): a sharer's
       // edit, a revoke or a share that is no longer available shows after Sync now too, and a
       // pointer the document brings is judged by lists at least as new as it.

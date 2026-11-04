@@ -50,6 +50,7 @@ describe('saved workout state sync and restore', () => {
     const active = { id: 'active-1', d: '2026-08-29', routineId: 'local', name: 'Local', entries: [] }
     const local = { ...clone(DEF), _ts: 10, routines: [routine('local')], active }
     const remote = { ...clone(DEF), _ts: 20, routines: [routine('remote')], active: null }
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: local, user: { id: 'user-1' }, ready: true })
     api.mockResolvedValue({ state: remote })
 
@@ -64,6 +65,7 @@ describe('saved workout state sync and restore', () => {
   it('pushes local data instead of replacing it when the local state is newer', async () => {
     const local = { ...clone(DEF), _ts: 20, routines: [routine('local')] }
     const remote = { ...clone(DEF), _ts: 10, routines: [routine('remote')] }
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: local, user: { id: 'user-1' }, ready: true })
     api.mockResolvedValueOnce({ state: remote }).mockResolvedValueOnce({})
 
@@ -81,6 +83,7 @@ describe('saved workout state sync and restore', () => {
     const local = { ...clone(DEF), _ts: 10, routines: [routine('local')] }
     const remote = { ...clone(DEF), _ts: 20, routines: [routine('remote')], _rev: 3 }
     localStorage.setItem('gym_dirty', '1')
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: local, user: { id: 'user-1' }, ready: true })
     api.mockResolvedValueOnce({ state: remote, rev: 3 }).mockResolvedValueOnce({ ok: true, rev: 4 })
 
@@ -101,6 +104,7 @@ describe('saved workout state sync and restore', () => {
     const local = { ...clone(DEF), _ts: 10, routines: [routine('local')] }
     const remote = { ...clone(DEF), _ts: 20, routines: [routine('remote')] }
     localStorage.setItem('gym_dirty', '1')
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: local, user: { id: 'user-1' }, ready: true })
     api.mockResolvedValueOnce({ state: remote }).mockResolvedValueOnce({})
 
@@ -124,6 +128,7 @@ describe('saved workout state sync and restore', () => {
 
   it('keeps the local saved state when the restore request fails', async () => {
     const local = { ...clone(DEF), _ts: 10, routines: [routine('local')] }
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: local, user: { id: 'user-1' }, ready: true })
     api.mockRejectedValue(new Error('offline'))
 
@@ -135,6 +140,7 @@ describe('saved workout state sync and restore', () => {
 
   it('an adopted server state keeps the timestamp it came with', async () => {
     const remote = { ...clone(DEF), _ts: 20, routines: [routine('remote')] }
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: true })
     api.mockResolvedValue({ state: remote })
 
@@ -148,6 +154,7 @@ describe('saved workout state sync and restore', () => {
   // and adopts the server copy from T0 < T1. If adopting re-stamped A's copy with its own clock,
   // A's next reload would see the server (T1) as older and push its stale copy over B's workout.
   it('an unchanged adopted copy does not push over a newer change from another device', async () => {
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: true })
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 1000000, workouts: [workout('w1')] } })
     await useStore.getState().pullState()
@@ -332,6 +339,7 @@ describe('signing in as a different profile', () => {
 
 describe('push failures', () => {
   it('says once that the server refused the upload as too large, and keeps the copy dirty', async () => {
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: { ...clone(DEF), routines: [routine('local')] }, user: { id: 'user-1' }, ready: true })
 
     api.mockRejectedValueOnce(httpError(401))
@@ -380,6 +388,7 @@ describe('a save this device refuses', () => {
 
   it('keeps the change, marks it owed to the server, and says so once', async () => {
     toast.mockClear()
+    localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: true })
     api.mockResolvedValue({})
     const undo = refusingStorage()
