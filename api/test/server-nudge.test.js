@@ -24,15 +24,17 @@ function mintSession(uid) {
   return payload + '.' + crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
 }
 
-async function startServer(t, subs = [sub]) {
+// `fault`: load test/fail-push.mjs, so the nudge payload build throws while h.faultFile exists.
+async function startServer(t, subs = [sub], { fault = false } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-nudge-'));
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({ users: USERS, creds: [], subs, invites: [] }));
-  const child = spawn(process.execPath, ['server.js'], {
+  const faultFile = path.join(dataDir, 'push-fault');
+  const child = spawn(process.execPath, [...(fault ? ['--import', './test/fail-push.mjs'] : []), 'server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', REMINDER_TICK_MS: '200' }
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', REMINDER_TICK_MS: '200', PUSH_FAULT_FILE: faultFile }
   });
-  const h = { dataDir, child, log: '' };
+  const h = { dataDir, child, log: '', faultFile };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -126,4 +128,28 @@ test('no push subscription, or a workout on screen right now: no nudge', async t
   await fetch(`${h.api}/api/activity`, { method: 'POST', headers: { Cookie: `gymsid=${mintSession(UID)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ active: false }) });
   await until(() => firings(h.log) > 0);
   assert.equal(firings(h.log), 1, h.log);
+});
+
+// NATG-515, the nudge's half: see the matching test in server-reminder.test.js. A build that
+// throws leaves lastNudge unset and is logged once; the next tick after the cause is gone sends.
+test('a nudge whose payload fails to build does not spend the evening, and is logged once', async t => {
+  const tz = zoneAt(20);
+  const h = await startServer(t, [sub], { fault: true });
+  fs.writeFileSync(h.faultFile, '');
+  h.write(missedToday(tz));
+  const failures = () => (h.log.match(new RegExp(`nudge payload ${UID} r1 Error: payload fault`, 'g')) || []).length;
+  await until(() => failures() > 0);
+  assert.equal(failures(), 1, h.log);
+  await wait(1200);  // several more ticks, all failing
+  assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
+  assert.equal(firings(h.log), 0, h.log);
+  assert.doesNotMatch(h.log, /reminder tick/, 'the failure is the payload\'s, not the tick\'s');
+  assert.equal(h.db().users[0].lastNudge, undefined, 'a failed build spent the evening');
+
+  fs.rmSync(h.faultFile);
+  await until(() => firings(h.log) > 0);
+  assert.equal(firings(h.log), 1, h.log);
+  await wait(800);
+  assert.equal(firings(h.log), 1, 'fired twice in one evening');
+  assert.equal(h.db().users[0].lastNudge, dateIn(tz));
 });
