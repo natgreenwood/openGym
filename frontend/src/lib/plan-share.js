@@ -31,6 +31,20 @@ const PLAN_FMT = 1
 const WEEK_DAYS = [1, 2, 3, 4, 5, 6, 0]   // every getDay() index; only the reader's own
                                           // screen puts them in an order (see weekOrder)
 const PLAN_UNITS = new Set(['kg', 'lb'])
+// Ids a plan file may write that a plain object answers from its prototype rather than its own
+// keys: JSON.parse keeps `"__proto__"` as an ordinary key, and writing it back through `o[k] = v`
+// replaces the object's prototype (NATG-514). An id is compared as text, the way a property name
+// is, so `["__proto__"]` is caught as well.
+const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
+const isReservedKey = id => RESERVED_KEYS.has(String(id))
+const inCatalogue = id => Object.hasOwn(EXIDX, id)
+/** Only the weekdays (0–6) the file holds as its own keys; anything else in its `week` is dropped. */
+function planWeek(week) {
+  const out = {}
+  if (week == null) return out
+  WEEK_DAYS.forEach(d => { if (Object.hasOwn(week, d)) out[d] = week[d] })
+  return out
+}
 
 // A plan's numbers are in the unit that wrote it. Missing unit is deliberately legacy-compatible:
 // old files were read as already being in the recipient's unit, so keep their values unchanged.
@@ -132,7 +146,7 @@ function cleanEx(e) {
   // The warm-ups' "no timer" and the break between sides travel the same way, only when set.
   // Planned substitutes (lib/routine-backups.js): the catalogue's only, since the other end may
   // not have someone's own exercises.
-  const subs = cleanBackups(e.subs, e.id, id => !!EXIDX[id] && !isCustomEx(EXIDX[id]))
+  const subs = cleanBackups(e.subs, e.id, id => inCatalogue(id) && !isCustomEx(EXIDX[id]))
   if (subs.length) o.subs = subs
   if (e.warmupRestOff === true) o.warmupRestOff = true
   if (e.side && e.sideRestOff === true) o.sideRestOff = true
@@ -206,6 +220,9 @@ function cleanNumber(v) {
  *  a plan file is someone else's data, so a wrong type is left out rather than stored. */
 function cleanSlotTypes(e) {
   const o = { ...e }
+  // A file's own `"__proto__"` field is copied as data here, but an Object.assign further on
+  // would turn it into the slot's prototype.
+  RESERVED_KEYS.forEach(k => { if (Object.hasOwn(o, k)) delete o[k] })
   const keep = (k, v) => { if (v === null) delete o[k]; else o[k] = v }
   SLOT_NUMBERS.forEach(k => { if (k in o) keep(k, cleanNumber(o[k])) })
   SLOT_TEXT.forEach(k => { if (k in o) keep(k, typeof o[k] === 'string' ? o[k] : null) })
@@ -288,15 +305,16 @@ export function parsePlan(raw, destinationUnit = 'kg') {
     throw notPlan()
   }
   const sourceUnit = declaredPlanUnit(data)
-  const customEx = (Array.isArray(data.customEx) ? data.customEx : []).filter(c => c && c.id)
+  const customEx = (Array.isArray(data.customEx) ? data.customEx : []).filter(c => c && c.id && !isReservedKey(c.id))
   const known = new Set(customEx.map(c => c.id))
+  const week = planWeek(data.week)
   let dropped = 0
-  const routines = data.routines.filter(r => r && Array.isArray(r.ex)).map(r => ({
+  const routines = data.routines.filter(r => r && Array.isArray(r.ex) && !isReservedKey(r.id)).map(r => ({
     ...r,
     ex: r.ex.filter(e => {
       // A string id only: a catalogue id that looks numeric ("1000") resolves when written as a
       // number too, and is then stored as one.
-      const ok = !!e && typeof e.id === 'string' && (known.has(e.id) || !!EXIDX[e.id])
+      const ok = !!e && typeof e.id === 'string' && !isReservedKey(e.id) && (known.has(e.id) || inCatalogue(e.id))
       if (!ok) dropped++
       return ok
     }).map(slot => {
@@ -315,7 +333,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const sideOff = !!e.side && e.sideRestOff === true
       const incline = clampIncline(e.incline)
       // Planned substitutes: the catalogue's only, as they are exported.
-      const subs = cleanBackups(Array.isArray(e.subs) ? e.subs.map(x => (typeof x === 'string' ? canonicalExId(x) : x)) : [], known.has(e.id) ? e.id : canonicalExId(e.id), x => !known.has(x) && !!EXIDX[x] && !isCustomEx(EXIDX[x]))
+      const subs = cleanBackups(Array.isArray(e.subs) ? e.subs.map(x => (typeof x === 'string' ? canonicalExId(x) : x)) : [], known.has(e.id) ? e.id : canonicalExId(e.id), x => !known.has(x) && inCatalogue(x) && !isCustomEx(EXIDX[x]))
       // Superset meta only means something on a member of a superset; on a lone exercise it is dropped.
       const sgName = e.sg ? cleanSgName(e.sgName) : ''
       const sgRest = e.sg ? cleanRestSec(e.sgRest) : 0
@@ -330,12 +348,12 @@ export function parsePlan(raw, destinationUnit = 'kg') {
   return {
     name: (data.name || '').trim(),
     routines,
-    week: data.week || {},
+    week,
     customEx,
     dropped,
     routineCount: routines.length,
     exerciseCount: routines.reduce((n, r) => n + r.ex.length, 0),
-    scheduledDays: WEEK_DAYS.filter(d => data.week?.[d]?.length).length,
+    scheduledDays: WEEK_DAYS.filter(d => week[d]?.length).length,
     // `unit` is the unit of the returned prescriptions. `sourceUnit` is null for a legacy file;
     // that absence means its numbers were intentionally treated as already in `destination`.
     unit: destination,
@@ -356,21 +374,26 @@ export function mergePlan(s, bundle, { schedule } = {}) {
   if (!destination) unitError()
   const source = convertedBundle(bundle, destination)
   s.customEx = s.customEx || []
-  const exIdMap = {}
+  // Both id maps are Maps keyed by the id as text (what an object key used to coerce it to), so a
+  // lookup answers only for an id the file actually gave: never from Object.prototype. The Coach
+  // calls this without parsePlan, so the reserved-key drops are repeated here.
+  const exIdMap = new Map()
   ;(source.customEx || []).forEach(c => {
+    if (isReservedKey(c.id)) return
     const same = s.customEx.find(x => (x.n || '').toLowerCase() === (c.n || '').toLowerCase() && x.bp === c.bp)
-    if (same) { exIdMap[c.id] = same.id; return }
+    if (same) { exIdMap.set(String(c.id), same.id); return }
     const nid = uid()
-    exIdMap[c.id] = nid
+    exIdMap.set(String(c.id), nid)
     // Stored exactly as the form would have created it — `custom: true` is what lets the recipient
     // edit or delete it, and `sm` mirrors the secondaries the way the form writes them.
     const clean = cleanCustom(c)
     s.customEx.push({ ...clean, id: nid, ...(clean.secondaries ? { sm: clean.secondaries } : {}), custom: true })
   })
-  const ridMap = {}
-  source.routines.forEach(r => {
+  const ridMap = new Map()
+  const routines = source.routines.filter(r => !isReservedKey(r.id))
+  routines.forEach(r => {
     const nid = uid()
-    ridMap[r.id] = nid
+    ridMap.set(String(r.id), nid)
     s.routines.push({
       id: nid,
       // The routine's own fields are text or absent, the way the routine editor writes them.
@@ -378,21 +401,21 @@ export function mergePlan(s, bundle, { schedule } = {}) {
       ...(typeof r.emoji === 'string' ? { emoji: r.emoji } : {}),
       ...(typeof r.prog === 'string' && r.prog ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-      ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || canonicalExId(e.id) }))
+      ex: (r.ex || []).filter(e => !isReservedKey(e?.id)).map(e => ({ ...e, id: exIdMap.get(String(e.id)) || canonicalExId(e.id) }))
     })
   })
   if (schedule) {
     WEEK_DAYS.forEach(d => { delete s.week[d] })
-    Object.entries(source.week || {}).forEach(([d, val]) => {
+    Object.entries(planWeek(source.week)).forEach(([d, val]) => {
       // `[].concat` tolerates a pre-upgrade scalar bundle value. An element whose routine id
       // didn't survive parsing is dropped, not written as undefined; a day that ends up empty
       // is left absent rather than stored as `[]`.
-      const ids = [].concat(val).map(oldId => ridMap[oldId]).filter(Boolean)
+      const ids = [].concat(val).map(oldId => ridMap.get(String(oldId))).filter(Boolean)
       if (ids.length) s.week[d] = ids
     })
   }
   // `ids`: the new routines' ids in the plan's order, for a caller that puts them in a rotation.
-  return { routines: source.routines.length, ids: source.routines.map(r => ridMap[r.id]) }
+  return { routines: routines.length, ids: routines.map(r => ridMap.get(String(r.id))) }
 }
 
 /* ------------------------------- printable PDF ------------------------------- */

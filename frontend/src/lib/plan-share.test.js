@@ -498,3 +498,136 @@ describe('parsePlan and mergePlan type the remaining slot and routine fields', (
     }
   })
 })
+
+// NATG-514 (SEC-1): a plan file is someone else's JSON, and JSON.parse keeps `"__proto__"`,
+// `"constructor"` and `"prototype"` as ordinary keys. Looked up or written through a plain object,
+// they reached its prototype: Sunday inherited a routine the file never gave it, a slot id resolved
+// to Object.prototype, a schedule entry to `{}`. Every file here is raw text, the way the import
+// sheet reads one.
+describe('reserved keys in a plan file reach no prototype (SEC-1)', () => {
+  const RESERVED = ['__proto__', 'constructor', 'prototype']
+  const fresh = () => ({ unit: 'kg', routines: [], week: {}, customEx: [] })
+  const imported = (raw, opts = { schedule: true }) => {
+    const s = fresh()
+    const res = mergePlan(s, parsePlan(raw), opts)
+    return { s, res, reloaded: JSON.parse(JSON.stringify(s)) }
+  }
+  const plainProtos = s => {
+    expect(Object.getPrototypeOf(s.week)).toBe(Object.prototype)
+    for (const r of s.routines) {
+      expect(Object.getPrototypeOf(r)).toBe(Object.prototype)
+      for (const e of r.ex) expect(Object.getPrototypeOf(e)).toBe(Object.prototype)
+    }
+    expect(Object.keys(Object.prototype)).toEqual([])
+    expect({}.polluted).toBeUndefined()
+  }
+
+  it('the issue’s reproduction leaves Sunday empty, live and after a reload', () => {
+    const raw = '{"opengym_plan":1,"routines":[{"id":"r","name":"Push","ex":[{"id":"0025","sets":3,"reps":8}]}],"week":{"1":["r"],"__proto__":["r"]}}'
+    const { s, reloaded } = imported(raw)
+    const [id] = s.routines.map(r => r.id)
+    expect(s.week[0]).toBeUndefined()
+    expect(reloaded.week[0]).toBeUndefined()
+    expect(s.week).toEqual({ 1: [id] })
+    expect(reloaded.week).toEqual(s.week)
+    plainProtos(s)
+  })
+
+  it('ignores every schedule key other than 0–6 (AC1)', () => {
+    // Null-prototype, so `week.__proto__ = …` is an own key JSON.stringify writes, as a file would.
+    const week = Object.assign(Object.create(null), { 1: ['r'], 7: ['r'], '-1': ['r'], '01': ['r'], 1.5: ['r'], sunday: ['r'], toString: ['r'] })
+    for (const k of RESERVED) week[k] = ['r']
+    const raw = JSON.stringify({ opengym_plan: 1, routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3 }] }], week })
+    expect(raw).toContain('"__proto__":["r"]')
+    const parsed = parsePlan(raw)
+    expect(Object.keys(parsed.week)).toEqual(['1'])
+    expect(parsed.scheduledDays).toBe(1)
+    const { s, reloaded } = imported(raw)
+    expect(Object.keys(s.week)).toEqual(['1'])
+    expect(reloaded.week).toEqual(s.week)
+    plainProtos(s)
+  })
+
+  it('drops a routine whose id is a reserved key, and the schedule entries that name it (AC3)', () => {
+    const raw = JSON.stringify({
+      opengym_plan: 1,
+      routines: [...RESERVED, 'ok'].map(id => ({ id, name: id, ex: [{ id: '0025', sets: 3 }] })),
+      week: { 1: [...RESERVED, 'ok'], 2: RESERVED, 3: ['toString', 'hasOwnProperty'], 4: '__proto__' },
+    })
+    expect(parsePlan(raw).routineCount).toBe(1)
+    const { s, res, reloaded } = imported(raw)
+    expect(s.routines.map(r => r.name)).toEqual(['ok'])
+    const [id] = s.routines.map(r => r.id)
+    expect(typeof id).toBe('string')
+    expect(res).toEqual({ routines: 1, ids: [id] })
+    // A reference survives only when it names an imported routine: none resolves to `{}` or a
+    // method of Object.prototype.
+    expect(s.week).toEqual({ 1: [id] })
+    expect(reloaded.week).toEqual({ 1: [id] })
+    plainProtos(s)
+  })
+
+  it('drops a slot whose id is a reserved key or a name only Object.prototype answers to (AC2, AC3)', () => {
+    const bad = [...RESERVED, 'toString', 'hasOwnProperty', 'valueOf']
+    const raw = JSON.stringify({
+      opengym_plan: 1,
+      routines: [{ id: 'r', name: 'Push', ex: [...bad.map(id => ({ id, sets: 3 })), { id: '0025', sets: 3, subs: [...bad, '0031'] }] }],
+      customEx: RESERVED.map(id => ({ id, n: `Custom ${id}`, bp: 'back' })),
+    })
+    const parsed = parsePlan(raw)
+    expect(parsed.routines[0].ex.map(e => e.id)).toEqual(['0025'])
+    expect(parsed.routines[0].ex[0].subs).toEqual(['0031'])
+    expect(parsed.dropped).toBe(bad.length)
+    expect(parsed.customEx).toEqual([])
+    const { s } = imported(raw)
+    expect(s.customEx).toEqual([])
+    for (const e of s.routines[0].ex) expect(typeof e.id).toBe('string')
+    expect(s.routines[0].ex.map(e => e.id)).toEqual(['0025'])
+    plainProtos(s)
+  })
+
+  it('still maps a custom exercise to its fresh id through the id map (AC2)', () => {
+    const raw = JSON.stringify({
+      opengym_plan: 1,
+      routines: [{ id: 'r', name: 'Back', ex: [{ id: 'hasOwnProperty', sets: 3 }, { id: 'c1', sets: 3 }] }],
+      customEx: [{ id: 'hasOwnProperty', n: 'Odd id', bp: 'back' }, { id: 'c1', n: 'Plain id', bp: 'back' }],
+    })
+    const { s } = imported(raw)
+    const byName = Object.fromEntries(s.customEx.map(c => [c.n, c.id]))
+    expect(s.routines[0].ex.map(e => e.id)).toEqual([byName['Odd id'], byName['Plain id']])
+    for (const e of s.routines[0].ex) expect(typeof e.id).toBe('string')
+    plainProtos(s)
+  })
+
+  it('a slot’s own "__proto__" field is dropped, never carried into the routine', () => {
+    const raw = '{"opengym_plan":1,"routines":[{"id":"r","name":"Push","ex":[{"id":"0025","sets":3,"__proto__":{"polluted":true}}]}]}'
+    const slot = parsePlan(raw).routines[0].ex[0]
+    expect(Object.hasOwn(slot, '__proto__')).toBe(false)
+    const { s } = imported(raw)
+    const merged = s.routines[0].ex[0]
+    expect(Object.hasOwn(merged, '__proto__')).toBe(false)
+    expect(Object.assign({}, merged).polluted).toBeUndefined()
+    plainProtos(s)
+  })
+
+  it('mergePlan applies the same rules to a bundle that never went through parsePlan', () => {
+    // The Coach hands its plan straight to mergePlan (applyCreatedPlan).
+    const bundle = JSON.parse(JSON.stringify({
+      routines: [
+        ...RESERVED.map(id => ({ id, name: id, ex: [{ id: '0025', sets: 3 }] })),
+        { id: 'ok', name: 'ok', ex: [{ id: '0025', sets: 3 }, ...RESERVED.map(id => ({ id, sets: 3 }))] },
+      ],
+      customEx: RESERVED.map(id => ({ id, n: `Custom ${id}`, bp: 'back' })),
+      week: { 1: ['ok', ...RESERVED], 9: ['ok'] },
+    }).replace('"week":{', '"week":{"__proto__":["ok"],'))
+    const s = fresh()
+    const res = mergePlan(s, bundle, { schedule: true })
+    const [id] = s.routines.map(r => r.id)
+    expect(res).toEqual({ routines: 1, ids: [id] })
+    expect(s.routines[0].ex.map(e => e.id)).toEqual(['0025'])
+    expect(s.customEx).toEqual([])
+    expect(s.week).toEqual({ 1: [id] })
+    expect(s.week[0]).toBeUndefined()
+    plainProtos(s)
+  })
+})
