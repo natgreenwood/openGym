@@ -34,7 +34,9 @@ const PLAN_UNITS = new Set(['kg', 'lb'])
 // Ids a plan file may write that a plain object answers from its prototype rather than its own
 // keys: JSON.parse keeps `"__proto__"` as an ordinary key, and writing it back through `o[k] = v`
 // replaces the object's prototype (NATG-514). An id is compared as text, the way a property name
-// is, so `["__proto__"]` is caught as well.
+// is, so `["__proto__"]` is caught as well. The Coach's gate keeps the same list for the ids it
+// lets through (RESERVED_IDS in api/coach/core/validate.js); the API can't import this file, so
+// the two are kept the same by hand.
 const RESERVED_KEYS = new Set(['__proto__', 'constructor', 'prototype'])
 const isReservedKey = id => RESERVED_KEYS.has(String(id))
 const inCatalogue = id => Object.hasOwn(EXIDX, id)
