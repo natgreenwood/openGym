@@ -43,6 +43,43 @@ export function boundPort(child, tail = () => '') {
   });
 }
 
+/* The first whole line of a spawned server's output that starts with `prefix`, once it is there.
+ *
+ * Having the HTTP answer in hand says nothing about the child's log. The server writes the line
+ * before it answers, but the line travels down a different pipe, and this process reads the socket
+ * and the pipe in whatever order its event loop gets to them. Under load the answer can be read and
+ * asserted on with the line still in the pipe: 34 of 48 concurrent runs of
+ * server-origin-hint.test.js on one box found no line at all. So wait for it, with a limit.
+ *
+ * `log` returns what the caller has collected of the child's stdout and stderr. It is read at once
+ * (the line may already be there) and again after every chunk; the caller's own 'data' listeners
+ * were attached at spawn, before these, so each chunk is already in `log()` when it is read. Only
+ * newline-terminated lines count, so a line split across two chunks is never matched half-written.
+ */
+export function logLine(child, prefix, log, ms = 5000) {
+  const find = () => log().split('\n').slice(0, -1).find(l => l.startsWith(prefix));
+  return new Promise((resolve, reject) => {
+    const done = () => {
+      clearTimeout(give);
+      child.stdout.off('data', look);
+      child.stderr.off('data', look);
+      child.off('exit', gone);
+    };
+    const look = () => {
+      const line = find();
+      if (line === undefined) return;
+      done();
+      resolve(line);
+    };
+    const gone = code => { done(); reject(new Error(`server exited (${code}) before logging "${prefix}":\n${log()}`)); };
+    const give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${log()}`)); }, ms);
+    child.stdout.on('data', look);
+    child.stderr.on('data', look);
+    child.once('exit', gone);
+    look();
+  });
+}
+
 export function tempData() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-test-'));
   fs.writeFileSync(path.join(dir, 'secret'), 'a'.repeat(64), { mode: 0o600 });

@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort, softPasskey } from './helpers.mjs';
+import { boundPort, logLine, softPasskey } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -28,7 +28,7 @@ async function startServer(t) {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost' }
   });
-  const h = { api: '', log: '' };
+  const h = { api: '', log: '', child };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -42,7 +42,7 @@ test('a write from the LAN address names ORIGIN in the log and the answer', asyn
   const r = await post(h, '/api/login/options', {}, { Origin: 'http://10.11.0.4:3030' });
   assert.equal(r.status, 403);
   assert.deepEqual(await r.json(), { error: 'cross-origin request refused', code: 'origin-mismatch', expected: ORIGIN });
-  const line = h.log.split('\n').find(l => l.startsWith('refused cross-origin'));
+  const line = await logLine(h.child, 'refused cross-origin', () => h.log);
   assert.match(line, /origin="http:\/\/10\.11\.0\.4:3030" expected=http:\/\/localhost:8080/);
   assert.match(line, /set ORIGIN=http:\/\/10\.11\.0\.4:3030 and RP_ID=10\.11\.0\.4 on the api service/);
 });
@@ -52,7 +52,7 @@ test('a page on another site gets the same refusal, and the log does not advise 
   const r = await post(h, '/api/login/options', {}, { Origin: 'https://evil.test', 'Sec-Fetch-Site': 'cross-site' });
   assert.equal(r.status, 403);
   assert.equal((await r.json()).code, 'origin-mismatch');
-  const line = h.log.split('\n').find(l => l.startsWith('refused cross-origin'));
+  const line = await logLine(h.child, 'refused cross-origin', () => h.log);
   assert.doesNotMatch(line, /set ORIGIN/);
 });
 
