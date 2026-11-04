@@ -11,11 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const mocks = vi.hoisted(() => {
-  const state = { S: null, nav: null }
+  const state = { S: null, nav: null, user: null, shares: null }
   state.snapshot = () => ({
     S: state.S,
     update: mut => { const next = structuredClone(state.S); mut(next); state.S = next },
-    config: {}, user: null, coachLocal: { mode: 'off' },
+    config: {}, user: state.user, shares: state.shares, coachLocal: { mode: 'off' },
   })
   return state
 })
@@ -336,6 +336,17 @@ describe('Plan — Schedule extras', () => {
   it('has no volume link before there is a routine (Stats has no card to show then)', () => {
     mount({ routines: [], week: {} })
     expect(host.querySelector('.plan-link')).toBe(null)
+  })
+
+  it('links to it for a plan made only of routines shared with you (NATG-498)', () => {
+    mocks.user = { id: 'u2', name: 'Jo' }
+    mocks.shares = { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h',
+      routine: { id: 'r9', name: 'Leg Day', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] } }] }
+    try {
+      mount({ routines: [], week: { 1: ['shared:s1'] } })
+      click(byLabel('Weekly muscle volume') || [...host.querySelectorAll('.plan-link button')][0])
+      expect(mocks.nav).toHaveBeenCalledWith('/stats?focus=weekly-volume')
+    } finally { mocks.user = null; mocks.shares = null }
   })
 
   it('switches to Routines and remembers it for next time', () => {

@@ -381,6 +381,13 @@ export const useStore = create((set, get) => {
   // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
   // after it names what went from these, so a revoke the stale one saw first is still told (NATG-502).
   let sharesBefore = null
+  // The shares each user is removing, uid → (share id → Removes in flight): each Remove counts
+  // itself in before its DELETE is sent and out once the reload it starts has settled, so a load
+  // that lands meanwhile, even one the server answered after applying the DELETE, does not name
+  // the share as gone (NATG-512). A count, per user, so a retry still out (NATG-521) or another
+  // account's Remove (NATG-523) keeps the mark.
+  // Not reset in clearLocalSession on purpose: signing out and back in mid-DELETE would bring the toast back.
+  const sharesRemoving = new Map()
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
   let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
   const saveShares = v => {
@@ -1795,7 +1802,8 @@ export const useStore = create((set, get) => {
       const gone = known ? orphans.filter(id => known.has(id)) : orphans
       if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
       if (gone.length < orphans.length && !sharesFetch) get().loadShares()
-      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id))
+      const removing = sharesRemoving.get(user.id)
+      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !(removing?.get(i.id) > 0))
       if (!left.length) return
       import('./useUI.js').then(({ useUI }) => {
         for (const i of left) {
@@ -1820,28 +1828,44 @@ export const useStore = create((set, get) => {
       finally { await get().loadSharesNewer() }
     },
     async removeShare(id) {
+      // Marked as being removed until the reload below has settled, on every path: a DELETE the
+      // server applied but whose answer failed is covered too (sharesRemoving).
       const uid = get().user?.id
+      if (uid) {
+        const counts = sharesRemoving.get(uid) || new Map()
+        counts.set(id, (counts.get(id) || 0) + 1)
+        sharesRemoving.set(uid, counts)
+      }
+      const reload = () => get().loadSharesNewer().finally(() => {
+        if (!uid) return
+        const counts = sharesRemoving.get(uid)
+        if (!counts?.has(id)) return
+        if (counts.get(id) > 1) counts.set(id, counts.get(id) - 1)
+        else { counts.delete(id); if (!counts.size) sharesRemoving.delete(uid) }
+      })
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
       } catch (e) {
         // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
-        if ((e?.data?.code || e?.code) !== 'share-missing') { get().loadSharesNewer(); throw e }
+        if ((e?.data?.code || e?.code) !== 'share-missing') { reload(); throw e }
       }
-      // Signed out, or another account, meanwhile: nothing of this one's is changed or saved here.
-      if (!answerIsFor(uid)) return true   // the removal itself went through
-      const user = get().user
-      const mine = sharesOf(get().shares, user)
-      if (mine) {
-        const shares = { ...mine, incoming: mine.incoming.filter(i => i?.id !== id) }
-        set({ shares })
-        saveShares(shares)
-      }
-      // Nor is it named as gone by the next load: the user removed it.
-      // Only for a user still signed in: after a sign-out there is nobody to hold lists for.
-      const held = user && sharesBefore?.uid === user.id ? sharesBefore.lists : null
-      if (held) sharesBefore = { uid: user.id, lists: { ...held, incoming: held.incoming.filter(i => i?.id !== id) } }
-      get().update(s => { deleteRoutine(s, sharedPointer(id)) })
-      get().loadSharesNewer()
+      // The reload runs whatever happens here, so nothing thrown below can leave the mark held.
+      try {
+        // Signed out, or another account, meanwhile: nothing of this one's is changed or saved here.
+        if (!answerIsFor(uid)) return true   // the removal itself went through
+        const user = get().user
+        const mine = sharesOf(get().shares, user)
+        if (mine) {
+          const shares = { ...mine, incoming: mine.incoming.filter(i => i?.id !== id) }
+          set({ shares })
+          saveShares(shares)
+        }
+        // Nor is it named as gone by the next load: the user removed it.
+        // Only for a user still signed in: after a sign-out there is nobody to hold lists for.
+        const held = user && sharesBefore?.uid === user.id ? sharesBefore.lists : null
+        if (held) sharesBefore = { uid: user.id, lists: { ...held, incoming: held.incoming.filter(i => i?.id !== id) } }
+        get().update(s => { deleteRoutine(s, sharedPointer(id)) })
+      } finally { reload() }
       return true
     },
 

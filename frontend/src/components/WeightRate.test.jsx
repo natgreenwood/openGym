@@ -25,7 +25,11 @@ const type = (input, value) => act(() => {
 })
 
 // Losing 0.1 kg a day, weighed every other day for three weeks: -0.7 kg a week, about -0.85 %.
-const days = i => isoOf(new Date(Date.now() - i * 86400000))
+// Count back calendar days, not 24-hour steps: across a clock change, Date.now() - i * 86400000
+// lands in the next day during the last hour before midnight, so half the weigh-ins would sit
+// one day off and bend the trend (NATG-506). Step from noon, so no zone's clock-change hour can
+// reach the date: Greenland moves its clocks at 23:00, and setDate from 23:xx would land on 00:xx.
+const days = i => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i); return isoOf(d) }
 const cut = Array.from({ length: 11 }, (_, k) => ({ d: days(20 - 2 * k), w: Math.round((84 - 0.2 * k) * 10) / 10, t: 1 }))
 const install = patch => useStore.setState({ S: { ...structuredClone(DEF), unit: 'kg', bodyweight: cut, ...patch }, user: null })
 const Card = () => { const S = useStore(s => s.S); return <WeightRate S={S} /> }

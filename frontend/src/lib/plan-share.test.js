@@ -631,3 +631,22 @@ describe('reserved keys in a plan file reach no prototype (SEC-1)', () => {
     plainProtos(s)
   })
 })
+
+// NATG-509: a hand-edited file whose top-level name was not text threw a TypeError on `.trim`,
+// so the whole plan failed to import over a field the import sheet only displays.
+describe('parsePlan reads the plan name only when it is text', () => {
+  const fileNamed = name => JSON.stringify({ opengym_plan: 1, unit: 'kg', name, routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, reps: 8 }] }] })
+
+  it('imports the routines and leaves the name blank when the name is not a string', () => {
+    for (const bad of [5, 0, true, false, null, { en: 'Plan' }, ['Plan']]) {
+      const parsed = parsePlan(fileNamed(bad))
+      expect(parsed.name, JSON.stringify(bad)).toBe('')
+      expect(parsed.routineCount, JSON.stringify(bad)).toBe(1)
+      expect(parsed.routines[0].ex[0]).toEqual({ id: '0025', sets: 3, reps: 8 })
+    }
+  })
+
+  it('still trims a string name', () => {
+    expect(parsePlan(fileNamed('  My plan  ')).name).toBe('My plan')
+  })
+})

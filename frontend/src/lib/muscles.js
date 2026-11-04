@@ -12,6 +12,7 @@ import { EXIDX, smOf, isBuiltinEx } from './exercises.js'
 import { todayISO, weekKey, MONDAY } from './format.js'
 import { queueOf } from './queue.js'
 import { workoutAt } from './history.js'
+import { isSharedId } from './routine-lookup.js'
 
 // The muscles a map can shade, in head-to-toe order — also the order of any list
 // built from them, so "what am I neglecting" reads top-down like a body.
@@ -344,8 +345,11 @@ export function sessionLevels({ done, planned }) {
  * Effective sets programmed by the live recurring week; overrides and history are not plans.
  * A floating week or rotation (S.queue, lib/queue.js) is the plan too: each of its sessions once,
  * beside your own weekday routines — the same split the Home streak card tallies (weekTally).
+ * `shared` (optional, lib/shared-routines.js sharedViewOf): the routines shared with you, so a
+ * weekday planned with one (`shared:<id>`) adds its sets like one of your own (NATG-498). A
+ * shared routine that no longer resolves adds nothing, and without `shared` none of them do.
  */
-export function loadOfWeeklyPlan(S) {
+export function loadOfWeeklyPlan(S, shared = null) {
   const routines = new Map((S?.routines || []).map(routine => [routine.id, routine]))
   const exercises = Object.fromEntries((S?.customEx || []).map(exercise => [exercise.id, exercise]))
   const q = queueOf(S)
@@ -356,7 +360,8 @@ export function loadOfWeeklyPlan(S) {
   ]
   const load = {}
   for (const id of ids) {
-    const routine = routines.get(id)
+    // A `shared:` pointer is only looked up among the shared routines (routine-lookup.js routineById).
+    const routine = isSharedId(id) ? shared?.byId?.get(id) : routines.get(id)
     if (!routine) continue
     for (const [slug, sets] of Object.entries(loadOfRoutine(routine, exercises))) {
       load[slug] = (load[slug] || 0) + sets

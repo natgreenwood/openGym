@@ -99,7 +99,8 @@ export default function Home() {
   const next = !S.active && !todayRoutines.length && !(rotating && !plannerQueue) ? nextTrainingDay(S, todayISO(), shared) : null
   // The streak card's fraction: this calendar week's workouts over the weekdays with a plan, or,
   // in a coach week, the queue's sessions and your own days together (lib/queue.js weekTally).
-  const { done: doneThisWeek, planned: plannedPerWeek } = weekTally(S, todayISO())
+  // A day planned with a shared routine counts like one of your own (NATG-498).
+  const { done: doneThisWeek, planned: plannedPerWeek } = weekTally(S, todayISO(), shared)
   const bwPoints = S.bodyweight.slice(-30).map(b => ({ t: weighInAt(b), y: b.w, d: b.d }))
 
   // today's session shown right under the week strip

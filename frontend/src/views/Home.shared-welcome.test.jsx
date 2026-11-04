@@ -43,3 +43,18 @@ describe('Home welcome card with routines shared with you', () => {
     expect(welcome()).toBe(true)
   })
 })
+
+// NATG-498: the streak card counts a weekday planned with a shared routine as planned.
+describe('Home streak card with routines shared with you', () => {
+  const tally = () => host.textContent.match(/(\d+)( \/ (\d+))? this week/)?.[0]
+  it('counts the shared day in the week’s plan', () => {
+    setUp([{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h', routine: LEG }])
+    act(() => root.render(<Home />))
+    expect(tally()).toBe('0 / 1 this week')
+  })
+  it('leaves it out once the share has ended, as a rest day', () => {
+    setUp([])
+    act(() => root.render(<Home />))
+    expect(tally()).toBe('0 this week')
+  })
+})

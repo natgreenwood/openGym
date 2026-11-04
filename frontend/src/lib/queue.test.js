@@ -262,6 +262,32 @@ describe('weekTally — the streak card fraction', () => {
     expect(weekTally(S({ queue: { ...S().queue, ids: ['d1', 'd2', 'gone'] }, week: { 5: ['gone'] } }), TODAY)).toEqual({ done: 0, planned: 2 })
   })
 
+  // NATG-498: the routines shared with you (lib/shared-routines.js sharedViewOf); weekTally reads
+  // only its `ids`, the pointers that resolve on this device right now.
+  const sharedOf = (...ids) => ({ ids: new Set(ids) })
+
+  it('a weekday planned with a shared routine counts as planned, like one of your own', () => {
+    const plan = { queue: null, week: { 1: ['shared:s1'], 3: ['own', 'shared:s1'], 5: ['shared:gone'] } }
+    // Monday (shared only) and Wednesday (own + shared, still one day); Friday's share no longer resolves.
+    expect(weekTally(S(plan), TODAY, sharedOf('shared:s1'))).toEqual({ done: 0, planned: 2 })
+    // A revoked share reads as rest, and so does every shared day without the slice, as before.
+    expect(weekTally(S(plan), TODAY, sharedOf())).toEqual({ done: 0, planned: 1 })
+    expect(weekTally(S(plan), TODAY)).toEqual({ done: 0, planned: 1 })
+  })
+
+  it('a shared day changes only the plan: its finished workout was done already', () => {
+    const legDay = w({ id: 'legs', d: '2026-09-08', routineIds: ['shared:s1'], name: 'Leg Day' })
+    const plan = { queue: null, week: { 2: ['shared:s1'] }, workouts: [legDay] }
+    expect(weekTally(S(plan), TODAY)).toEqual({ done: 1, planned: 0 })
+    expect(weekTally(S(plan), TODAY, sharedOf('shared:s1'))).toEqual({ done: 1, planned: 1 })
+  })
+
+  it('beside a coach week, a shared weekday adds one day, as your own does', () => {
+    expect(weekTally(S({ week: { 3: ['shared:s1'] } }), TODAY, sharedOf('shared:s1'))).toEqual({ done: 0, planned: 4 })
+    expect(weekTally(S({ week: { 3: ['d1', 'shared:s1'] } }), TODAY, sharedOf('shared:s1'))).toEqual({ done: 0, planned: 4 })
+    expect(weekTally(S({ week: { 3: ['shared:s1'] } }), TODAY)).toEqual({ done: 0, planned: 3 })
+  })
+
   it('a merged session counts for both sides — following the app\'s own daily proposal all week ends at 4 / 4', () => {
     // Wednesday's today row is 'US W1 D2 + Core' (the queue session with the weekday's own
     // routine riding along) and Start logs it as ONE workout: the coach session is credited
