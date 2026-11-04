@@ -399,7 +399,7 @@ export const useStore = create((set, get) => {
   // A backup import's replace: pushed against the revision the import's check read (importRead),
   // so a change another device synced while the confirm was open is merged in, not wiped.
   let replaceRev = null
-  let importRead = null    // what importConflict last read: { uid, state, rev }
+  let importRead = null    // what importConflict last read: { uid, owner, state, rev }
   let lastCheck = 0
   let pollTm = null
   let offlineChanges = false   // a push failed for lack of network — the next one that lands says so
@@ -611,6 +611,11 @@ export const useStore = create((set, get) => {
   // persist() then moved seenOwner, so the owner event, once it ran, found nothing to clear; a
   // request sent for them went out under whichever session the browser holds now (SEC-01).
   const answerIsFor = uid => !!uid && get()?.user?.id === uid && readOwner() === uid
+  // Whether an import's check (importConflict) is still about whoever is here: the account it read
+  // for (answerIsFor), or, asked with nobody signed in, still nobody under the same owner key. The
+  // confirm stays open for as long as the user takes, and another tab can sign out, switch account
+  // or sign in from guest meanwhile (NATG-535).
+  const importIsFor = read => read.uid ? answerIsFor(read.uid) : !get().user && readOwner() === read.owner
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
   const readWidOwner = () => { try { return localStorage.getItem(WID_OWNER_KEY) } catch { return null } }
   // The saved copy is the one this tab may join: written under the owner this tab holds. QA
@@ -1565,20 +1570,24 @@ export const useStore = create((set, get) => {
     // them in instead (importBackup). null when there are none, when nobody is signed in, or when
     // the server cannot be asked — the replace then goes as it always has.
     async importConflict(backup) {
+      // Whose check this is, recorded before anything is asked: the import it leads to goes only
+      // while that is still who is here (importIsCurrent), whatever the answer was.
+      const uid = get().user?.id || null
+      const owner = readOwner()
+      importRead = { uid, owner, state: null, rev: null }
       // No account (a phone in local mode, a guest): this copy is the only one there is, so the
       // workouts it holds that the backup lacks are asked about the same way, never just replaced.
-      if (!get().user) {
+      if (!uid) {
         const key = w => entryKey('workouts', w)
         const inBackup = new Set((Array.isArray(backup?.workouts) ? backup.workouts : []).filter(Boolean).map(key))
         const here = (get().S.workouts || []).filter(w => w && !inBackup.has(key(w))).length
-        return here ? { workouts: here, state: get().S, rev: null, device: true } : null
+        return here ? { workouts: here, state: get().S, rev: null, device: true, uid, owner } : null
       }
-      const uid = get().user.id
       let res
       try { res = await api('/api/data') } catch { return null }
       if (!answerIsFor(uid)) return null   // the account the confirm would be about has gone
       const state = res?.state
-      importRead = { uid, state: state || null, rev: res?.rev ?? null }
+      importRead = { uid, owner, state: state || null, rev: res?.rev ?? null }
       if (!state) return null
       const key = w => entryKey('workouts', w)
       const inBackup = new Set((Array.isArray(backup?.workouts) ? backup.workouts : []).filter(Boolean).map(key))
@@ -1587,7 +1596,15 @@ export const useStore = create((set, get) => {
       const workouts = server.filter(w => !inBackup.has(key(w))).length
       // This device's own workouts the server has not received yet go the same way, and count too.
       const mine = owes() ? (get().S.workouts || []).filter(w => w && !inBackup.has(key(w)) && !onServer.has(key(w))).length : 0
-      return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes() } : null
+      return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes(), uid, owner } : null
+    },
+    // Whether the confirm an import check opened is still about whoever is here: `answer`
+    // (importConflict's), or with none, nothing to warn about, the check's own read. Settings
+    // closes the confirm once it is not, and importBackup refuses it (NATG-535). An import with no
+    // check before it has nothing to hold it to.
+    importIsCurrent(answer) {
+      const read = answer || importRead
+      return !read || importIsFor(read)
     },
     // A backup in place of this copy. With `mergeWith` — importConflict's answer — the server's copy
     // is merged in instead of replaced (with this device's changes not yet on it, when there are
@@ -1599,7 +1616,12 @@ export const useStore = create((set, get) => {
     // stays, though this device or the server recorded it as deleted since, and its settings and
     // plan are the latest choice, on every device. The replace goes against the revision the check
     // read (or this copy's own): a change another device synced meanwhile is merged in, not wiped.
+    //
+    // An answer for anyone but whoever is here now (importIsCurrent) is refused whole, whichever
+    // button was pressed: merged or replaced, it would write one account's choice into another's
+    // copy (NATG-535). Returns whether the import went.
     importBackup(backup, { mergeWith } = {}) {
+      if (!get().importIsCurrent(mergeWith)) { importRead = null; return false }
       const cur = get().S
       const uid = get().user?.id
       const read = mergeWith?.state ? mergeWith : importRead && importRead.uid === uid ? importRead : null
@@ -1618,7 +1640,7 @@ export const useStore = create((set, get) => {
         merged._ts = now
         merged.active = carryActive({ unit: next.unit, active: running }, merged)
         persist(merged, false)
-        return
+        return true
       }
       if (!mergeWith?.state || !uid) {
         stampRestore(next, [cur, server], now)
@@ -1629,7 +1651,7 @@ export const useStore = create((set, get) => {
         next.active = running
         const at = read?.rev != null ? { rev: read.rev, wid: read.state?._wid } : metaOf().base
         get().replaceState(next, !!uid, { baseRev: at?.rev ?? null, baseWid: at?.wid })
-        return
+        return true
       }
       const others = mergeWith.local ? mergeStates(cur, mergeWith.state) : mergeWith.state
       // The merge keeps the backup's reset stamp (prefer); a later one this copy or the server's
@@ -1640,6 +1662,7 @@ export const useStore = create((set, get) => {
       merged.active = carryActive({ unit: next.unit, active: running }, merged)
       persist(merged, true)
       if (mergeWith.rev != null) writeSync(mergeWith.rev, 0, mergeWith.state?._wid)
+      return true
     },
     // A replace that is meant to reach the server (backup import, reset) is a deliberate
     // overwrite, not a change to merge: the push it arms goes without a baseRev — or, given one
