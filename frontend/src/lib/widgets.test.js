@@ -8,6 +8,7 @@ const h = vi.hoisted(() => { vi.stubEnv('VITE_MOBILE', '1'); return { platform: 
 vi.mock('./mobile.js', () => ({ MOBILE: true, nativePlatform: async () => h.platform }))
 
 const { buildWidgetSnapshot, startWidgetSync, _setWidgetPluginForTest, _resetWidgets, WIDGET_DAYS } = await import('./widgets.js')
+const { sharedViewOf } = await import('./shared-routines.js')
 
 // 2026-10-14 is a Wednesday (getDay 3).
 const TODAY = '2026-10-14'
@@ -80,6 +81,48 @@ describe('buildWidgetSnapshot', () => {
     expect(thin.week).toEqual({ done: 0, planned: 0 })
     // plain JSON all the way down
     expect(JSON.parse(JSON.stringify(snap))).toEqual(snap)
+  })
+
+  // A day planned only with a routine shared with you (NATG-526): the day list shows it as the
+  // Home today row does, and agrees with the widget's own week fraction (NATG-498).
+  describe('a day planned with a shared routine', () => {
+    const user = { id: 'u2', name: 'Jo' }
+    const shares = { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h', routine: { ...legs, name: 'Sam legs' } }] }
+    const shared = sharedViewOf({ S: { unit: 'kg' }, user, shares })
+    // Wednesday (today) and next Wednesday hold only the shared routine.
+    const sharedOnly = (over = {}) => S({ routines: [], week: { 3: ['shared:s1'] }, ...over })
+
+    it('shows the shared routine with its name, count and today\'s exercises', () => {
+      const snap = buildWidgetSnapshot(sharedOnly(), { today: TODAY, shared })
+      const [today] = snap.days
+      expect(today).toMatchObject({ name: 'Sam legs', count: 1, done: false })
+      expect(today.exercises).toHaveLength(1)
+      expect(today.exercises[0].line).toMatch(/5 × 5 · 100 kg/)
+      expect(snap.days[7]).toMatchObject({ name: 'Sam legs', count: 1 })
+      expect(snap.days[7].exercises).toBeUndefined()
+      // the list and the week's fraction count the same days
+      expect(snap.week.planned).toBe(1)
+      expect(snap.days.filter(d => d.name && d.iso < snap.weekUntil).length).toBe(snap.week.planned)
+    })
+
+    it('says today is done once a workout from today covers the shared routine, not before', () => {
+      const w = { id: 'w1', d: TODAY, start: 1, end: 2, routineIds: ['shared:s1'], entries: [] }
+      expect(buildWidgetSnapshot(sharedOnly({ workouts: [w] }), { today: TODAY, shared }).days[0].done).toBe(true)
+      expect(buildWidgetSnapshot(sharedOnly(), { today: TODAY, shared }).days[0].done).toBe(false)
+      const own = { ...w, routineIds: ['r2'] }
+      expect(buildWidgetSnapshot(sharedOnly({ workouts: [own] }), { today: TODAY, shared }).days[0].done).toBe(false)
+      const yesterday = { ...w, d: '2026-10-13' }
+      expect(buildWidgetSnapshot(sharedOnly({ workouts: [yesterday] }), { today: TODAY, shared }).days[0].done).toBe(false)
+    })
+
+    it('without the shared routines, reads as it always did', () => {
+      const rest = buildWidgetSnapshot(sharedOnly(), { today: TODAY })
+      expect(rest.days[0]).toEqual({ iso: TODAY, weekday: rest.days[0].weekday, name: null, count: 0 })
+      expect(rest.week).toEqual({ done: 0, planned: 0 })
+      // a plan of your own comes out the same with or without the argument
+      expect(buildWidgetSnapshot(S(), { today: TODAY, shared: null })).toEqual(buildWidgetSnapshot(S(), { today: TODAY }))
+      expect(buildWidgetSnapshot(S(), { today: TODAY, shared }).days).toEqual(buildWidgetSnapshot(S(), { today: TODAY }).days)
+    })
   })
 })
 
