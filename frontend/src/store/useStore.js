@@ -93,6 +93,7 @@ const MIRROR_OWNER_FILE = 'opengym-state-owner.json'
 const CHECK_MIN_MS = 3000    // rev checks closer together than this are the same event (focus + visibility)
 const POLL_MS = 30000        // while the app is open and signed in, ask the server for its revision this often
 const AUTO_BACKUP_SOON_MS = 2000   // several photos picked at once make one backup
+const SHARES_NEWER_MAX = 5   // requests loadSharesNewer waits through after its own, so a steady stream of refreshes can't hold its caller forever
 // Whether `next` has a workout photo or video that `prev` had on none of its workouts.
 const workoutMediaHashes = S => (Array.isArray(S?.workouts) ? S.workouts : [])
   .flatMap(w => (Array.isArray(w?.media) ? w.media.map(m => m?.hash).filter(h => typeof h === 'string' && h) : []))
@@ -1778,12 +1779,20 @@ export const useStore = create((set, get) => {
       return mine.promise
     },
     // The lists as the server has them now, not as a request already in flight will answer: joins
-    // that request, then waits for the fresh one its landing starts if it turned out stale.
+    // that request, then waits for each newer one for the same user until the one it waited for
+    // was the latest, so it settles only after the last of them has swept (NATG-522). A follow-up
+    // can be made stale too (Sync now, another Remove), and a Remove's mark has to outlast the
+    // sweep that would name its share. At most SHARES_NEWER_MAX follow-ups: past that it returns,
+    // and the request still out sweeps as usual. Never rejects (loadShares answers null on failure).
     // `etag`: the `shares` etag the caller saw, if it knows one (see loadShares).
     async loadSharesNewer(etag = null) {
-      const first = await get().loadShares({ newer: true, etag })
-      const user = get().user
-      return sharesFetch && user && sharesFetch.uid === user.id ? sharesFetch.promise : first
+      let answer = await get().loadShares({ newer: true, etag })
+      for (let n = 0; n < SHARES_NEWER_MAX; n++) {
+        const user = get().user
+        if (!sharesFetch || !user || sharesFetch.uid !== user.id) break
+        answer = await sharesFetch.promise
+      }
+      return answer
     },
     // A share that is gone from the lists (revoked, its routine deleted, removed or declined on
     // another device) leaves your schedule too, through the same delete your own routines use, so
