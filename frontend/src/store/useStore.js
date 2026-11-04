@@ -375,7 +375,7 @@ export const useStore = create((set, get) => {
   let toldNoRoom = false   // the save itself was refused — said once per streak, like the above
   let pushing = null       // the PUT in flight, so a second push waits for it instead of racing it
   let pushAgain = false    // a push asked for while one was in flight — run once more after it
-  let pulling = null       // the GET in flight, so two resume signals make one request
+  let pulling = null       // the GET /api/data in flight, `{ uid, promise }`: two resume signals for the same user make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
   // The lists as they were before a stale answer replaced them, `{ uid, lists }`: the fresh answer
@@ -723,7 +723,7 @@ export const useStore = create((set, get) => {
     // never ran or did not get through (no server, a pairing that failed on the way to it) runs it
     // here, question and all; one already running is left to answer.
     if (adoptHold) { if (!adopting && adoptOwed()) get().resumeAdoption(); return }
-    if (pulling) return pulling
+    if (pulling && pulling.uid === get().user?.id) return pulling.promise
     const { base } = metaOf()
     if (!base || owes()) return get().pullState()
     try {
@@ -1005,7 +1005,7 @@ export const useStore = create((set, get) => {
   // like a change is.
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
-    if (pulling) await pulling
+    if (pulling) await pulling.promise
     await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
     await settleMedia(get().S)
@@ -1221,7 +1221,7 @@ export const useStore = create((set, get) => {
   // adoptProfile's work (see there). Every way out answers the question — releaseAdopt — before
   // the decision is written and pushed; only a server that could not be reached leaves it owed.
   const runAdopt = async (ask, { alwaysAsk = false } = {}) => {
-    if (pulling) await pulling
+    if (pulling) await pulling.promise
     // An adoption resumed after a restart is the sign-in's own: whether this copy already belonged
     // to the account was decided then — boot's sign-in sees the owner that sign-in wrote.
     const owedMark = adoptOwed()
@@ -1894,12 +1894,20 @@ export const useStore = create((set, get) => {
     // and the push itself is what catches a conflict.
     async pullState() {
       if (adoptHold) return   // as pushState: adoptProfile reads the server itself
-      if (pulling) return pulling
-      pulling = (async () => {
+      // As loadShares (NATG-493): the request is kept with the user it is for. An answer that lands
+      // once that user has gone (a sign-out or another account signing in, in this tab or another)
+      // is not this copy's: it is dropped, neither taken nor saved (NATG-496), and the user signed
+      // in now gets a request of their own.
+      const uid = get().user?.id
+      if (pulling && pulling.uid === uid) return pulling.promise
+      const mine = { uid, promise: null }
+      pulling = mine
+      mine.promise = (async () => {
         try {
           if (pushTm) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
           const res = await api('/api/data')
+          if (get().user?.id !== uid) return
           lastCheck = Date.now()
           reached()
           const { state, rev } = res
@@ -1943,10 +1951,10 @@ export const useStore = create((set, get) => {
           mergeInto(S, state, rev)
           pushPending = false
           await get().pushState()
-        } catch (e) { failed(e) /* keep local; the poll retries */ }
-        finally { pulling = null }
+        } catch (e) { if (get().user?.id === uid) failed(e) /* keep local; the poll retries */ }
+        finally { if (pulling === mine) pulling = null }
       })()
-      return pulling
+      return mine.promise
     },
 
     // "Sync now": what is waiting goes, the server's copy is checked, and the answer is the
@@ -1955,7 +1963,7 @@ export const useStore = create((set, get) => {
       if (!get().user) { setSync({}); return get().sync }
       // Held for a sign-in's question: "Sync now" is asking it (again), and the sync follows.
       if (adoptHold) { await get().resumeAdoption(); if (adoptHold) return get().sync }
-      if (pulling) await pulling
+      if (pulling) await pulling.promise
       // The share lists first, then the document, the order checkRev keeps (NATG-501): a sharer's
       // edit, a revoke or a share that is no longer available shows after Sync now too, and a
       // pointer the document brings is judged by lists at least as new as it.

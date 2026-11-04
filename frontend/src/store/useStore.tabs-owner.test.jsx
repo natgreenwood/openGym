@@ -291,3 +291,133 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
   })
 })
 
+
+// NATG-496 (QA 2026-11-03): a pull this tab started for the account, answered by the server as
+// that account, but landing only after another tab signed out (or into another account). The
+// answer was taken as the signed-out tab's copy and saved, so the account's routines came back in
+// a tab that showed nobody signed in, and the next sign-in was asked to adopt them.
+describe('a pull still on its way when another tab changes the owner', () => {
+  // GET /api/data held after the server has answered, as QA's route did: `release` lets it land.
+  const holdPull = srv => {
+    const answer = h.api
+    const gate = { release: null, asked: null }
+    const asked = new Promise(r => { gate.asked = r })
+    const released = new Promise(r => { gate.release = r })
+    h.api = async (path, opts = {}) => {
+      if ((opts.method || 'GET') === 'GET' && path === '/api/data' && gate.asked) {
+        const res = await answer(path, opts)   // answered as the account it was sent for
+        h.api = answer
+        gate.asked(); gate.asked = null
+        await released
+        return res
+      }
+      return answer(path, opts)
+    }
+    return { asked, release: () => gate.release() }
+  }
+
+  it('an answer landing after a sign-out in the other tab is dropped, in both tabs and in storage', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+
+    const held = holdPull(srv)
+    const pull = A.getState().pullState()
+    await held.asked
+    await act(B, () => B.getState().signOut())
+    expect(A.getState().user).toBeNull()
+    expect(A.getState().S.routines).toEqual([])
+
+    held.release()
+    await act(A, () => pull)
+    expect(A.getState().user).toBeNull()
+    expect(A.getState().S.routines).toEqual([])
+    expect(ids(A.getState().S)).toEqual([])
+    expect(B.getState().S.routines).toEqual([])
+    expect(ids(B.getState().S)).toEqual([])
+    expect(saved().routines).toEqual([])
+    expect(ids(saved())).toEqual([])
+
+    // The next account signing in here is not asked about the signed-out account's workouts.
+    server({ ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 2 })
+    await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    const pre = JSON.parse(localStorage.getItem('gym_adopt') || 'null')?.pre
+    expect(pre?.workouts || []).toEqual([])
+    expect(pre?.routines || []).toEqual([])
+  })
+
+  it('an answer landing after the other tab signed in to another account is dropped', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+
+    const held = holdPull(srv)
+    const pull = A.getState().pullState()
+    await held.asked
+    srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+    await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    expect(A.getState().user).toBeNull()
+
+    held.release()
+    await act(A, () => pull)
+    expect(A.getState().S.routines).toEqual([])
+    expect(ids(A.getState().S)).toEqual([])
+    expect(ids(saved())).toEqual([])
+    expect(saved().routines || []).toEqual([])
+    const pre = JSON.parse(localStorage.getItem('gym_adopt')).pre
+    expect(pre.workouts || []).toEqual([])
+    expect(pre.routines || []).toEqual([])
+  })
+
+  it('the account signed in after the switch gets a pull of its own, not the old one', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+
+    const held = holdPull(srv)
+    const old = A.getState().pullState()
+    await held.asked
+    await act(A, () => A.getState().setUser(null))
+    srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }
+    await act(A, () => A.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }))
+    let gets = 0
+    const answer = h.api
+    h.api = (path, opts = {}) => { if ((opts.method || 'GET') === 'GET' && path === '/api/data') gets++; return answer(path, opts) }
+    await act(A, () => A.getState().pullState())
+    expect(gets).toBe(1)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+
+    held.release()
+    await act(A, () => old)
+    expect(A.getState().user?.id).toBe('Y-' + OWNER)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    expect(ids(saved())).toEqual(['yW1'])
+  })
+
+  it('an answer for the account still signed in is taken as before', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    await openTab({ id: OWNER, name: 'Xavi' })
+    srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr2')], _ts: 200, _rev: 2 }   // another device's edit
+
+    const held = holdPull(srv)
+    const pull = A.getState().pullState()
+    await held.asked
+    held.release()
+    await act(A, () => pull)
+    expect(A.getState().user?.id).toBe(OWNER)
+    expect(A.getState().S.routines.map(r => r.id)).toEqual(['xr', 'xr2'])
+    expect(saved().routines.map(r => r.id)).toEqual(['xr', 'xr2'])
+  })
+})
