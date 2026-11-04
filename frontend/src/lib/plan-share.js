@@ -193,7 +193,8 @@ function cleanIntensifier(x) {
 // one the planner reads (its clamps coerce) but a recipient of the shared routine can't.
 const SLOT_NUMBERS = ['sets', 'reps', 'weight', 'min', 'speed', 'sec', 'inc', 'repsMin', 'repsMax', 'setsMax', 'deloadFactor']
 const SLOT_TEXT = ['note', 'sg', 'dbLoad', 'prog']
-const SLOT_FLAGS = ['bodyweight', 'side']
+const SLOT_FLAGS = ['bodyweight', 'side', 'backoff', 'lastToFailure']
+const SLOT_MODES = new Set(['reps', 'time', 'cardio'])
 
 /** A finite number, from a number or a numeric string like "3", or null. */
 function cleanNumber(v) {
@@ -209,6 +210,8 @@ function cleanSlotTypes(e) {
   SLOT_NUMBERS.forEach(k => { if (k in o) keep(k, cleanNumber(o[k])) })
   SLOT_TEXT.forEach(k => { if (k in o) keep(k, typeof o[k] === 'string' ? o[k] : null) })
   SLOT_FLAGS.forEach(k => { if (k in o) keep(k, typeof o[k] === 'boolean' ? o[k] : null) })
+  // An unknown mode is left out; modeOf then reads the slot the way it reads an older file.
+  if ('mode' in o) keep('mode', SLOT_MODES.has(o.mode) ? o.mode : null)
   return o
 }
 
@@ -291,7 +294,9 @@ export function parsePlan(raw, destinationUnit = 'kg') {
   const routines = data.routines.filter(r => r && Array.isArray(r.ex)).map(r => ({
     ...r,
     ex: r.ex.filter(e => {
-      const ok = !!e && (known.has(e.id) || !!EXIDX[e.id])
+      // A string id only: a catalogue id that looks numeric ("1000") resolves when written as a
+      // number too, and is then stored as one.
+      const ok = !!e && typeof e.id === 'string' && (known.has(e.id) || !!EXIDX[e.id])
       if (!ok) dropped++
       return ok
     }).map(slot => {
@@ -368,9 +373,10 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     ridMap[r.id] = nid
     s.routines.push({
       id: nid,
-      name: r.name || t('Shared routine'),
-      emoji: r.emoji,
-      ...(r.prog ? { prog: r.prog } : {}),
+      // The routine's own fields are text or absent, the way the routine editor writes them.
+      name: (typeof r.name === 'string' && r.name) || t('Shared routine'),
+      ...(typeof r.emoji === 'string' ? { emoji: r.emoji } : {}),
+      ...(typeof r.prog === 'string' && r.prog ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
       ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || canonicalExId(e.id) }))
     })
