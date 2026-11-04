@@ -32,7 +32,7 @@ import { exitWorkoutEdit, startFlow, beginWorkout } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
-import Modals from './components/Modals.jsx'
+import Modals, { useBehindSheet } from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
 import SyncBanner from './components/SyncBanner.jsx'
 import RestTimer from './components/RestTimer.jsx'
@@ -280,6 +280,10 @@ function Shell() {
   const authed = user || isGuest
   // The boot screen in index.html covers the start; it goes once there is something to show.
   useEffect(() => { if (ready || authed) hideBoot() }, [ready, authed])
+  // While a sheet is open, everything beside #modal-root but the toast is inert and hidden from
+  // assistive tech (components/Modals.jsx). The two wrappers in the render below are there for that
+  // alone; they stay mounted either way, so opening a sheet never remounts the bars inside them.
+  const behind = useBehindSheet()
   if (!ready && !authed) return (
     <div id="app">
       <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center', fontSize: 34, color: 'var(--label-3)' }}>
@@ -326,22 +330,26 @@ function Shell() {
           is under way the page it goes back to sits underneath (Page `under`), and as the swipe
           lands it simply stays: same key, same parent, so React keeps it instead of mounting
           the route again. */}
-      <div id="app">
+      <div id="app" {...behind}>
         <Page key={loc.pathname} loc={loc} render={view} motion={pageMotion(pathRef.current, loc.pathname, navType)} />
         {showPreview && <Page key={preview} loc={previewLoc(preview)} render={view} under scrollY={scrollPositions.get(preview) || 0} />}
       </div>
       {/* Outside #app: the view's fade-in animates a transform, and a fixed element inside it
           would ride along with the page for the length of it. Decides for itself when to show —
           including on the sign-in screen, when the server has just ended the session. */}
-      <SyncBanner />
-      {!noTabs && <TabBar onStart={startFlow} />}
-      <RestTimer />
+      <div {...behind}>
+        <SyncBanner />
+        {!noTabs && <TabBar onStart={startFlow} />}
+        <RestTimer />
+      </div>
       <Modals />
       <Toast />
       <TimerFlash />
       {/* Seasonal decoration (lib/seasonal.js): nothing, and nothing loaded, out of season. Never
           over a running workout or the first-launch screens. */}
-      {authed && !needsMobileOnboarding && !permSteps && <SeasonalLayer hidden={inWorkout || loc.pathname === '/workout'} />}
+      <div {...behind}>
+        {authed && !needsMobileOnboarding && !permSteps && <SeasonalLayer hidden={inWorkout || loc.pathname === '/workout'} />}
+      </div>
     </>
   )
 }
