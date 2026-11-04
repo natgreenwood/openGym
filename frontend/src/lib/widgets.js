@@ -50,19 +50,21 @@ const shift = (iso, days) => { const d = new Date(iso + 'T12:00:00'); d.setDate(
 // without it a day planned only with a shared routine reads as rest.
 function dayOf (S, iso, today, shared = null) {
   let routines = []
-  try { routines = effectiveRoutines(S, iso, shared).filter(r => (r.ex || []).length) } catch { routines = [] }
+  // Only a routine whose exercises are a real, non-empty list: a malformed own routine (`ex` an
+  // object with a `length`) would otherwise put that `length`, whatever it is, into `count`.
+  try { routines = effectiveRoutines(S, iso, shared).filter(r => Array.isArray(r.ex) && r.ex.length > 0) } catch { routines = [] }
   const weekday = new Date(iso + 'T12:00:00').toLocaleDateString(dateLocale(), { weekday: 'long' })
   if (!routines.length) return { iso, weekday, name: null, count: 0 }
   const day = {
     iso,
     weekday,
     name: deriveSessionName(routines.map(r => clipText(r.name || ''))) || '',
-    count: routines.reduce((n, r) => n + (r.ex || []).length, 0),
+    count: routines.reduce((n, r) => n + r.ex.length, 0),
   }
   if (iso === today) {
     const unit = S.unit === 'lb' ? 'lb' : 'kg'
     const speed = speedUnitOf(S)
-    day.exercises = routines.flatMap(r => r.ex || []).slice(0, WIDGET_EXERCISES_MAX).map(cfg => {
+    day.exercises = routines.flatMap(r => r.ex).slice(0, WIDGET_EXERCISES_MAX).map(cfg => {
       let line = ''
       // Built from the routine's own fields as they are: an own routine's reps, minutes or pyramid
       // steps reach it unchecked (a shared routine's are numbers by then), so the line is cut too.

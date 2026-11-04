@@ -188,6 +188,19 @@ describe('buildWidgetSnapshot', () => {
       expect(today.exercises[1].line.startsWith('x')).toBe(true)
     })
 
+    it('skips an own routine whose exercises are not a list, so count stays a number', () => {
+      const odd = { id: 'r9', name: 'Odd', ex: { length: HUGE } }
+      const every = { 0: ['r9'], 1: ['r9'], 2: ['r9'], 3: ['r9'], 4: ['r9'], 5: ['r9'], 6: ['r9'] }
+      const snap = buildWidgetSnapshot(S({ routines: [odd], week: every }), { today: TODAY })
+      expect(snap.days).toHaveLength(WIDGET_DAYS)
+      for (const d of snap.days) {
+        // skipped: the day reads as rest
+        expect(d).toMatchObject({ name: null, count: 0 })
+        expect(typeof d.count).toBe('number')
+      }
+      expect(JSON.stringify(snap).length).toBeLessThan(20000)
+    })
+
     it('counts code points, so an emoji at the cut is kept or dropped whole', () => {
       const nameOf = name => buildWidgetSnapshot(S({ routines: [{ ...push, name }] }), { today: TODAY }).days[0].name
       const a = n => 'a'.repeat(n)
