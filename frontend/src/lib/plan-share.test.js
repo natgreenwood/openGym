@@ -392,3 +392,109 @@ describe('parsePlan refuses a file that is not a plan in words', () => {
     try { parsePlan('{oops') } catch (e) { expect(e.code).toBe('not-plan') }
   })
 })
+
+// NATG-507: a slot is stored as the file wrote it, so a hand-edited file's `"sets": "3"` imported,
+// trained fine (the planner's clamps coerce), and was unreadable to anyone it was shared with.
+describe('parsePlan stores every slot field in its own type', () => {
+  const fileWith = ex => JSON.stringify({ opengym_plan: 1, unit: 'kg', routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', ...ex }] }] })
+  const slotOf = ex => parsePlan(fileWith(ex)).routines[0].ex[0]
+  const NUMBERS = ['sets', 'reps', 'weight', 'min', 'speed', 'sec', 'inc', 'repsMin', 'repsMax', 'setsMax', 'deloadFactor']
+
+  it('imports a hand-edited file with numbers as text and a number as the note', () => {
+    const slot = slotOf({ sets: '3', reps: '8', weight: '40', note: 5 })
+    expect(slot).toEqual({ id: '0025', sets: 3, reps: 8, weight: 40 })
+  })
+
+  it('coerces every numeric field written as a numeric string', () => {
+    const slot = slotOf(Object.fromEntries(NUMBERS.map(k => [k, ' 0.8 '])))
+    for (const k of NUMBERS) expect(slot[k], k).toBe(0.8)
+  })
+
+  it('drops a numeric field that is not a finite number', () => {
+    for (const bad of ['', '  ', 'eight', '1e999', null, true, [3], { n: 3 }]) {
+      const slot = slotOf(Object.fromEntries(NUMBERS.map(k => [k, bad])))
+      for (const k of NUMBERS) expect(k in slot, `${k}: ${JSON.stringify(bad)}`).toBe(false)
+    }
+  })
+
+  it('keeps note, superset, dumbbell load and progression as text, and drops them otherwise', () => {
+    expect(slotOf({ note: 'Pause at the bottom', sg: 'sg-0-1', dbLoad: 'each', prog: 'double' }))
+      .toMatchObject({ note: 'Pause at the bottom', sg: 'sg-0-1', dbLoad: 'each', prog: 'double' })
+    for (const bad of [5, true, null, ['each'], { mode: 'each' }]) {
+      const slot = slotOf({ note: bad, sg: bad, dbLoad: bad, prog: bad })
+      for (const k of ['note', 'sg', 'dbLoad', 'prog']) expect(k in slot, `${k}: ${JSON.stringify(bad)}`).toBe(false)
+    }
+  })
+
+  it('keeps bodyweight and per side as flags, and drops them otherwise', () => {
+    expect(slotOf({ bodyweight: false, side: true })).toMatchObject({ bodyweight: false, side: true })
+    for (const bad of ['true', 1, 0, null, {}]) {
+      const slot = slotOf({ bodyweight: bad, side: bad, sideRestOff: true })
+      expect('bodyweight' in slot, JSON.stringify(bad)).toBe(false)
+      expect('side' in slot, JSON.stringify(bad)).toBe(false)
+      // A side rest only means something on a per-side slot, so it goes with the flag.
+      expect('sideRestOff' in slot, JSON.stringify(bad)).toBe(false)
+    }
+  })
+
+  it('still converts a load written as text into the destination unit', () => {
+    const file = JSON.stringify({ opengym_plan: 1, unit: 'kg', routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, reps: 5, weight: '60', inc: '2.5' }] }] })
+    expect(parsePlan(file, 'lb').routines[0].ex[0]).toMatchObject({ weight: 132.5, inc: 5.5 })
+  })
+
+  it('imports a file the app exported itself exactly as it was written', () => {
+    const slots = [
+      { id: '0025', sets: 4, reps: 6, weight: 82.5, prog: 'double', inc: 2.5, repsMin: 6, repsMax: 10, setsMax: 5, deloadFactor: 0.85, dbLoad: 'each', bodyweight: true, note: 'Slow down', sg: 'sg-0-1', sgName: 'Arms', sgRest: 90 },
+      { id: '0007', mode: 'time', sets: 3, sec: 45, weight: 10, side: true, sideRestSec: 15, sg: 'sg-0-1' },
+      { id: '0025', mode: 'cardio', sets: 1, min: 20, speed: 9.5, incline: 3 },
+    ]
+    const bundle = JSON.parse(JSON.stringify(buildPlanBundle({ unit: 'kg', routines: [{ id: 'r1', name: 'Mixed', ex: slots }], week: {}, customEx: [] }, 'Plan')))
+    const exported = bundle.routines[0].ex
+    expect(exported[0]).toMatchObject({ sets: 4, note: 'Slow down', bodyweight: true })
+    expect(parsePlan(JSON.stringify(bundle)).routines[0].ex).toEqual(exported)
+  })
+})
+
+// NATG-507 AC5: the fields outside the plain list fail a share the same way, so they get the
+// same rule. One test per field the Architect found passing through untyped.
+describe('parsePlan and mergePlan type the remaining slot and routine fields', () => {
+  const fileWith = (ex, routine = {}) => JSON.stringify({ opengym_plan: 1, unit: 'kg', routines: [{ id: 'r', name: 'Push', ...routine, ex: [{ id: '0025', sets: 3, reps: 5, ...ex }] }] })
+  const slotOf = ex => parsePlan(fileWith(ex)).routines[0].ex[0]
+  const merged = (ex, routine) => {
+    const s = { unit: 'kg', routines: [], week: {}, customEx: [] }
+    mergePlan(s, parsePlan(fileWith(ex, routine)))
+    return s.routines[0]
+  }
+
+  it('keeps a mode the app knows and drops any other', () => {
+    for (const mode of ['reps', 'time', 'cardio']) expect(slotOf({ mode }).mode).toBe(mode)
+    for (const bad of [1, 'Reps', 'hold', true, null]) expect('mode' in slotOf({ mode: bad }), JSON.stringify(bad)).toBe(false)
+  })
+
+  it('keeps back-off sets only as a flag', () => {
+    expect(slotOf({ backoff: true }).backoff).toBe(true)
+    for (const bad of [1, 'true', null, {}]) expect('backoff' in slotOf({ backoff: bad }), JSON.stringify(bad)).toBe(false)
+  })
+
+  it('keeps last set to failure only as a flag', () => {
+    expect(slotOf({ lastToFailure: true }).lastToFailure).toBe(true)
+    for (const bad of ['true', 1, null, []]) expect('lastToFailure' in slotOf({ lastToFailure: bad }), JSON.stringify(bad)).toBe(false)
+  })
+
+  it('drops a slot whose id is not text, even when it names a catalogue exercise', () => {
+    expect(slotOf({ id: '1000' }).id).toBe('1000')
+    const parsed = parsePlan(fileWith({ id: 1000 }))
+    expect(parsed.routines[0].ex).toEqual([])
+    expect(parsed.dropped).toBe(1)
+  })
+
+  it('stores the routine name, emoji and progression as text, and drops them otherwise', () => {
+    expect(merged({}, { name: 'Push', emoji: '💪', prog: 'double' })).toMatchObject({ name: 'Push', emoji: '💪', prog: 'double' })
+    for (const bad of [5, true, ['Push'], { n: 'Push' }]) {
+      const r = merged({}, { name: bad, emoji: bad, prog: bad })
+      expect(r.name, JSON.stringify(bad)).toBe('Shared routine')
+      expect('emoji' in r, JSON.stringify(bad)).toBe(false)
+      expect('prog' in r, JSON.stringify(bad)).toBe(false)
+    }
+  })
+})

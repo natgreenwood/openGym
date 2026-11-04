@@ -188,6 +188,33 @@ function cleanIntensifier(x) {
   return null
 }
 
+// The plain slot fields cleanEx writes as numbers, text and flags. A file the app exported always
+// has them in those types; a hand-edited or generated one may not, and a slot stored as `"3"` is
+// one the planner reads (its clamps coerce) but a recipient of the shared routine can't.
+const SLOT_NUMBERS = ['sets', 'reps', 'weight', 'min', 'speed', 'sec', 'inc', 'repsMin', 'repsMax', 'setsMax', 'deloadFactor']
+const SLOT_TEXT = ['note', 'sg', 'dbLoad', 'prog']
+const SLOT_FLAGS = ['bodyweight', 'side', 'backoff', 'lastToFailure']
+const SLOT_MODES = new Set(['reps', 'time', 'cardio'])
+
+/** A finite number, from a number or a numeric string like "3", or null. */
+function cleanNumber(v) {
+  if (typeof v === 'string' && v.trim()) v = Number(v)
+  return typeof v === 'number' && Number.isFinite(v) ? v : null
+}
+
+/** The slot with each plain field in the type cleanEx writes it, and dropped when it can't be:
+ *  a plan file is someone else's data, so a wrong type is left out rather than stored. */
+function cleanSlotTypes(e) {
+  const o = { ...e }
+  const keep = (k, v) => { if (v === null) delete o[k]; else o[k] = v }
+  SLOT_NUMBERS.forEach(k => { if (k in o) keep(k, cleanNumber(o[k])) })
+  SLOT_TEXT.forEach(k => { if (k in o) keep(k, typeof o[k] === 'string' ? o[k] : null) })
+  SLOT_FLAGS.forEach(k => { if (k in o) keep(k, typeof o[k] === 'boolean' ? o[k] : null) })
+  // An unknown mode is left out; modeOf then reads the slot the way it reads an older file.
+  if ('mode' in o) keep('mode', SLOT_MODES.has(o.mode) ? o.mode : null)
+  return o
+}
+
 // The muscles the map can draw, plus the one label the form gives a cardio exercise.
 const CUSTOM_MUSCLES = new Set([...MUSCLES, 'cardiovascular system'])
 const muscleList = v => inMuscleOrder([...new Set((Array.isArray(v) ? v : []).filter(m => CUSTOM_MUSCLES.has(m)))])
@@ -267,13 +294,17 @@ export function parsePlan(raw, destinationUnit = 'kg') {
   const routines = data.routines.filter(r => r && Array.isArray(r.ex)).map(r => ({
     ...r,
     ex: r.ex.filter(e => {
-      const ok = !!e && (known.has(e.id) || !!EXIDX[e.id])
+      // A string id only: a catalogue id that looks numeric ("1000") resolves when written as a
+      // number too, and is then stored as one.
+      const ok = !!e && typeof e.id === 'string' && (known.has(e.id) || !!EXIDX[e.id])
       if (!ok) dropped++
       return ok
-    }).map(e => {
+    }).map(slot => {
       // The exercises pass through as written, so the fields that carry numbers into the
-      // planner get the same clamps on the way in that they get on the way out. A drawing's id
-      // (the female figure of an exercise) becomes the exercise's own.
+      // planner get the same clamps on the way in that they get on the way out, and the plain
+      // fields are put in their own types. A drawing's id (the female figure of an exercise)
+      // becomes the exercise's own.
+      const e = cleanSlotTypes(slot)
       const warm = cleanWarmupSets(e.warmupSets)
       const intens = cleanIntensifier(e.intensifier)
       const rest = cleanRestSec(e.restSec)
@@ -342,9 +373,10 @@ export function mergePlan(s, bundle, { schedule } = {}) {
     ridMap[r.id] = nid
     s.routines.push({
       id: nid,
-      name: r.name || t('Shared routine'),
-      emoji: r.emoji,
-      ...(r.prog ? { prog: r.prog } : {}),
+      // The routine's own fields are text or absent, the way the routine editor writes them.
+      name: (typeof r.name === 'string' && r.name) || t('Shared routine'),
+      ...(typeof r.emoji === 'string' ? { emoji: r.emoji } : {}),
+      ...(typeof r.prog === 'string' && r.prog ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
       ex: (r.ex || []).map(e => ({ ...e, id: exIdMap[e.id] || canonicalExId(e.id) }))
     })
