@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { dayPhotosOf } from '../lib/day-photos.js'
@@ -480,14 +480,24 @@ export default function Stats() {
   const S = useStore(s => s.S)
   const shared = useSharedRoutines()
   const [range, setRange] = useState(90)
+  const showPlanVolume = S.routines.length > 0 || shared.routines.length > 0
   // Plan's "Weekly muscle volume" row lands here (/stats?focus=weekly-volume). The router is a
   // HashRouter, so the query sits in the hash; the scroll waits a frame for the page's own
-  // scroll-to-top on navigation to have happened first.
+  // scroll-to-top on navigation to have happened first. A plan made only of shared routines shows
+  // the card once the shares load, which can be after that frame (NATG-527), so this waits for the
+  // card and scrolls the first time it is there; later store or share updates never scroll again.
+  const volumeFocused = useRef(false)
   useEffect(() => {
+    if (volumeFocused.current || !showPlanVolume) return
     if (!/[?&]focus=weekly-volume\b/.test(window.location.hash || '')) return
-    const frame = window.requestAnimationFrame(() => document.getElementById('weekly-volume')?.scrollIntoView?.({ block: 'start', behavior: 'smooth' }))
+    const frame = window.requestAnimationFrame(() => {
+      const card = document.getElementById('weekly-volume')
+      if (!card) return
+      volumeFocused.current = true
+      card.scrollIntoView?.({ block: 'start', behavior: 'smooth' })
+    })
     return () => window.cancelAnimationFrame(frame)
-  }, [])
+  }, [showPlanVolume])
   const [exId, setExId] = useState(null)
   const [exMetric, setExMetric] = useState('top')
   // What the Body weight view measures the lift by: 'e1rm' (default) or the heaviest set.
@@ -755,7 +765,7 @@ export default function Stats() {
 
     {(workouts.length > 0 || Object.keys(loadOfWeeklyPlan(S, shared)).length > 0) && <MuscleBalance S={S} />}
     {/* Routines shared with you count: a plan made only of them has a weekly volume (NATG-498). */}
-    {(S.routines.length > 0 || shared.routines.length > 0) && <WeeklyPlanVolume S={S} />}
+    {showPlanVolume && <WeeklyPlanVolume S={S} />}
     {workouts.length > 0 && <div className="card row between" style={{ alignItems: 'center', gap: 12 }}>
       <div style={{ minWidth: 0 }}><h2 style={{ margin: 0 }}>{t('Structural balance')}</h2>
         <div className="muted small" style={{ marginTop: 4 }}>{t('See which lift is holding back the rest.')}</div></div>

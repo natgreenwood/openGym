@@ -122,4 +122,67 @@ describe('Stats — weekly muscle volume from the plan', () => {
       expect(scroll).toHaveBeenCalledTimes(1)
     } finally { vi.useRealTimers() }
   })
+
+  // NATG-527: a plan made only of shared routines shows the card once the shares load, which can
+  // be after the first frame. The deep link still scrolls to it, exactly once.
+  describe('the deep link with a plan made only of shared routines', () => {
+    const shareLists = () => ({ uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' },
+      unit: 'kg', hash: 'h', routine: { id: 'r9', name: 'Leg Day', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] } }] })
+    let scroll, orig
+    const frame = () => act(() => { vi.advanceTimersByTime(50) })
+    const rerender = () => act(() => root.render(<Stats />))
+    beforeEach(() => {
+      vi.useFakeTimers()
+      mocks.user = { id: 'u2', name: 'Jo' }
+      mocks.S = state({ routines: [], customEx: [], week: { 1: ['shared:s1'] } })
+      scroll = vi.fn()
+      orig = Element.prototype.scrollIntoView
+      Element.prototype.scrollIntoView = scroll
+    })
+    afterEach(() => {
+      Element.prototype.scrollIntoView = orig
+      mocks.user = null; mocks.shares = null
+      vi.useRealTimers()
+    })
+
+    it('scrolls once when the shares are ready before Stats mounts, and not again on later updates', () => {
+      window.location.hash = '#/stats?focus=weekly-volume'
+      mocks.shares = shareLists()
+      rerender()
+      expect(card()).toBeTruthy()
+      frame()
+      expect(scroll).toHaveBeenCalledTimes(1)
+      expect(scroll.mock.contexts[0]).toBe(card())
+      mocks.shares = shareLists(); rerender(); frame()
+      mocks.S = { ...mocks.S }; rerender(); frame()
+      expect(scroll).toHaveBeenCalledTimes(1)
+    })
+
+    it('scrolls once when the shares arrive after the first frame, and not again when they reload', () => {
+      window.location.hash = '#/stats?focus=weekly-volume'
+      rerender()
+      frame()
+      expect(card()).toBeNull()
+      expect(scroll).not.toHaveBeenCalled()
+      mocks.shares = shareLists(); rerender()
+      expect(card()).toBeTruthy()
+      frame()
+      expect(scroll).toHaveBeenCalledTimes(1)
+      expect(scroll.mock.contexts[0]).toBe(card())
+      // the share drops out and comes back: the card returns, the page stays where the user is
+      mocks.shares = null; rerender(); frame()
+      expect(card()).toBeNull()
+      mocks.shares = shareLists(); rerender(); frame()
+      expect(card()).toBeTruthy()
+      expect(scroll).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not scroll without the focus param, however late the shares arrive', () => {
+      window.location.hash = '#/stats'
+      rerender(); frame()
+      mocks.shares = shareLists(); rerender(); frame()
+      expect(card()).toBeTruthy()
+      expect(scroll).not.toHaveBeenCalled()
+    })
+  })
 })
