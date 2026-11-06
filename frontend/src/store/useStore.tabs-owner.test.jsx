@@ -955,6 +955,177 @@ describe('an edit saved before this tab has heard that the other tab changed the
   })
 })
 
+// NATG-541: the other order. The edit comes first and its push waits in the 1.5 s debounce; then
+// the other tab moves the owner key, and the timer fires while this tab's storage event for it is
+// still queued, so the store still names the previous account. A push sent then carried that
+// account's copy under whichever session the browser holds now.
+describe('a push waiting in the debounce when the other tab changes the owner', () => {
+  // Every PUT /api/data from here on, from either tab, with the revision it was sent against.
+  const recordPuts = puts => {
+    const answer = h.api
+    h.api = (path, opts = {}) => {
+      if (opts.method === 'PUT' && path === '/api/data') {
+        const body = JSON.parse(opts.body)
+        puts.push({ baseRev: body.baseRev ?? null, state: body.state })
+      }
+      return answer(path, opts)
+    }
+  }
+  // Tab A edits (restSec 45), and the push waits in the debounce. `switchOwner` runs while A's
+  // storage callbacks wait, the clock passes the debounce while they still wait, and then they run,
+  // as the browser delivers them once tab 1 is free.
+  const editThenSwitch = async (A, switchOwner) => {
+    const tabA = tabs.find(x => x.store === A)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await act(A, () => A.getState().update(s => { s.restSec = 45 }))
+      tabA.busy++
+      try {
+        await switchOwner()
+        writer = tabA
+        await vi.advanceTimersByTimeAsync(2000)
+      } finally { writer = null; tabA.busy-- }
+      pump()
+      await vi.advanceTimersByTimeAsync(2000)
+    } finally { vi.useRealTimers() }
+  }
+
+  it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+
+    await editThenSwitch(A, async () => {
+      // The sign-out's own last push of the account (settle) is the one that should go.
+      await act(B, () => B.getState().signOut())
+      recordPuts(puts)
+      expect(localStorage.getItem('gym_owner')).toBeNull()
+      expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+    })
+
+    expect(puts).toEqual([])
+    expect(A.getState().user).toBeNull()
+    expect(ids(A.getState().S)).toEqual([])
+    expect(ids(saved())).toEqual([])
+    expect(localStorage.getItem('gym_sync')).toBeNull()
+  })
+
+  it('after a sign-in to another account: the waiting push is not sent under the new session', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const yan = 'Y-' + OWNER
+    const puts = []
+
+    await editThenSwitch(A, async () => {
+      srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+      recordPuts(puts)
+      await act(B, () => B.getState().setUser({ id: yan, name: 'Yan' }, { adopt: true }))
+      expect(localStorage.getItem('gym_owner')).toBe(yan)
+      expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+    })
+
+    expect(puts).toEqual([])
+    expect(ids(srv.doc)).toEqual(['yW1'])
+    expect(srv.doc._rev).toBe(4)
+    expect(A.getState().user).toBeNull()
+    expect(ids(A.getState().S)).toEqual([])
+    expect(ids(saved())).toEqual([])
+  })
+
+  // The exception NATG-530 makes: an owner key that has moved back to the account this tab is
+  // signed in as (the other tab signed out and in again as Xavi) is not another owner, and the
+  // push goes. The sign-out's settle already sent the edit (revision 2); A's own push is the one
+  // sent against the revision A holds (1), refused and retried after the merge.
+  it('after the other tab signed out and back in as the same account: the waiting push still goes', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+
+    await editThenSwitch(A, async () => {
+      await act(B, () => B.getState().signOut())
+      recordPuts(puts)
+      await act(B, () => B.getState().setUser({ id: OWNER, name: 'Xavi' }, { adopt: true }))
+      expect(localStorage.getItem('gym_owner')).toBe(OWNER)
+      expect(A.getState().user?.id).toBe(OWNER)
+    })
+
+    const own = puts.filter(p => p.baseRev === 1)
+    expect(own).toHaveLength(1)
+    expect(own[0].state.restSec).toBe(45)
+    expect(ids(own[0].state)).toEqual(['x1', 'x2', 'x3'])
+    expect(srv.doc.restSec).toBe(45)
+    expect(ids(srv.doc)).toEqual(['x1', 'x2', 'x3'])
+  })
+
+  // AC2: a second edit's push, asked for while the first is still on its way, waits behind it
+  // (pushAgain). The other tab signs in as Yan before the first one's answer lands: the follow-up
+  // is for Xavi, and does not go under Yan's session.
+  it('a follow-up push queued behind one in flight is not sent once the other tab signed in as someone else', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const tabA = tabs.find(x => x.store === A)
+    const yan = 'Y-' + OWNER
+    // The first PUT is answered as it arrives (for Xavi), and its answer held until `release`.
+    const answer = h.api
+    let asked, release
+    const isAsked = new Promise(r => { asked = r })
+    const released = new Promise(r => { release = r })
+    h.api = async (path, opts = {}) => {
+      if (opts.method === 'PUT' && path === '/api/data') {
+        h.api = answer
+        const res = await answer(path, opts)
+        asked()
+        await released
+        return res
+      }
+      return answer(path, opts)
+    }
+    const puts = []
+
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      await act(A, () => A.getState().update(s => { s.restSec = 45 }))
+      await vi.advanceTimersByTimeAsync(2000)
+      await isAsked   // the first push is out
+      await act(A, () => A.getState().update(s => { s.restSec = 50 }))
+      await vi.advanceTimersByTimeAsync(2000)   // its push asked for while the first is in flight
+      tabA.busy++
+      try {
+        srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+        recordPuts(puts)
+        await act(B, () => B.getState().setUser({ id: yan, name: 'Yan' }, { adopt: true }))
+        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        writer = tabA
+        release()
+        await vi.advanceTimersByTimeAsync(2000)
+      } finally { writer = null; tabA.busy-- }
+      pump()
+      await vi.advanceTimersByTimeAsync(2000)
+    } finally { vi.useRealTimers() }
+
+    expect(puts).toEqual([])
+    expect(ids(srv.doc)).toEqual(['yW1'])
+    expect(srv.doc._rev).toBe(4)
+    expect(A.getState().user).toBeNull()
+  })
+})
+
 describe('a reset or import refused before this tab has heard that the other tab changed the owner', () => {
   /* NATG-570. A reset or an import arms its replace (no baseRev, or the revision it read) before
      its save, and the save is the one refused: the owner moved. The tab then takes the new
