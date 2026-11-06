@@ -741,6 +741,8 @@ describe('an edit saved before this tab has heard that the other tab changed the
 
     // Nothing of the account is saved in the browser, nor kept aside: on this path the edit was
     // made on the account's whole copy.
+    expect(A.getState().S.restSec).toBe(DEF.restSec)
+    expect(saved().restSec).toBe(DEF.restSec)
     expect(ids(saved())).toEqual([])
     expect(saved().routines).toEqual([])
     expect(saved().bodyweight).toEqual([])
@@ -782,6 +784,8 @@ describe('an edit saved before this tab has heard that the other tab changed the
     // Nothing of the old account is saved under the new owner, nor kept aside as this device's: the
     // only place its copy may stay is under its own id, where the sign-in itself keeps what it owes
     // (keepForPrevious).
+    expect(A.getState().S.restSec).toBe(DEF.restSec)
+    expect(saved().restSec).toBe(DEF.restSec)
     expect(ids(saved())).toEqual([])
     expect(saved().routines || []).toEqual([])
     expect(stashedEntries().filter(e => e.uid !== OWNER && ids(e.state).includes('x1'))).toEqual([])
