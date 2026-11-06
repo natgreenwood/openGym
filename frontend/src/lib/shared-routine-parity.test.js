@@ -4,28 +4,16 @@
  * The API image cannot import the frontend, so the list is a hand copy (docs/ARCHITECTURE.md,
  * "Code that exists twice on purpose"). It is an allowlist on the server: a field cleanEx learns
  * to keep and the list does not is silently withheld from every recipient. So the field names
- * are compared both ways, from cleanEx's own source, and a rich slot is run through both.
+ * are compared both ways against PLAN_SLOT_FIELDS, the frontend's list of every field cleanEx can
+ * write (plan-share.test.js holds cleanEx to that list), and a rich slot is run through both.
  */
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
-import { buildPlanBundle } from './plan-share.js'
+import { PLAN_SLOT_FIELDS, buildPlanBundle } from './plan-share.js'
 import { ROUTINE_FIELDS, SLOT_FIELDS, SLOT_WITHHELD, sharedRoutine } from '../../../api/shared-routine.js'
-
-// Every key cleanEx can write: the ones it starts the object with and every `o.<key> =` after.
-function cleanExKeys() {
-  const src = readFileSync(new URL('./plan-share.js', import.meta.url), 'utf8')
-  const start = src.indexOf('function cleanEx(e) {')
-  const body = src.slice(start, src.indexOf('\n}\n', start))
-  const init = /const o = \{([^}]*)\}/.exec(body)[1].split(',').map(p => p.split(':')[0].trim()).filter(Boolean)
-  const set = [...body.matchAll(/\bo\.(\w+)\s*=/g)].map(m => m[1])
-  return new Set([...init, ...set])
-}
 
 describe('shared routine fields: api/shared-routine.js against the plan export', () => {
   it('the slot list is exactly what cleanEx keeps, less the fields withheld on purpose', () => {
-    const kept = cleanExKeys()
-    expect(kept.size).toBeGreaterThan(20)   // the parse found cleanEx
-    expect([...SLOT_FIELDS, ...SLOT_WITHHELD].sort()).toEqual([...kept].sort())
+    expect([...SLOT_FIELDS, ...SLOT_WITHHELD].sort()).toEqual([...PLAN_SLOT_FIELDS].sort())
     expect(SLOT_FIELDS.filter(k => SLOT_WITHHELD.includes(k))).toEqual([])
   })
 
