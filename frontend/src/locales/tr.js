@@ -2710,4 +2710,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Bu, bir antrenmanın alabileceğinden fazla. Daha az rutin ya da daha az setli rutinler seç.',
   '{0} is too much to add to this workout.': '{0} bu antrenmana eklemek için fazla.',
   'too much for this workout': 'bu antrenman için fazla',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'En fazla {0}',
+  'Some counts were lowered': 'Bazı sayılar düşürüldü',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} egzersizde uygulamanın izin verdiğinden fazlası vardı. En fazla {1} set ya da aralık, {2} düşüş ve {3} rest-pause tekrarıyla eklenecek.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} egzersizde uygulamanın izin verdiğinden fazlası vardı. En fazla {1} set ya da aralık, {2} düşüş ve {3} rest-pause tekrarıyla eklenecekler.',
+  'People you share this with won’t be able to open it': 'Paylaştığın kişiler bunu açamayacak',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Paylaşılan bir rutin için fazla büyük. Yine de paylaşabilirsin. Daha az set ya da egzersiz içerdiğinde açabilecekler.',
 }
