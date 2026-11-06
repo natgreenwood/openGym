@@ -145,7 +145,9 @@ describe('converting the numbers to lb', () => {
   it('converts the plan stamped on each session with the routine, so an edit of the reps holds the weight last lifted', () => {
     const S = withPlan()
     train(S, { w: 110 })   // the plan says 100, the bar held 110
-    useStore.setState({ S, user: null, ready: true })
+    // Signed in, as the owner beforeEach writes: a guest copy in a browser another account owns is
+    // handed over to that account (the owner event), and the conversion then ran on nothing.
+    signedIn(S)
 
     // What Settings → Units → "Convert the numbers" does.
     useStore.getState().setUnit('lb')
