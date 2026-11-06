@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified by QA agent: 2026-11-06 (frontend); 2026-11-04 (API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,21 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Account ownership across tabs
+
+From `frontend/`:
+
+```sh
+npx vitest run src/store/useStore.tabs-owner.test.jsx
+```
+
+The harness imports independent stores sharing localStorage, mocks the API and
+replays storage events per tab. Its `accounts()` / `hold()` helpers control late
+responses, including a boot 401 after another tab changes accounts and a 401
+with the owner unchanged. `act()` identifies the writing tab; a tab's `busy`
+counter delays its storage callbacks until `pump()` can deliver them. These
+tests need no credentials or running server and do not exercise browser UI.
 
 ## Shared routines
 
