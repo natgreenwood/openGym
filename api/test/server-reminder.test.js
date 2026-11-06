@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -49,6 +49,7 @@ async function startServer(t, subs = [], { fault = false } = {}) {
   // readiness signal — see boundPort in helpers.mjs for why the test does not pick one.
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   return h;
 }
 
@@ -181,6 +182,8 @@ test('a null entry in workouts or routines does not cost that profile its remind
   const deadline = Date.now() + 30000;
   while (Date.now() < deadline && !firings(h.log)) await wait(300);
   assert.equal(firings(h.log), 1, h.log);
+  // The firing line came on stdout; a TypeError from the tick would come on stderr.
+  await h.settled();
   assert.doesNotMatch(h.log, /reminder tick u_test_1 TypeError/, h.log);
 });
 
@@ -248,6 +251,7 @@ test('a reminder whose payload fails to build does not spend the day, and is log
   await wait(1500);   // several more ticks, all failing
   assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
   assert.equal(firings(h.log), 0, h.log);
+  await h.settled();
   assert.doesNotMatch(h.log, /reminder tick u_test_1/, 'the failure is the payload\'s, not the tick\'s');
   let db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   assert.equal(db.users.find(u => u.id === 'u_test_1').lastReminder, undefined, 'a failed build spent the day');

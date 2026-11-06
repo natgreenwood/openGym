@@ -14,7 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../password.js';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -62,7 +62,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   };
   h.db = () => JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   h.audit = () => fs.readFileSync(path.join(h.dataDir, 'audit.log'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   return h;
 }
 
@@ -87,7 +87,7 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.ok(ev, 'audited');
   assert.equal(ev.uid, USER);
   assert.equal(ev.name, 'Mallory', 'by name, since the id stops meaning anything');
-  assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `no stack traces:\n${h.log}`);
 });
 
 test('needs the account name typed back', async t => {

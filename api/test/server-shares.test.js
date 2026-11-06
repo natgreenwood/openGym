@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -87,7 +87,8 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState() 
     catch { return []; }
   };
   h.stateBytes = uid => fs.readFileSync(path.join(dataDir, `state-${uid}.json`), 'utf8');
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   return h;
 }
 
@@ -231,7 +232,7 @@ test('AC3: each recipient answers their own record, and the sharer cannot tell a
     assert.equal(r.status, 404);
     assert.equal(r.body.code, 'share-missing');
   }
-  assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `no stack traces:\n${h.log}`);
 });
 
 test('AC3: sharing again changes nothing whatever the recipient did; to offer it again the sharer revokes and shares', async t => {
@@ -313,8 +314,9 @@ test('AC4: creation answers 503 when the caller\'s own document cannot be read, 
   assert.equal(r.status, 503);
   assert.deepEqual(h.db().shares, []);
   assert.equal(h.audit().some(a => a.ev === 'share.create'), false);
+  await h.settled();
   assert.match(h.log, /shares: state file unreadable for u_alex/);
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 
 test('AC6: DELETE /api/shares/{id} from another site is refused and changes nothing', async t => {

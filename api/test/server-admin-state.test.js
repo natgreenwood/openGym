@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -47,7 +47,7 @@ async function startServer(t) {
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
   // The boot line is fine; anything that looks like a stack frame after this is a defect.
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   h.plant = S => fs.writeFileSync(path.join(h.dataDir, `state-${VICTIM}.json`), JSON.stringify(S));
   h.get = async p => { const r = await fetch(`${h.api}${p}`, { headers: asAdmin }); return { status: r.status, body: await r.json() }; };
   return h;
@@ -95,7 +95,7 @@ test('GET /api/admin/user opens a profile whose stored state predates the entry 
   h.plant({ routines: [{ id: 'r2', name: 'Broken', ex: 'nope' }] });
   r = await h.get(`/api/admin/user?id=${VICTIM}`);
   assert.deepEqual(r.body.routines, [{ id: 'r2', name: 'Broken', count: 0 }]);   // an `ex` that is not a list counts as no exercises
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 test('GET /api/admin/user leaves a workout\'s photos and videos out', async t => {
@@ -130,7 +130,7 @@ test('the user list and the disable switch survive the same document', async t =
   const a = await h.get('/api/admin/audit?limit=10&cat=');
   assert.equal(a.status, 200);
   assert.ok(a.body.events.some(e => e.ev === 'admin.user.disable'), JSON.stringify(a.body.events));
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 // QA 1.3.9: a profile that only ever pulled (a second device, someone who reads and never edits)

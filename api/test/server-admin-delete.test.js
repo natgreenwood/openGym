@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -57,7 +57,7 @@ async function startServer(t, { twoAdmins = false } = {}) {
     return { status: r.status, body: await r.json() };
   };
   h.db = () => JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   return h;
 }
 
@@ -75,7 +75,7 @@ test('removes the account and everything attached to it', async t => {
   // The code they joined with stays burned: it was used, and freeing it would quietly widen
   // an invite-only instance.
   assert.equal(db.invites[0].usedBy, VICTIM);
-  assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `no stack traces:\n${h.log}`);
 });
 
 test('their session stops working immediately', async t => {
