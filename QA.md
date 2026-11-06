@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-06 by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -48,21 +48,11 @@ Coach validation/application and shared-routine regression tests together:
 npx vitest run src/lib/plan-share.test.js src/lib/shared-routine-parity.test.js src/lib/coach.test.js src/lib/shared-routines.test.js src/lib/shared-routines.boundary.test.js src/sheets.save-as-routine-shared.test.jsx --maxWorkers=2
 ```
 
-For browser checks, use a synthetic plan JSON through Plan's file input. Check
-Cancel, Add, malformed JSON, unchanged scheduling when the schedule switch is
-off, and persistence after reload. Unknown slot fields must not survive import.
-
-## API checks
-
-From `api/` (Node 22):
-
-```sh
-npm ci --ignore-scripts --no-audit --no-fund
-npm test
-```
-
-The suite uses local fixtures and mock providers; no real Coach credentials are
-needed. Neither package defines a separate lint or type-check command.
+For browser checks, use a synthetic plan JSON through Plan's file input. Include
+weekday assignments in its `week` block to show the schedule switch. Check Cancel,
+Add, malformed JSON, unchanged scheduling with the switch off, replacement
+assignments with it on, and persistence after reload. Unknown slot fields must
+not survive import.
 
 ## Known gaps
 
@@ -81,6 +71,9 @@ npm ci --omit=optional --no-audit --no-fund
 npm test
 node --test test/server-reminder.test.js test/server-nudge.test.js
 ```
+
+The suite uses local fixtures and mock providers; no real Coach credentials are
+needed. The install command matches CI and omits the optional Coach Agent SDK.
 
 There is no API build, lint or type-check script. For the API job's coverage and
 reporter options, see `.github/workflows/test.yml`. Its other checks, from the
