@@ -428,6 +428,35 @@ describe('parsePlan stores every slot field in its own type', () => {
     }
   })
 
+  // NATG-540: the share path's old pre-filter (typedSlot) did these two; cleanSlot does them now,
+  // for a plan file, a Coach plan and a shared routine alike.
+  it('keeps an exercise’s progression rule only when the app knows it', () => {
+    expect(slotOf({ prog: 'triple' }).prog).toBe('triple')
+    for (const bad of ['nonsense', 'Linear', '', 'constructor', '__proto__']) {
+      expect('prog' in slotOf({ prog: bad }), bad).toBe(false)
+    }
+    const s = { unit: 'kg', routines: [], week: {}, customEx: [] }
+    mergePlan(s, { routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, prog: 'nonsense' }, { id: '0025', sets: 3, prog: 'double' }] }] })
+    expect(s.routines[0].ex.map(e => e.prog)).toEqual([undefined, 'double'])
+  })
+
+  it('keeps only number and text steps, and zeroes a junk rest or weight in its own set', () => {
+    const odd = [12, { n: 1 }, [8], true, null, 'max', 6]
+    expect(slotOf({ sets: 4, pyramid: odd }).pyramid).toEqual([12, 'max', 6])
+    const s = { unit: 'kg', routines: [], week: {}, customEx: [] }
+    mergePlan(s, { routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, pyramid: odd, pyramidRest: [90, {}, 60], pyramidWeight: [[40], 45, 50, 55] }] }] })
+    expect(s.routines[0].ex[0]).toMatchObject({ pyramid: [12, 'max', 6], pyramidRest: [90, 0, 60], pyramidWeight: [0, 45, 50, 55] })
+    // An object Number() throws on stays out of the normalisers, and set 3's rest stays set 3's.
+    let slot
+    expect(() => { slot = slotOf({ sets: 3, pyramid: [12, 10, 8], pyramidRest: [90, { toString: 1 }, 60] }) }).not.toThrow()
+    expect(slot.pyramidRest).toEqual([90, 0, 60])
+    expect(slotOf({ sets: 3, pyramid: [12, 10, 8], pyramidWeight: [40, null, 50] }).pyramidWeight).toEqual([40, 0, 50])
+    for (const notList of ['12,8', 12, { 0: 12 }]) {
+      const slot = slotOf({ sets: 3, pyramid: notList, pyramidRest: notList, pyramidWeight: notList })
+      for (const k of ['pyramid', 'pyramidRest', 'pyramidWeight']) expect(k in slot, `${k}: ${JSON.stringify(notList)}`).toBe(false)
+    }
+  })
+
   it('keeps bodyweight and per side as flags, and drops them otherwise', () => {
     expect(slotOf({ bodyweight: false, side: true })).toMatchObject({ bodyweight: false, side: true })
     for (const bad of ['true', 1, 0, null, {}]) {

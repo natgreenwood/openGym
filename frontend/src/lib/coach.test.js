@@ -542,6 +542,16 @@ describe('created plans', () => {
     expect({}.polluted).toBeUndefined()
   })
 
+  // NATG-540: the slot's `why` and `name` are left out by mergePlan's slot cleaner, not by hand.
+  it('stores neither the Coach’s `why` nor an exercise `name` on a routine or its slots', () => {
+    const s = JSON.parse(JSON.stringify(state()))
+    const named = { ...bundle, routines: [{ id: 'x1', name: 'A', why: 'why A', ex: [{ id: '0001', sets: 3, reps: 10, mode: 'reps', why: 'why ex', name: 'Bench press' }] }], week: {} }
+    applyCreatedPlan(s, { id: 'p1', kind: 'create', bundle: named }, { schedule: false })
+    const made = s.routines[2]
+    expect('why' in made).toBe(false)
+    expect(made.ex[0]).toEqual({ id: '0001', sets: 3, reps: 10, mode: 'reps' })
+  })
+
   it('keeps every field validatePlan writes on a slot except its `why` (NATG-518 AC2)', async () => {
     const { validatePlan } = await import('../../../api/coach/core/validate.js')
     const answer = {

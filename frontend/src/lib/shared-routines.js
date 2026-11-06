@@ -19,6 +19,9 @@ import { sharesOf } from './shares.js'
 // each field is checked here for the type the app reads it as (slotWellTyped), and a share holding
 // a value of another type is not available: nothing renders or computes with it (SEC-01: never
 // String() a value from a share; SEC-486-03: never Number() one either).
+// Every SLOT_FIELDS entry needs a type here (or a check of its own below). The guard is
+// shared-routines.boundary.test.js: its WRONG map must name every SLOT_FIELDS entry with a type,
+// and a field these lists don't type then fails its wrong-type cases, since the share passes.
 const NUM = ['sets', 'min', 'speed', 'incline', 'sec', 'weight', 'reps', 'inc', 'deloadFactor', 'repsMin', 'setsMax', 'repsMax', 'restSec', 'warmupRestSec', 'sideRestSec', 'sgRest']
 const BOOL = ['bodyweight', 'side', 'backoff', 'lastToFailure', 'restOff', 'warmupRestOff', 'sideRestOff']
 const STR = ['id', 'mode', 'dbLoad', 'sg', 'sgName', 'note']
@@ -106,23 +109,6 @@ export function judgeRoutine(r) {
  */
 export const withinLimits = r => judgeRoutine(r) === 'ok'
 
-function typedSlot(e) {
-  if (!isObj(e) || typeof e.id !== 'string' || !e.id) return null
-  const out = {}
-  for (const k of NUM) if (typeof e[k] === 'number' && Number.isFinite(e[k])) out[k] = e[k]
-  for (const k of BOOL) if (typeof e[k] === 'boolean') out[k] = e[k]
-  for (const k of STR) if (typeof e[k] === 'string') out[k] = e[k]
-  // A pyramid step is a rep count or 'Max'; its rest and weight lists are numbers. The plan
-  // import's normalisers below clamp the lengths and values.
-  for (const k of ARR) if (Array.isArray(e[k])) out[k] = e[k].filter(x => (typeof x === 'number' && Number.isFinite(x)) || typeof x === 'string')
-  // Warm-up sets come as a number, an intensifier as an object (slotWellTyped checked both); the
-  // plan import's cleaners (cleanWarmupSets, cleanIntensifier) keep only a shape they know.
-  if (isNum(e.warmupSets)) out.warmupSets = e.warmupSets
-  if (isObj(e.intensifier)) out.intensifier = e.intensifier
-  if (typeof e.prog === 'string' && POLICIES.includes(e.prog)) out.prog = e.prog
-  return out
-}
-
 // One answer per share version and unit: the hash moves only when what the share shows does
 // (api/shared-routine.js contentHash), so the same answer is judged and converted once, not on
 // every render.
@@ -151,7 +137,10 @@ function evaluateShare(item, toUnit) {
       ...(text(r.emoji) ? { emoji: text(r.emoji) } : {}),
       ...(typeof r.prog === 'string' && POLICIES.includes(r.prog) ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-      ex: (r.ex || []).map(typedSlot).filter(Boolean),
+      // Each slot as the sharer stored it: judgeRoutine has checked every field's type, and
+      // parsePlan's slot cleaner (cleanSlot) keeps only the plan fields, a known progression rule
+      // and a pyramid's number and text entries, before its normalisers clamp the rest.
+      ex: r.ex || [],
     }
     const from = item.unit === 'lb' ? 'lb' : 'kg'
     const got = parsePlan({ opengym_plan: 1, unit: from, routines: [typed] }, to).routines[0]
