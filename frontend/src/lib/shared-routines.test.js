@@ -77,6 +77,37 @@ describe('sharedRoutineOf: the routine as this device trains it', () => {
     expect(r.ex[0].note).toBe('slow down')
     expect(r.ex[0].reps).toBe(5)
   })
+  // NATG-540: a shared slot goes through the plan import's slot cleaner (cleanSlot) and nothing
+  // else, so these pin what the share boundary did before that and must still do.
+  it('keeps an exercise’s own progression rule only when the app knows it', () => {
+    const r = sharedRoutineOf(accepted('s9', { ...LEG, ex: [
+      { id: '0025', sets: 3, reps: 5, prog: 'double' },
+      { id: '0007', sets: 3, reps: 5, prog: 'nonsense' },
+      { id: '0007', sets: 3, reps: 5, prog: 'constructor' },
+    ] }), 'kg')
+    expect(r.ex.map(e => e.prog)).toEqual(['double', undefined, undefined])
+    expect(r.ex.every(e => Object.hasOwn(e, 'prog') === (e.prog === 'double'))).toBe(true)
+  })
+  it('gives no routine for a pyramid holding a step that is neither a number nor text', () => {
+    for (const [k, list] of [['pyramid', [12, {}, 8]], ['pyramid', [12, [8], 6]], ['pyramid', [12, true, 8]], ['pyramidRest', [90, null, 90]], ['pyramidWeight', [40, { n: 1 }, 50]]]) {
+      const ex = [{ id: '0025', sets: 3, pyramid: [12, 10, 8], [k]: list }]
+      expect(sharedRoutineOf(accepted('pyr-' + k + JSON.stringify(list), { ...LEG, ex }), 'kg'), `${k} ${JSON.stringify(list)}`).toBeNull()
+    }
+  })
+  it('gives no routine for a count sent as numeric text, rather than reading "3" as 3', () => {
+    // judgeRoutine turns these away, which is why the share path can use a cleaner that coerces
+    // numeric text for a hand-edited plan file.
+    for (const k of ['sets', 'reps', 'weight', 'restSec', 'warmupSets', 'setsMax', 'repsMax']) {
+      const ex = [{ id: '0025', sets: 3, reps: 5, weight: 100, [k]: '3' }]
+      expect(sharedRoutineOf(accepted('text-' + k, { ...LEG, ex }), 'kg'), k).toBeNull()
+    }
+  })
+  it('keeps a pyramid of numbers and max exactly as the plan import normalises it', () => {
+    const ex = [{ id: '0025', sets: 4, pyramid: [12, 10, 8, 'max'], pyramidRest: [90, 90, 120], pyramidWeight: [40, 45, 50, 50] }]
+    expect(sharedRoutineOf(accepted('pyr-ok', { ...LEG, ex }), 'kg').ex[0]).toMatchObject({
+      pyramid: [12, 10, 8, 'max'], pyramidRest: [90, 90, 120, 0], pyramidWeight: [40, 45, 50, 50],
+    })
+  })
   it('gives no routine for a share holding a value of another type than the app reads (SEC-486-03)', () => {
     // Before SEC-486-03 these were left out one by one and the rest trained; now a share that
     // holds one is not available, so no code ever reads a value of the wrong type from a share.
