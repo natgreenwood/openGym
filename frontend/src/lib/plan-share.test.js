@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { PLAN_SLOT_FIELDS, buildPlanBundle, mergePlan, parsePlan } from './plan-share.js'
 import { isBodyweightEq } from './exercises.js'
+import { MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS } from './limits.js'
 
 // There was no test file for plan sharing at all, which is how a whole prescription field
 // went missing without anyone noticing.
@@ -761,5 +762,74 @@ describe('a slot keeps only the fields export writes (NATG-518)', () => {
     const s = fresh()
     mergePlan(s, { opengym_plan: 1, routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: '3', reps: 8, side: 'yes', mode: 'hold' }] }], customEx: [], week: {} })
     expect(s.routines[0].ex[0]).toEqual({ id: '0025', sets: 3, reps: 8 })
+  })
+})
+
+// NATG-503: the routine editor's steppers stop at lib/limits.js, so neither a plan file coming in
+// nor one going out holds a count above them. A count lowered on the way in is counted per
+// exercise (`capped`) so the import sheet can say so. Triple progression's `setsMax` keeps its
+// own clamp and is not part of either.
+describe('plan files hold counts to lib/limits.js (NATG-503)', () => {
+  const file = (...ex) => ({ opengym_plan: 1, name: 'x', routines: [{ id: 'r', name: 'R', ex }], week: {}, customEx: [] })
+  const over = { id: '0025', sets: 80, reps: 5 }
+  const drops = { id: '0025', sets: 3, reps: 5, intensifier: { type: 'dropset', count: 25, pct: 20 } }
+  const burst = { id: '0025', sets: 1, reps: 10, intensifier: { type: 'restpause', totalReps: 5000, restSec: 15 } }
+
+  it('AC4: imports 80 sets, 25 drops and 5,000 rest-pause reps as 50, 10 and 1,000', () => {
+    const plan = parsePlan(file(over, drops, burst))
+    const [a, b, c] = plan.routines[0].ex
+    expect(a.sets).toBe(MAX_WORK_SETS)
+    expect(b.intensifier).toEqual({ type: 'dropset', count: MAX_DROPS, pct: 20 })
+    expect(c.intensifier).toEqual({ type: 'restpause', totalReps: MAX_BURST_REPS, restSec: 15 })
+    expect([MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS]).toEqual([50, 10, 1000])
+  })
+
+  it('AC4: caps cardio intervals, which are stored as sets, the same way', () => {
+    const plan = parsePlan(file({ id: '0025', mode: 'cardio', sets: 99, min: 2, speed: 10 }))
+    expect(plan.routines[0].ex[0].sets).toBe(MAX_WORK_SETS)
+    expect(plan.capped).toBe(1)
+  })
+
+  it('AC4: counts each exercise with a lowered count once, as `capped`', () => {
+    const both = { id: '0025', sets: 80, reps: 5, intensifier: { type: 'dropset', count: 25, pct: 20 } }
+    expect(parsePlan(file(over, drops, burst, both)).capped).toBe(4)
+  })
+
+  it('AC4: reports nothing lowered for a file within the limits, at the limits exactly', () => {
+    const atCap = [
+      { id: '0025', sets: MAX_WORK_SETS, reps: 5 },
+      { id: '0025', sets: 3, reps: 5, intensifier: { type: 'dropset', count: MAX_DROPS, pct: 20 } },
+      { id: '0025', sets: 1, reps: 10, intensifier: { type: 'restpause', totalReps: MAX_BURST_REPS, restSec: 15 } },
+    ]
+    const plan = parsePlan(file(...atCap))
+    expect(plan.capped).toBe(0)
+    expect(plan.routines[0].ex.map(e => e.sets)).toEqual([MAX_WORK_SETS, 3, 1])
+  })
+
+  it('AC4: leaves triple progression\'s setsMax out of `capped` and as it was', () => {
+    const plan = parsePlan(file({ id: '0025', sets: 3, reps: 5, prog: 'triple', setsMax: 40 }))
+    expect(plan.capped).toBe(0)
+    expect(plan.routines[0].ex[0].setsMax).toBe(40)
+  })
+
+  it('AC4: does not count an exercise that was left out as lowered', () => {
+    const plan = parsePlan(file({ id: 'not-an-exercise', sets: 80, reps: 5 }, { id: '0025', sets: 3, reps: 5 }))
+    expect(plan.dropped).toBe(1)
+    expect(plan.capped).toBe(0)
+  })
+
+  it('AC5: exports older data above the limits at the limits', () => {
+    const bundle = buildPlanBundle(stateWith({ sets: 80 }), 'Plan')
+    expect(bundle.routines[0].ex[0].sets).toBe(MAX_WORK_SETS)
+    const dropBundle = buildPlanBundle(stateWith({ intensifier: { type: 'dropset', count: 25, pct: 20 } }), 'Plan')
+    expect(dropBundle.routines[0].ex[0].intensifier.count).toBe(MAX_DROPS)
+    const burstBundle = buildPlanBundle(stateWith({ intensifier: { type: 'restpause', totalReps: 5000, restSec: 15 } }), 'Plan')
+    expect(burstBundle.routines[0].ex[0].intensifier.totalReps).toBe(MAX_BURST_REPS)
+  })
+
+  it('AC5: exports counts within the limits, and unset sets, unchanged', () => {
+    expect(buildPlanBundle(stateWith({ sets: 12 }), 'Plan').routines[0].ex[0].sets).toBe(12)
+    expect(buildPlanBundle(stateWith({ sets: undefined }), 'Plan').routines[0].ex[0].sets).toBeUndefined()
+    expect(roundTrip({ intensifier: { type: 'dropset', count: 4, pct: 15 } }).intensifier).toEqual({ type: 'dropset', count: 4, pct: 15 })
   })
 })

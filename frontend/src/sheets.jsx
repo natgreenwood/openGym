@@ -3,7 +3,7 @@ import { useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
 import { EXDB, EXIDX, BODYPARTS, isCardio, isBodyweightEq, allExercises, equipmentOf, byCategory, smOf, searchExercises, similarExercises, exOr, isAssisted, betterWeight, beatsWeight, isCustomEx } from './lib/exercises.js'
 import { activeProfile, exAvailable, ALL_EQUIPMENT, newProfile, profileEquipment, ACC_V } from './lib/equipment.js'
-import { fmtDate, fmtDateRange, fmtNum, fmtPlate, exerciseNameText, fmtVol, fmtDur, durPart, todayISO, isoOf, uid, exCount, routineCount, setsWorkCount, DAYN, DAYS, weekOrder, weekStartOf, weekDayOffset, MONTHS_LONG, ACCENTS } from './lib/format.js'
+import { fmtDate, fmtDateRange, fmtNum, fmtPlate, fmtCount, exerciseNameText, fmtVol, fmtDur, durPart, todayISO, isoOf, uid, exCount, routineCount, setsWorkCount, DAYN, DAYS, weekOrder, weekStartOf, weekDayOffset, MONTHS_LONG, ACCENTS } from './lib/format.js'
 import { lastEntryFor, bestWeightFor, bestWeightForEntry, buildSets, effectiveRoutineIds, workoutDay, workoutVolume, sessionVolume, countsWarmups, setsDone, setsDoneActive, setUnitsTotal, lastBW, sessionSections, setLabel, defaultConfig, pickedExerciseConfig, cleanupSg, modeOf, effortOf, EFFORT, capEffort, stepEffort, isBw, isPerSide, sideReps, workSetsDone, applyIntensifierPlan, MAX_PLANNED_WARMUPS, NOTE_MAX } from './lib/history.js'
 import { usesBar, hasBarOverride, isNoBar, barTypeWeight, ownBarDefault, barPicks, withBarDefault, withStandardBars, defaultBarWeight, BAR_TYPES } from './lib/bar.js'
 import { PLATE_SIZES, pairsOf, ownsPlates, withPlatePairs, withStandardPlates, withLoadKind, loadKindFor, baseWeightFor, dropGrid } from './lib/plates.js'
@@ -2550,6 +2550,17 @@ function PlanImport({ bundle, close }) {
         : ''}
     </div>
     <div className="dim small" style={{ marginBottom: 14, lineHeight: 1.4 }}>{t('These are added as new routines. Nothing you already have is touched.')}</div>
+    {/* Counts over lib/limits.js were lowered to them on the way in (parsePlan `capped`, NATG-503).
+        The numbers come from the limits themselves, so the sentence can't drift from them. */}
+    {bundle.capped > 0 && <div className="shared-notice warn" role="status" style={{ marginBottom: 14 }}>
+      <Icon name="warning" />
+      <div>
+        <b>{t('Some counts were lowered')}</b>
+        <span>{tn('{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.',
+          '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.',
+          bundle.capped, fmtCount(MAX_WORK_SETS), fmtCount(MAX_DROPS), fmtCount(MAX_BURST_REPS))}</span>
+      </div>
+    </div>}
     {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 14, lineHeight: 1.4 }}>
       {t(bundle.dropped === 1
         ? '{0} exercise in the file isn’t in your library and was left out.'
