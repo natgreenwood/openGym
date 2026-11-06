@@ -11,7 +11,7 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF, useStore } from './useStore.js'
+import { DEF } from './useStore.js'
 import { editCompletedSession } from '../lib/session-edit.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
@@ -24,15 +24,30 @@ const gets = () => api.mock.calls.filter(([, o]) => !o)
 // As setUser signs in: the browser's owner is the account (a pull or push checks it).
 const signedIn = (S, extra = {}) => { if (extra.user !== null) localStorage.setItem('gym_owner', extra.user?.id || 'user-1'); useStore.setState({ S, user: { id: 'user-1' }, ready: true, ...extra }) }
 
-beforeEach(() => {
+// Every test loads its own store, as a page load does (useStore.mobile-remote.test.jsx). What the
+// store keeps outside its state is not useStore.setState's to reset: a change owed since before
+// boot left the next test pushing, and the owner it had seen decided whether a boot took the
+// browser's owner for another tab signing in. The stores before are signed out, so no poll or
+// debounced push of theirs runs in a later test.
+let useStore
+let stores = []
+async function freshStore() {
+  vi.resetModules()
+  ;({ useStore } = await import('./useStore.js'))
+  stores.push(useStore)
+  return useStore
+}
+
+beforeEach(async () => {
   localStorage.clear()
   api.mockReset()
-  useStore.setState({ S: clone(DEF), user: null, ready: false })
+  await freshStore()
 })
 afterEach(() => {
   vi.useRealTimers()
   localStorage.clear()
-  useStore.setState({ S: clone(DEF), user: null, ready: false })
+  for (const s of stores) s.setState({ S: clone(DEF), user: null, ready: false })
+  stores = []
 })
 
 describe('pull against a revisioned server', () => {
@@ -250,8 +265,11 @@ describe('ordering', () => {
   it('boot keeps a change made during its pull and pushes the merge', async () => {
     vi.useFakeTimers()
     localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
-    useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: false })
     localStorage.setItem('gym_user', JSON.stringify({ id: 'user-1' }))
+    // The page loads in a browser this account already owns: a store loaded before the owner was
+    // written takes it for another tab signing in, and its boot ends there.
+    await freshStore()
+    useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: false })
     api.mockImplementation(async (path, opts) => {
       if (path === '/api/config') return { allow_guest: true }
       if (path === '/api/me') return { user: { id: 'user-1', name: 'One' } }
