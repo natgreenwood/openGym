@@ -851,6 +851,71 @@ describe('a request sent after its account has left the browser', () => {
     expect(saved().routines).toEqual([])
     expect(ids(saved())).toEqual([])
   })
+
+  // NATG-574: tab 1 reloads signed in as A, whose cookie has expired, and its /api/me is out when
+  // the other tab signs out and in as B. The 401 arrives after that: it is about A's old session,
+  // and boot's setUser(null) removed B's gym_user, so the other tab showed the sign-in screen
+  // until its next boot. The same 401 with the owner unchanged still signs this tab out.
+  async function bootRefused({ toB }) {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
+    const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
+    srv.session = null   // A's cookie has expired: /api/me answers 401
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+    const S = clone(aDoc); delete S._rev
+    localStorage.setItem('gym_state_v1', JSON.stringify(S))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+    const A = await openTab({ id: aId, name: 'Xavi' })   // the tab that reloads
+    const B = await openTab({ id: aId, name: 'Xavi' })
+    A.setState({ ready: false })
+
+    const held = srv.hold('GET', '/api/me')
+    const booting = A.getState().boot()
+    await held.asked
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until its boot has gone on
+    try {
+      if (toB) {
+        await act(B, () => B.getState().signOut())
+        srv.session = bId
+        await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+        await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+        expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
+      }
+      writer = tabA
+      held.release()
+      await booting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+    await act(A, settleTicks)
+    return { A, B, aId, bId }
+  }
+
+  it('NATG-574: a boot 401 landing after the other tab signed in as B leaves B\'s gym_user in place', async () => {
+    const { A, B, bId } = await bootRefused({ toB: true })
+
+    expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
+    expect(localStorage.getItem('gym_owner')).toBe(bId)
+    expect(B.getState().user?.id).toBe(bId)
+    // Tab 1 follows the other tab rather than saying A's session ended.
+    expect(A.getState().user?.id ?? null).not.toBe(OWNER)
+    expect(A.getState().sync.lastError?.code).not.toBe('auth')
+  })
+
+  it('NATG-574: a boot 401 with the owner unchanged still signs this tab out', async () => {
+    const { A, aId } = await bootRefused({ toB: false })
+
+    expect(localStorage.getItem('gym_user')).toBeNull()
+    expect(A.getState().user).toBeNull()
+    expect(A.getState().sync).toMatchObject({ status: 'auth', lastError: { status: 401 } })
+    // The copy stays with its owner, for A signing in again (adoptProfile).
+    expect(localStorage.getItem('gym_owner')).toBe(aId)
+    expect(ids(saved())).toEqual(['x1', 'x2', 'x3'])
+  })
 })
 
 // NATG-530: the NATG-528 window reached from a local edit instead of a late answer. The other tab
