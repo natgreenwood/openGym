@@ -7,15 +7,17 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+_Frontend checks last verified: 2026-11-06 by QA agent_
+
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
 
 ```sh
 npm ci --ignore-scripts --no-audit --no-fund
-npm test
-npx vitest run src/store/
+npm test -- --maxWorkers=2
+npx vitest run src/store/ --maxWorkers=2
 npx vitest run src/store/shared-routines.reload-newer.test.jsx
 node scripts/check-locales.mjs
 node scripts/check-source-strings.mjs --strict
@@ -25,6 +27,20 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Account sync
+
+From `frontend/`, check account ownership, reset propagation, backup replacement
+and revision-conflict retries together:
+
+```sh
+npx vitest run src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-sync.test.jsx src/store/useStore.import-check.test.jsx src/store/useStore.import-restore.test.jsx --maxWorkers=2
+```
+
+These tests use synthetic localStorage profiles and mocked API responses. The
+tabs-owner suite checks outgoing `baseRev` values and the resulting document
+with a revision-aware mock server; it does not exercise real device-link
+authentication or browser storage-event scheduling.
 
 ## Shared routines
 
