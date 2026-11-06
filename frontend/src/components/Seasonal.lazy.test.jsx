@@ -11,10 +11,13 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const st = vi.hoisted(() => ({ S: {}, loaded: 0 }))
 vi.mock('../store/useStore.js', () => ({ useStore: sel => sel({ S: st.S }) }))
-vi.mock('../seasonal/halloween.jsx', () => {
+// Registered per test (beforeEach): `loaded` counts the fetches of the theme's module, and a mock
+// loaded once stays loaded, so the tests that expect nothing fetched passed without looking once
+// the module had come in.
+const halloween = () => {
   st.loaded++
   return { Layer: () => <i className="layer" />, Deco: ({ spot }) => <i className={'deco-' + spot} /> }
-})
+}
 
 const SRC = join(__dirname, '..')
 const files = (dir, out = []) => {
@@ -43,6 +46,7 @@ describe('no theme code in the main bundle', () => {
 describe('fetched only while a theme shows', () => {
   let host, root
   beforeEach(() => {
+    vi.resetModules(); vi.doMock('../seasonal/halloween.jsx', halloween); st.loaded = 0
     vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date(2026, 9, 25, 12))
     host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host)
   })
