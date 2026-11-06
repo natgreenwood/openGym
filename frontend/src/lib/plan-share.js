@@ -228,7 +228,6 @@ const SLOT_FLAGS = ['bodyweight', 'side', 'backoff', 'lastToFailure']
 const SLOT_MODES = new Set(['reps', 'time', 'cardio'])
 // A pyramid's steps are rep counts or 'max', its rests and weights numbers: an entry of any other
 // type is never handed to the normalisers, which read each one with Number().
-const SLOT_STEP_LISTS = ['pyramid', 'pyramidRest', 'pyramidWeight']
 const stepOk = x => (typeof x === 'number' && Number.isFinite(x)) || typeof x === 'string'
 
 /** A finite number, from a number or a numeric string like "3", or null. */
@@ -258,7 +257,11 @@ function cleanSlot(e) {
   // A rule the progression engine doesn't know is left out, so the routine's rule or the mode's
   // default applies (progression.js policyFor), the way it does for a slot with none.
   if ('prog' in o) keep('prog', typeof o.prog === 'string' && POLICIES.includes(o.prog) ? o.prog : null)
-  SLOT_STEP_LISTS.forEach(k => { if (k in o) keep(k, Array.isArray(o[k]) ? o[k].filter(stepOk) : null) })
+  // Steps compact (a step with no value is no step). Rests and weights are positional
+  // (pyramidWeight[i] belongs to pyramid[i]), so a junk entry becomes 0, "not set", and the
+  // entries after it keep their set. Neither list reaches Number() with an object in it.
+  if ('pyramid' in o) keep('pyramid', Array.isArray(o.pyramid) ? o.pyramid.filter(stepOk) : null)
+  for (const k of ['pyramidRest', 'pyramidWeight']) if (k in o) keep(k, Array.isArray(o[k]) ? o[k].map(x => (stepOk(x) ? x : 0)) : null)
   // An unknown mode is left out; modeOf then reads the slot the way it reads an older file.
   if ('mode' in o) keep('mode', SLOT_MODES.has(o.mode) ? o.mode : null)
   return o
