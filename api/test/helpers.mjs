@@ -60,12 +60,18 @@ export function boundPort(child, tail = () => '') {
  * nothing on the pass path.
  *
  * `tail` supplies whatever the caller has collected of the child's output, as for boundPort.
+ *
+ * `from`, if given, is a promise the 15 s clock waits for; the listening starts at once all the
+ * same. A caller that starts listening at spawn passes the end of boot here, so a slow boot (up
+ * to the 20 s boundPort allows) is not charged to the wait for the line.
  */
-export function logLine(child, prefix, tail = () => '', ms = 15000) {
+export function logLine(child, prefix, tail = () => '', ms = 15000, from) {
   return new Promise((resolve, reject) => {
     let seen = tail();
+    let give, over = false;
     const find = () => seen.split('\n').slice(0, -1).find(l => l.startsWith(prefix));
     const done = () => {
+      over = true;
       clearTimeout(give);
       child.stdout.off('data', look);
       child.stderr.off('data', look);
@@ -79,7 +85,11 @@ export function logLine(child, prefix, tail = () => '', ms = 15000) {
       resolve(line);
     };
     const gone = code => { done(); reject(new Error(`server exited (${code}) before logging "${prefix}":\n${tail() || seen}`)); };
-    const give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${tail() || seen}`)); }, ms);
+    const clock = () => {
+      if (over) return;
+      give = setTimeout(() => { done(); reject(new Error(`server never logged "${prefix}" in ${ms} ms:\n${tail() || seen}`)); }, ms);
+    };
+    if (from) from.then(clock, clock); else clock();
     child.stdout.on('data', look);
     child.stderr.on('data', look);
     child.once('exit', gone);
