@@ -3,7 +3,10 @@
 // watch's events applied once each through the workout screen's own actions, drained from the
 // native queue and acknowledged only when done.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { buildSnapshot, buildReady, applyEvents, bindWatchActions, bindWatchAppActions, drainWatchEvents, _setWatchPluginForTest, _resetWatchSync, SNAPSHOT_VERSION } from './watch-sync.js'
+import { buildSnapshot, buildReady, fitSnapshot, applyEvents, bindWatchActions, bindWatchAppActions, drainWatchEvents, _setWatchPluginForTest, _resetWatchSync, SNAPSHOT_VERSION, SNAPSHOT_MAX_BYTES } from './watch-sync.js'
+import { buildCombinedEntries, deriveSessionName } from './session-merge.js'
+import { sharedViewOf } from './shared-routines.js'
+import { MAX_WIDGET_TEXT } from './limits.js'
 
 const state = (over = {}) => ({
   unit: 'kg', restSec: 90, workouts: [], routines: [],
@@ -47,6 +50,91 @@ describe('the snapshot', () => {
   it('names the last time of an exercise when the history has one', () => {
     const S = state({ workouts: [{ id: 'old', d: '2026-10-01', entries: [{ id: '0025', target: { sets: 2, reps: 8 }, sets: [{ w: 55, r: 8, done: true }, { w: 55, r: 7, done: true }] }] }] })
     expect(buildSnapshot(S).active.entries[0].last).toMatch(/55/)
+  })
+})
+
+// Every name that comes from routine data is cut to MAX_WIDGET_TEXT code points, so a sharer's
+// routine name can't push the snapshot over the app-context limit, which would leave the watch
+// never hearing of the workout (NATG-553, the watch side of SEC-526-01).
+describe('text from routine data is bounded', () => {
+  const HUGE = 'x'.repeat(1 << 20) // 1 MiB
+  const CUT = HUGE.slice(0, MAX_WIDGET_TEXT)
+  const bytesOf = v => new TextEncoder().encode(JSON.stringify(v)).length
+  // Catalogue exercises only: a shared routine with a custom exercise is not available at all.
+  const sharedNamed = name => ({ id: 'r9', name, ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }, { id: '0001', sets: 2, reps: 10 }] })
+  // Its own hash per routine: the shared view keeps a routine it has already checked by hash.
+  const viewOf = routine => sharedViewOf({ S: { unit: 'kg' }, user: { id: 'u2', name: 'Jo' }, shares: { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: `h-${routine.name.length}`, routine }] } })
+  // A session started from the shared routine the way sheets.jsx beginWorkout starts one.
+  const startedFrom = (name, ids = ['shared:s1'], over = {}) => {
+    const S = { unit: 'kg', restSec: 90, workouts: [], routines: [], week: {}, dayPlan: {}, ...over }
+    const { entries, routineIds, routines } = buildCombinedEntries(S, ids, viewOf(sharedNamed(name)))
+    expect(routines.length).toBe(ids.length)
+    return { ...S, active: { id: 'w-9', start: 1000, routineIds, name: deriveSessionName(routines.map(r => r.name)), cur: 0, entries } }
+  }
+
+  it('cuts a running session named from a 1 MiB shared routine name, and keeps the workout whole', () => {
+    const big = buildSnapshot(startedFrom(HUGE))
+    const small = buildSnapshot(startedFrom('Short'))
+    expect(big.active.name).toBe(CUT)
+    // everything else is as it is with a short name
+    expect({ ...big.active, name: 'Short' }).toEqual(small.active)
+    expect(big.active.entries).toHaveLength(2)
+    expect(big.active.entries[0].sets).toHaveLength(3)
+    // within what the watch accepts, so fitSnapshot has nothing to drop
+    expect(bytesOf(big)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+    expect(fitSnapshot(big)).toBe(big)
+  })
+
+  it('cuts the joined name of a session from a shared routine and your own', () => {
+    const own = { id: 'r-own', name: HUGE, ex: [{ id: '0043', sets: 5, reps: 5, weight: 100 }] }
+    const snap = buildSnapshot(startedFrom(HUGE, ['shared:s1', 'r-own'], { routines: [own] }))
+    expect(snap.active.name).toBe(CUT)
+    expect(snap.active.entries.map(e => e.id)).toEqual(['0025', '0001', '0043'])
+    expect(bytesOf(snap)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+  })
+
+  it('cuts the names of what the watch can start, and a custom exercise\'s name', () => {
+    const routines = [
+      { id: 'r-a', name: HUGE, ex: [{ id: 'c9', name: HUGE, sets: 2, reps: 10 }] },
+      { id: 'r-b', name: 'B' + HUGE, ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }] },
+      { id: 'r-c', name: 'Pull', ex: [{ id: '0001', sets: 2, reps: 10 }] },
+    ]
+    // Tuesday's plan is two routines, so today's name is two huge names joined
+    const S = { unit: 'kg', workouts: [], routines, week: { 2: ['r-a', 'r-b'] }, dayPlan: {} }
+    const ready = buildReady(S, '2026-10-13')
+    expect(ready.today.name).toBe(CUT)
+    expect(ready.today.entries[0].name).toBe(CUT)
+    expect(ready.others.map(o => o.name)).toEqual(['Pull'])
+    const alone = buildReady({ ...S, week: {} }, '2026-10-13')
+    expect(alone.others.map(o => o.name)).toEqual([CUT, 'B' + HUGE.slice(0, MAX_WIDGET_TEXT - 1), 'Pull'])
+    expect(alone.others[0].entries[0].name).toBe(CUT)
+    const snap = buildSnapshot({ ...S, active: { id: 'w1', name: 'Mine', entries: [{ id: 'c9', target: { name: HUGE }, sets: [{ r: 10, done: false }] }] } }, { ready: alone })
+    expect(snap.active.entries[0].name).toBe(CUT)
+    expect(bytesOf(snap)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+  })
+
+  it('counts code points, so an emoji at the cut is kept or dropped whole, and leaves short names alone', () => {
+    const a = n => 'a'.repeat(n)
+    const nameOf = name => buildSnapshot(state({ active: { ...state().active, name } })).active.name
+    const entryNameOf = name => buildSnapshot(state({ active: { ...state().active, entries: [{ id: 'c9', target: { name }, sets: [] }] } })).active.entries[0].name
+    for (const of of [nameOf, entryNameOf]) {
+      // the 200th code point is the emoji: kept whole (201 UTF-16 units)
+      expect(of(a(199) + '💪' + 'tail')).toBe(a(199) + '💪')
+      // the emoji would be the 201st: dropped whole, not half of it
+      expect(of(a(200) + '💪')).toBe(a(200))
+      expect(of('💪'.repeat(300))).toBe('💪'.repeat(200))
+      // at the limit and under it: unchanged
+      expect(of(a(200))).toBe(a(200))
+      expect(of('💪'.repeat(200))).toBe('💪'.repeat(200))
+      expect(of('Push 💪')).toBe('Push 💪')
+      for (const name of [a(199) + '💪💪', a(200) + '💪', '💪'.repeat(300)]) {
+        const cut = of(name)
+        expect([...cut].length).toBeLessThanOrEqual(MAX_WIDGET_TEXT)
+        expect(cut).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
+      }
+    }
+    // a catalogue exercise keeps its own title-cased name
+    expect(buildSnapshot(state()).active.entries[0].name).toBe('Barbell Bench Press')
   })
 })
 
