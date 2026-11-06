@@ -24,17 +24,17 @@ const UID = 'u_bad_1';
 const authed = { Cookie: `gymsid=${mintSession(UID)}`, 'Content-Type': 'application/json' };
 const anon = { 'Content-Type': 'application/json' };
 
-async function startServer(t) {
+async function startServer(t, subs = []) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-bad-'));
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
-    users: [{ id: UID, name: 'One', created: new Date().toISOString() }], creds: [], subs: [], invites: []
+    users: [{ id: UID, name: 'One', created: new Date().toISOString() }], creds: [], subs, invites: []
   }));
   const child = spawn(process.execPath, ['server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost' }
   });
-  const h = { api: '', log: '', dataDir };
+  const h = { api: '', log: '', dataDir, child };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -200,4 +200,25 @@ test('POST /api/push/rest-timer: a missing or invalid `seconds` is a 400, never 
     assert.deepEqual(r, { status: 200, body: { ok: true } }, `body ${b}`);
   }
   assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+});
+
+// NATG-542: a stored `lang` that is not a string made the rest timer's push throw on its timer
+// callback, outside any request's try, and the API exited for every account. The subscription's
+// keys are not real, so web-push refuses the send before any socket opens, and that log line is
+// how the test knows the timer has fired. One server per value, so each starts from a clean log.
+test('a rest timer for a profile whose lang is not a string fires without taking the API down', async t => {
+  const sub = { userId: UID, endpoint: 'https://localhost/x', keys: { p256dh: 'p', auth: 'a' }, created: new Date().toISOString() };
+  for (const lang of [{ toString: 1 }, [{ toString: 1 }]]) {
+    const label = JSON.stringify(lang);
+    const h = await startServer(t, [sub]);
+    const put = await send(h, 'PUT', '/api/data', authed, JSON.stringify({ state: { _ts: 1, lang } }));
+    assert.equal(put.status, 200, label);
+    assert.deepEqual(await status(h, 'POST', '/api/push/rest-timer', authed, '{"seconds":1}'), { status: 200, body: { ok: true } });
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline && h.child.exitCode === null && !/push send failed u_bad_1/.test(h.log)) await new Promise(r => setTimeout(r, 100));
+    assert.equal(h.child.exitCode, null, `the API exited with lang ${label}:\n${h.log}`);
+    assert.match(h.log, /push send failed u_bad_1/, `the rest timer never sent, lang ${label}:\n${h.log}`);
+    assert.equal((await fetch(`${h.api}/api/health`)).status, 200);
+    assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  }
 });

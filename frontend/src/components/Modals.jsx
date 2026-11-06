@@ -44,8 +44,17 @@ const drainScrollRestore = close => {
   }
 }
 
-// One bottom sheet (or centered dialog) with swipe-to-dismiss.
-function Sheet({ sheet }) {
+// The page behind an open sheet (App.jsx spreads this on #app and on the bars and layers beside
+// #modal-root): inert, so Tab and a tap cannot reach it, and hidden from screen readers, until the
+// last sheet closes. #modal-root itself and the toast are left out; the toast has to be heard.
+export function useBehindSheet() {
+  const open = useUI(s => s.sheets.length > 0)
+  return open ? { inert: true, 'aria-hidden': true } : {}
+}
+
+// One bottom sheet (or centered dialog) with swipe-to-dismiss. `top`: the sheet last opened, the
+// only one that can be used; a sheet under it is inert and hidden like the page.
+function Sheet({ sheet, top }) {
   const closeSheet = useUI(s => s.closeSheet)   // not the whole store: an open sheet re-rendered on every rest tick
   const ref = useRef(null)
   // startY null = no gesture. axis stays null until the finger has travelled far enough to
@@ -122,22 +131,25 @@ function Sheet({ sheet }) {
   }, [])
 
   const close = () => closeSheet(sheet.id)
+  const under = top ? {} : { inert: true, 'aria-hidden': true }
   // Full screen, on black: a photo or video opened from a workout (WorkoutMedia.jsx). No
   // backdrop to tap, no drag to dismiss — the viewer has its own close button, and back closes
-  // it like any sheet.
-  if (sheet.kind === 'viewer') return <div>{sheet.render(close)}</div>
+  // it like any sheet. Every viewer is its own role="dialog" with a name (WorkoutMedia.jsx,
+  // ProgressPhotos.jsx), so this wrapper takes no role: a second dialog around it would be a
+  // nameless one.
+  if (sheet.kind === 'viewer') return <div {...under}>{sheet.render(close)}</div>
   if (sheet.kind === 'center') {
     return (
-      <div>
+      <div {...under}>
         <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-        <div className={'center' + (sheet.wide ? ' wide' : '')}>{sheet.render(close)}</div>
+        <div className={'center' + (sheet.wide ? ' wide' : '')} role="dialog" aria-modal="true">{sheet.render(close)}</div>
       </div>
     )
   }
   return (
-    <div>
+    <div {...under}>
       <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-      <div className="sheet" ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      <div className="sheet" role="dialog" aria-modal="true" ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
         <div className="grab" />
         {sheet.render(close)}
@@ -271,7 +283,7 @@ export default function Modals() {
   if (!sheets.length) return null
   return (
     <div id="modal-root" className="open">
-      {sheets.map(s => <Sheet key={s.id} sheet={s} />)}
+      {sheets.map((s, i) => <Sheet key={s.id} sheet={s} top={i === sheets.length - 1} />)}
     </div>
   )
 }

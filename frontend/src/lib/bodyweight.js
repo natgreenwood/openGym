@@ -62,21 +62,30 @@ export const RATE_WINDOW_DAYS = 21
 export const RATE_MIN_WEIGHINS = 6
 export const RATE_MIN_SPAN_DAYS = 10
 const DAY = 86400000
+// An iso date as a whole day count, the same in every time zone.
+const dayNumber = iso => { const [y, m, d] = iso.split('-').map(Number); return Date.UTC(y, m - 1, d) / DAY }
 
 /**
  * The trend of the weigh-ins in the `days` up to `now`, in the weigh-ins' own unit per week and
  * in percent of the window's mean weight per week. `{ enough: false, n }` when there are fewer
- * than RATE_MIN_WEIGHINS, or they span less than RATE_MIN_SPAN_DAYS. Each weigh-in sits at noon
- * of its day, so a correction typed later does not move it along the line.
+ * than RATE_MIN_WEIGHINS, or they span less than RATE_MIN_SPAN_DAYS. Each weigh-in sits on its
+ * calendar day, a whole number of days from the others, so a correction typed later does not move
+ * it along the line and a 23- or 25-hour day at a clock change does not bend it.
  */
 export function weightRate(bodyweight, { now = Date.now(), days = RATE_WINDOW_DAYS } = {}) {
-  const from = isoOf(new Date(now - (days - 1) * DAY)), to = isoOf(new Date(now))
+  // Count the window back in calendar days: (days - 1) * 24 h is a day short or long for an hour
+  // a day once a clock change is inside it (NATG-525). Step from noon, so no zone's clock-change
+  // hour can push the date over midnight.
+  const start = new Date(now)
+  start.setHours(12, 0, 0, 0)
+  start.setDate(start.getDate() - (days - 1))
+  const from = isoOf(start), to = isoOf(new Date(now))
   const pts = (Array.isArray(bodyweight) ? bodyweight : [])
     .filter(b => b?.d && b.d >= from && b.d <= to && Number(b.w) > 0)
-    .map(b => ({ x: new Date(b.d + 'T12:00:00').getTime() / DAY, y: Number(b.w) }))
+    .map(b => ({ x: dayNumber(b.d), y: Number(b.w) }))
   const n = pts.length
   const span = n ? Math.max(...pts.map(p => p.x)) - Math.min(...pts.map(p => p.x)) : 0
-  if (n < RATE_MIN_WEIGHINS || span < RATE_MIN_SPAN_DAYS - 0.5) return { enough: false, n }
+  if (n < RATE_MIN_WEIGHINS || span < RATE_MIN_SPAN_DAYS) return { enough: false, n }
   const mx = pts.reduce((s, p) => s + p.x, 0) / n, my = pts.reduce((s, p) => s + p.y, 0) / n
   const slope = pts.reduce((s, p) => s + (p.x - mx) * (p.y - my), 0) / pts.reduce((s, p) => s + (p.x - mx) ** 2, 0)
   const perWeek = slope * 7

@@ -524,3 +524,166 @@ it('NATG-531 AC2: on A\'s next load after the switch, A\'s pointer to the remove
   expect(useStore.getState().S.week[1]).toBeUndefined()
   expect(ui.toast).not.toHaveBeenCalled()
 })
+
+// NATG-522: a Remove's reload settles only once the latest request for the user has swept, so its
+// mark outlasts a follow-up that another refresh makes stale again. Here the DELETE is applied on
+// the server but its answer fails, while an older request is out.
+const serverError = () => Object.assign(new Error('server'), { status: 500 })
+const OTHER = id => ({ ...share(id), routine: PUSH })
+const failedRemoveBehindOlderLoad = async (incoming = [share('s1')], week = { 1: ['shared:s1'] }) => {
+  net.incoming = incoming
+  await signedIn({ ...clone(DEF), week })
+  await useStore.getState().loadShares()
+  const held = heldDeletes()
+  net.hold = true
+  const older = useStore.getState().loadShares()
+  const removing = useStore.getState().removeShare('s1')
+  const failed = expect(removing).rejects.toThrow('server')
+  // Applied on the server, answered with an error.
+  net.incoming = net.incoming.filter(i => i.id !== 's1'); net.etag = 'e2'
+  held[0].reject(serverError())
+  await failed
+  // The older request, stale since the Remove joined it, lands with s1 and starts the next one.
+  answers[0](lists(incoming, 'e1'))
+  await older
+  await tick(0)
+  expect(answers).toHaveLength(2)
+  return held
+}
+
+it('NATG-522 AC1: Sync now making the Remove\'s follow-up stale does not tell the removed share as revoked', async () => {
+  await failedRemoveBehindOlderLoad()
+  const synced = useStore.getState().loadSharesNewer()
+  answers[1](lists([], 'e2'))
+  await tick(0)
+  expect(answers).toHaveLength(3)
+  answers[2](lists([], 'e2'))
+  await synced
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-522 AC1: a second Remove making the first one\'s follow-up stale tells neither share as revoked', async () => {
+  const held = await failedRemoveBehindOlderLoad([share('s1'), OTHER('s2')], { 1: ['shared:s1'], 2: ['shared:s2'] })
+  const second = useStore.getState().removeShare('s2')
+  net.incoming = []; net.etag = 'e3'
+  held[1].resolve({ ok: true })
+  await expect(second).resolves.toBe(true)
+  answers[1](lists([OTHER('s2')], 'e2'))
+  await tick(0)
+  expect(answers).toHaveLength(3)
+  answers[2](lists([], 'e3'))
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(useStore.getState().S.week[2]).toBeUndefined()
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-522 AC2: in the same chain, a share its owner revokes is still told, once', async () => {
+  await failedRemoveBehindOlderLoad([share('s1'), OTHER('s2')], { 1: ['shared:s1'], 2: ['shared:s2'] })
+  // The owner of s2 revokes it while the follow-up is out, and Sync now makes that one stale.
+  net.incoming = []; net.etag = 'e3'
+  const synced = useStore.getState().loadSharesNewer()
+  answers[1](lists([OTHER('s2')], 'e2'))
+  await tick(0)
+  expect(answers).toHaveLength(3)
+  answers[2](lists([], 'e3'))
+  await synced
+  await tick()
+  expect(useStore.getState().S.week[2]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Push Day is no longer shared with you. It’s off your schedule too.')
+})
+
+it('NATG-522 AC2: once every reload in the chain has settled after a failed Remove the server did not apply, a revoke of that share is told', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const held = heldDeletes()
+  net.hold = true
+  const older = useStore.getState().loadShares()
+  const removing = useStore.getState().removeShare('s1')
+  const failed = expect(removing).rejects.toThrow('server')
+  held[0].reject(serverError())
+  await failed
+  answers[0](lists([share('s1')], 'e1'))
+  await older
+  await tick(0)
+  const synced = useStore.getState().loadSharesNewer()
+  answers[1](lists([share('s1')], 'e1'))
+  await tick(0)
+  expect(answers).toHaveLength(3)
+  answers[2](lists([share('s1')], 'e1'))
+  await synced
+  await tick()
+  expect(useStore.getState().shares.incoming.map(i => i.id)).toEqual(['s1'])
+  expect(ui.toast).not.toHaveBeenCalled()
+  // Later, its owner revokes it.
+  net.hold = false; net.incoming = []; net.etag = 'e2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+})
+
+it('NATG-522 AC3: with every follow-up made stale, loadSharesNewer still settles after a bounded number of them, and nothing is left unhandled', async () => {
+  const unhandled = []
+  const onUnhandled = e => unhandled.push(e)
+  process.on('unhandledRejection', onUnhandled)
+  try {
+    await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+    await useStore.getState().loadShares()
+    net.hold = true
+    let settled = false
+    const first = useStore.getState().loadSharesNewer().then(v => { settled = true; return v })
+    const later = []
+    // Each request is made stale (Sync now) before it lands, so each landing starts another.
+    let n = 0
+    while (!settled && n < 20) {
+      later.push(useStore.getState().loadSharesNewer())
+      answers[n](lists([share('s1')], 'e1'))
+      n++
+      await tick(0)
+    }
+    expect(settled).toBe(true)
+    // It gave up waiting with a request still out: the one it joined plus five follow-ups
+    // (SHARES_NEWER_MAX).
+    expect(n).toBe(1 + 5)
+    expect(answers).toHaveLength(n + 1)
+    await expect(first).resolves.toMatchObject({ uid: USER.id })
+    // The refreshes stop; the request still out lands, and every caller settles.
+    net.hold = false
+    answers[n](lists([share('s1')], 'e1'))
+    await Promise.all(later)
+    await tick()
+  } finally { process.off('unhandledRejection', onUnhandled) }
+  expect(unhandled).toEqual([])
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-522: a reload for one account settles when its own request lands, not on the request of the account signed in next', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  net.hold = true
+  let settled = false
+  const a = useStore.getState().loadSharesNewer().then(v => { settled = true; return v })
+  await tick(0)
+  expect(answers).toHaveLength(1)
+  // A signs out and B signs in; B's own request goes out while A's is still in flight.
+  await useStore.getState().signOut({ force: true })
+  localStorage.setItem('gym_owner', B.id)
+  useStore.setState({ S: { ...clone(DEF), week: { 2: ['shared:s2'] } }, user: B, ready: true, config: { shares: true }, shares: null })
+  const b = useStore.getState().loadShares()
+  expect(answers).toHaveLength(2)
+  // A's answer lands: it is not B's, and A's call is done.
+  answers[0](lists([share('s1')], 'a1'))
+  await tick()
+  expect(settled).toBe(true)
+  await expect(a).resolves.toBeNull()
+  answers[1](lists([{ ...share('s2'), routine: PUSH }], 'b1'))
+  await expect(b).resolves.toMatchObject({ uid: B.id })
+  expect(ui.toast).not.toHaveBeenCalled()
+})
