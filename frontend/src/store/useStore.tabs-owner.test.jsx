@@ -110,6 +110,18 @@ const savedCopy = (doc, rev) => {
   localStorage.setItem('gym_state_v1', JSON.stringify(S))
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
 }
+// Every PUT /api/data the server receives from here on, from either tab, with the revision it was
+// sent against.
+const recordPuts = puts => {
+  const answer = h.api
+  h.api = (path, opts = {}) => {
+    if (opts.method === 'PUT' && path === '/api/data') {
+      const body = JSON.parse(opts.body)
+      puts.push({ baseRev: body.baseRev ?? null, state: body.state })
+    }
+    return answer(path, opts)
+  }
+}
 
 beforeEach(async () => {
   localStorage.clear()
@@ -847,15 +859,8 @@ describe('a request sent after its account has left the browser', () => {
 // and moved this tab's idea of the owner along, so the queued event found nothing to clear and
 // the push the edit scheduled sent that copy under the new session 1.5 s later.
 describe('an edit saved before this tab has heard that the other tab changed the owner', () => {
-  // Every PUT /api/data the server receives from here on, from either tab. Started once the owner
-  // has moved: the sign-out's own last push of the account (settle) is the one that should go.
-  const recordPuts = puts => {
-    const answer = h.api
-    h.api = (path, opts = {}) => {
-      if (opts.method === 'PUT' && path === '/api/data') puts.push(JSON.parse(opts.body).state)
-      return answer(path, opts)
-    }
-  }
+  // recordPuts is started once the owner has moved: the sign-out's own last push of the account
+  // (settle) is the one that should go.
   // `change` runs as tab A while its storage callbacks wait, in order, for it to finish; then the
   // queued callbacks run, as the browser delivers them, and the push debounce has its chance.
   const editBeforeHearing = async (A, switchOwner, change) => {
@@ -949,7 +954,7 @@ describe('an edit saved before this tab has heard that the other tab changed the
     await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
     expect(ids(srv.doc)).toEqual(['yW1'])
     expect(srv.doc.routines || []).toEqual([])
-    expect(puts.some(s => ids(s).includes('x1') || (s.routines || []).length)).toBe(false)
+    expect(puts.some(({ state: s }) => ids(s).includes('x1') || (s.routines || []).length)).toBe(false)
     // A follows the sign-in like any tab the owner changed under.
     expect(ids(A.getState().S)).toEqual(['yW1'])
   })
@@ -960,17 +965,6 @@ describe('an edit saved before this tab has heard that the other tab changed the
 // still queued, so the store still names the previous account. A push sent then carried that
 // account's copy under whichever session the browser holds now.
 describe('a push waiting in the debounce when the other tab changes the owner', () => {
-  // Every PUT /api/data from here on, from either tab, with the revision it was sent against.
-  const recordPuts = puts => {
-    const answer = h.api
-    h.api = (path, opts = {}) => {
-      if (opts.method === 'PUT' && path === '/api/data') {
-        const body = JSON.parse(opts.body)
-        puts.push({ baseRev: body.baseRev ?? null, state: body.state })
-      }
-      return answer(path, opts)
-    }
-  }
   // Tab A edits (restSec 45), and the push waits in the debounce. `switchOwner` runs while A's
   // storage callbacks wait, the clock passes the debounce while they still wait, and then they run,
   // as the browser delivers them once tab 1 is free.
@@ -1061,6 +1055,8 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       expect(A.getState().user?.id).toBe(OWNER)
     })
 
+    // Only A's push, and its retry after the 409 merge: B pushes nothing while its question is open.
+    expect(puts.map(p => p.baseRev)).toEqual([1, 2])
     const own = puts.filter(p => p.baseRev === 1)
     expect(own).toHaveLength(1)
     expect(own[0].state.restSec).toBe(45)
