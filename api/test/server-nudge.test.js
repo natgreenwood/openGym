@@ -139,11 +139,12 @@ test('a nudge whose payload fails to build does not spend the evening, and is lo
   h.write(missedToday(tz));
   const failures = () => (h.log.match(new RegExp(`nudge payload ${UID} r1 Error: payload fault`, 'g')) || []).length;
   await logLine(h.child, `nudge payload ${UID} r1 Error: payload fault`, () => h.log);
+  await h.settled();   // an exact count says no second line has come; stderr has to be all in
   assert.equal(failures(), 1, h.log);
   await wait(1200);  // several more ticks, all failing
+  await h.settled();
   assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
   assert.equal(firings(h.log), 0, h.log);
-  await h.settled();
   assert.doesNotMatch(h.log, /reminder tick/, 'the failure is the payload\'s, not the tick\'s');
   assert.equal(h.db().users[0].lastNudge, undefined, 'a failed build spent the evening');
   assert.equal(fs.readFileSync(dbFile, 'utf8'), beforeDb, 'a failed build changed the database');

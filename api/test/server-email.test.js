@@ -11,7 +11,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hashPassword, hashResetCode, normalizeEmail, maskEmail } from '../password.js';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -83,6 +83,7 @@ async function startServer(t, { env = {}, users = [], creds = [], invites = [] }
   // The boot line carries the port the listener bound, so it is both the address and the
   // readiness signal — see boundPort in helpers.mjs for why the test does not pick one.
   h.api = `http://127.0.0.1:${await boundPort(child, () => h.log)}`;
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   // Every request looks like the app talking to its own backend unless a test says otherwise.
   h.req = async (method, p, { body, cookie, ip = '198.51.100.1', headers = {} } = {}) => {
     const r = await fetch(`${h.api}${p}`, {
@@ -104,7 +105,10 @@ const signIn = (h, body, ip) => h.req('POST', '/api/login/password', { body, ip 
 const setEmail = (h, cookie, body, ip) => h.req('POST', '/api/account/email', { body, cookie, ip });
 const WRONG = { error: 'wrong name or password', code: 'bad-credentials' };
 // Nothing in the audit log, the process output or db.json's neighbours may carry the address.
-const leaks = (h, needle) => {
+// Async, and settled first (helpers.mjs): an address logged just before the last answer may
+// still be in the pipe, and a missing await compares a Promise with false and fails.
+const leaks = async (h, needle) => {
+  await h.settled();
   const audit = (() => { try { return fs.readFileSync(path.join(h.dataDir, 'audit.log'), 'utf8'); } catch { return ''; } })();
   return audit.toLowerCase().includes(needle) || h.log.toLowerCase().includes(needle);
 };
@@ -170,7 +174,7 @@ test('a wrong password, an unknown address and an address without a password get
   const fails = h.audit().filter(e => e.ev === 'auth.password.fail');
   assert.ok(fails.some(e => e.uid === 'u1' && e.msg === 'bad-password'));
   assert.equal(fails.filter(e => e.msg === 'unknown-email').length, 2);
-  assert.equal(leaks(h, 'example.com'), false);
+  assert.equal(await leaks(h, 'example.com'), false);
 });
 
 test('a profile name with an "@" in it still signs in by name', async t => {
@@ -264,7 +268,7 @@ test('setting, changing and removing the address needs the owner’s proof, neve
     ['auth.email.remove', 'u1', 'password'],
     ['auth.email.set', 'u2', 'passkey · b…@e…']
   ]);
-  assert.equal(leaks(h, 'example.com'), false);
+  assert.equal(await leaks(h, 'example.com'), false);
 });
 
 test('an address is unique across profiles, case-insensitively, and never another password holder’s name', async t => {
@@ -296,7 +300,7 @@ test('an address is unique across profiles, case-insensitively, and never anothe
   assert.equal(r.status, 200);
   assert.equal(h.db().users.find(u => u.name === 'Dee').email, 'dee@example.com');
   assert.equal((await signIn(h, { identifier: 'dee@example.com', password: GOOD }, '198.51.100.154')).status, 200);
-  assert.equal(leaks(h, 'example.com'), false);
+  assert.equal(await leaks(h, 'example.com'), false);
 });
 
 test('on an invite-only instance signup says nothing about addresses without a valid invite, and a refusal keeps the invite', async t => {
@@ -351,7 +355,7 @@ test('signing up with an address as the name counts against the address like the
   }
   const r = await h.req('POST', '/api/register/password', { body: { name: 'ana@example.com', password: GOOD }, ip });
   assert.equal(r.status, 429); assert.equal(r.body.code, 'locked');
-  assert.equal(leaks(h, 'example.com'), false);
+  assert.equal(await leaks(h, 'example.com'), false);
 });
 
 test('a reset code is redeemed with the e-mail as well as with the name', async t => {

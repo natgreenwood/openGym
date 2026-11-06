@@ -247,11 +247,12 @@ test('a reminder whose payload fails to build does not spend the day, and is log
   const failures = () => (h.log.match(/reminder payload u_test_1 r1 Error: payload fault/g) || []).length;
   let deadline = Date.now() + 30000;
   while (Date.now() < deadline && !failures()) await wait(300);
+  await h.settled();   // an exact count says no second line has come; stderr has to be all in
   assert.equal(failures(), 1, h.log);
   await wait(1500);   // several more ticks, all failing
+  await h.settled();
   assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
   assert.equal(firings(h.log), 0, h.log);
-  await h.settled();
   assert.doesNotMatch(h.log, /reminder tick u_test_1/, 'the failure is the payload\'s, not the tick\'s');
   let db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   assert.equal(db.users.find(u => u.id === 'u_test_1').lastReminder, undefined, 'a failed build spent the day');
