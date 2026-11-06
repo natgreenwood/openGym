@@ -9,6 +9,9 @@ import { useUI } from './store/useUI.js'
 import { loadStarterPlan, starterPlanSheet } from './sheets.jsx'
 
 const mounted = []
+// The copy the store started with: each test starts from it, so the equipment profile one test
+// picks is not still picked in the next.
+const initialS = useStore.getState().S
 
 const S = () => useStore.getState().S
 // S.week[day] is a routine-id list now; the starter plan writes a one-element list per day.
@@ -38,9 +41,9 @@ function choose(name) {
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
   useUI.setState({ sheets: [], toastMsg: '' })
-  useStore.setState(s => ({
-    S: { ...s.S, routines: [{ id: 'mine', name: 'My routine', emoji: 'star', ex: [] }], week: {}, active: null },
-  }))
+  useStore.setState({
+    S: { ...structuredClone(initialS), routines: [{ id: 'mine', name: 'My routine', emoji: 'star', ex: [] }], week: {}, active: null },
+  })
   document.body.innerHTML = ''
 })
 
