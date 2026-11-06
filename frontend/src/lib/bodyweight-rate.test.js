@@ -42,9 +42,9 @@ describe('weekly rate', () => {
 // neither moves its first day for an hour a day nor bends the line with a 23- or 25-hour day.
 // London moved its clocks forward on 29 March 2026 and back on 25 October 2026.
 describe('weekly rate across a clock change', () => {
-  const inLondon = fn => {
+  const inZone = (zone, fn) => {
     const was = process.env.TZ
-    try { process.env.TZ = 'Europe/London'; fn() } finally {
+    try { process.env.TZ = zone; fn() } finally {
       if (was === undefined) delete process.env.TZ; else process.env.TZ = was
     }
   }
@@ -53,25 +53,32 @@ describe('weekly rate across a clock change', () => {
   const steady = (y, m, d, backs) => backs.map(back => ({ d: before(y, m, d, back), w: 80 + 0.1 * (20 - back), t: 1 }))
   const BACKS = [20, 16, 12, 8, 4, 0]
 
-  it('keeps the first day of the window in the last hour before midnight after the autumn change', () => inLondon(() => {
+  it('keeps the first day of the window in the last hour before midnight after the autumn change', () => inZone('Europe/London', () => {
     const bw = steady(2026, 11, 3, BACKS)
     for (const [h, min] of [[22, 30], [23, 30]]) {
       expect(weightRate(bw, { now: new Date(2026, 10, 3, h, min).getTime() }), `${h}:${min}`).toMatchObject({ enough: true, n: 6 })
     }
   }))
 
-  it('does not reach a day further back in the first hour after midnight after the spring change', () => inLondon(() => {
+  it('does not reach a day further back in the first hour after midnight after the spring change', () => inZone('Europe/London', () => {
     const now = new Date(2026, 3, 10, 0, 30).getTime()
     expect(weightRate([{ d: before(2026, 4, 10, 21), w: 80 }], { now }).n).toBe(0)
     expect(weightRate([{ d: before(2026, 4, 10, 20), w: 80 }], { now }).n).toBe(1)
     expect(weightRate(steady(2026, 4, 10, [21, ...BACKS]), { now })).toMatchObject({ enough: true, n: 6 })
   }))
 
-  it('reads a steady 0.1 a day as exactly 0.7 a week, either side of the year', () => inLondon(() => {
+  it('reads a steady 0.1 a day as exactly 0.7 a week, either side of the year', () => inZone('Europe/London', () => {
     for (const [y, m, d] of [[2026, 11, 3], [2026, 4, 10]]) {
       const r = weightRate(steady(y, m, d, BACKS), { now: new Date(y, m - 1, d, 12).getTime() })
       expect(Math.abs(r.perWeek - 0.7), `${y}-${m}-${d}`).toBeLessThan(1e-9)
     }
+  }))
+
+  it('starts the window on the right day at 23:30 in a zone whose clocks change at 23:00', () => inZone('America/Nuuk', () => {
+    // Nuuk moved forward at 23:00 on Saturday 28 March 2026; 20 days later, 23:xx of that day does not exist.
+    const now = new Date(2026, 3, 17, 23, 30).getTime()
+    expect(weightRate([{ d: '2026-03-28', w: 80 }], { now }).n).toBe(1)
+    expect(weightRate([{ d: '2026-03-27', w: 80 }], { now }).n).toBe(0)
   }))
 })
 
