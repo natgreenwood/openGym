@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { t, tn } from '../lib/i18n.js'
 import { filterPeople, initials, shareError } from '../lib/shares.js'
+import { withinLimits } from '../lib/shared-routines.js'
 import Icon from './Icon.jsx'
 import { Button, SearchField } from './ui.jsx'
 
@@ -95,9 +96,21 @@ export default function ShareRoutineSheet({ routine, already, close, onShared, r
 
   const shown = people ? filterPeople(people, q) : []
   const full = picked.size >= MAX_PICK
-  return <div role="dialog" aria-labelledby={titleId}>
+  // A routine past lib/limits.js can still be shared, but the people it reaches are shown it as
+  // not available (lib/shared-routines.js judgeRoutine), so the sharer is told first (NATG-503).
+  // Part of the dialog's description, so it is read when the sheet opens with focus in search.
+  const oversized = !withinLimits(routine)
+  const noticeId = titleId + '-limits'
+  return <div role="dialog" aria-labelledby={titleId} aria-describedby={oversized ? noticeId : undefined}>
     <h3 id={titleId} style={{ marginBottom: 6 }}>{t('Share {0}', routine.name)}</h3>
     <div className="muted share-lead">{t('Pick who gets it. They’ll find it in Plan › Shared once they accept.')}</div>
+    {oversized && <div className="shared-notice warn" id={noticeId} style={{ marginBottom: 14 }}>
+      <Icon name="warning" />
+      <div>
+        <b>{t('People you share this with won’t be able to open it')}</b>
+        <span>{t('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')}</span>
+      </div>
+    </div>}
     <SearchField ref={searchRef} value={q} placeholder={t('Search people')} aria-label={t('Search people')}
       onChange={e => setQ(e.target.value)} onClear={() => { setQ(''); searchRef.current?.focus() }} />
 
