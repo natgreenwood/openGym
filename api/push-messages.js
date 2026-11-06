@@ -21,8 +21,11 @@ const COPY = {
   },
 };
 
-// Own-property lookups: `lang` is whatever the client stored, and `COPY.constructor` is Object.
-const copyFor = lang => (Object.hasOwn(COPY, lang) ? COPY[lang] : COPY.en);
+// `lang` is whatever the client stored. Only a string is looked up, and only as an own key:
+// `COPY.constructor` is Object, and a key that is not a string is coerced first, which throws for
+// `{"toString":1}` (on a rest timer's callback, that took the process down: NATG-542).
+const knownLang = (packs, lang) => typeof lang === 'string' && Object.hasOwn(packs, lang);
+const copyFor = lang => (knownLang(COPY, lang) ? COPY[lang] : COPY.en);
 
 // A routine's `emoji` field held a literal emoji until the glyph redesign; since then it holds
 // an icon key ('dumbbell', 'figureRun') that the app renders as an SVG. A push notification has
@@ -78,7 +81,7 @@ const nudgeCopyFor = lang => {
     const ch = s => s.replace(/ß/g, 'ss');
     return Object.fromEntries(Object.entries(NUDGE_COPY.de).map(([k, c]) => [k, { title: ch(c.title), lines: c.lines.map(ch) }]));
   }
-  return Object.hasOwn(NUDGE_COPY, lang) ? NUDGE_COPY[lang] : NUDGE_COPY.en;
+  return knownLang(NUDGE_COPY, lang) ? NUDGE_COPY[lang] : NUDGE_COPY.en;
 };
 export function nudgePush(lang, tone, routine, iso) {
   const copy = nudgeCopyFor(lang)[NUDGE_COPY.en[tone] ? tone : 'friendly'];
