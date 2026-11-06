@@ -211,6 +211,37 @@ describe('a refused import\'s files', () => {
     }
   })
 
+  // NATG-599: one record that cannot be restored does not stop the rest.
+  it('carries on past a record it cannot restore or remove, and resolves', async () => {
+    const be = memoryBackend()
+    const media = createMediaStore(be)
+    const a = jpeg(), b = png(), c = png(3, 2)
+    const refs = { a: await refFor(a, 'image/jpeg'), b: await refFor(b, 'image/png'), c: await refFor(c, 'image/png') }
+    await media.put(refs.a.hash, new Blob([a]), { mime: 'image/jpeg', pending: false })
+    await media.put(refs.b.hash, new Blob([b]), { mime: 'image/png', pending: false })
+    const S = stateWith([{ id: 'a', media: refs.a }, { id: 'b', media: refs.b }, { id: 'c', media: refs.c }])
+    const zip = await zipStore([
+      { name: BACKUP_JSON, blob: new Blob([JSON.stringify(S)]) },
+      { name: `media/${refs.a.hash}.jpg`, blob: new Blob([a]) },
+      { name: `media/${refs.b.hash}.png`, blob: new Blob([b]) },
+      { name: `media/${refs.c.hash}.png`, blob: new Blob([c]) },
+    ])
+    const read = await readBackupFile(new File([zip], 'backup.zip'))
+    const kept = await storeBackupMedia(read.files, { media })
+    expect(kept).toMatchObject({ added: [refs.c.hash], marked: [refs.a.hash, refs.b.hash] })
+    // The first restore fails in the backend; so does removing the photo the import added.
+    const patch = be.patch.bind(be)
+    be.patch = async (hash, fields) => {
+      if (hash === refs.a.hash && fields.pending === false) throw new Error('QuotaExceededError')
+      return patch(hash, fields)
+    }
+    const remove = media.remove
+    media.remove = async () => { throw new Error('backend gone') }
+    await expect(undoBackupMedia(kept, stateWith([]), { media })).resolves.toBeUndefined()
+    media.remove = remove
+    expect(await media.get(refs.b.hash)).toMatchObject({ pending: false })
+  })
+
   it('keeps a file it added that the state now in the store refers to, or that an open editor holds', async () => {
     const { media, refs, read } = await setUp()
     const kept = await storeBackupMedia(read.files, { media })

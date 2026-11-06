@@ -159,9 +159,16 @@ export async function storeBackupMedia(files, { media = mediaStore, limits = DEF
  * account changed meanwhile (NATG-557). Each file it added goes again, unless `state` (whatever
  * the store holds now) refers to it or an open editor holds it; each file that was here and synced
  * is marked synced again. Files that were here before the import stay, and nothing else is touched.
+ * Best effort, file by file: one the backend will not change is left for the local clean-up and
+ * the rest still go back (NATG-599). Never rejects.
  */
 export async function undoBackupMedia({ added = [], marked = [] } = {}, state, { media = mediaStore } = {}) {
   const keep = referencedHashes(state)
-  for (const hash of added) if (!keep.has(hash) && !media.isHeld?.(hash)) await media.remove(hash)
-  for (const hash of marked) await media.markSynced(hash)
+  for (const hash of added) {
+    if (keep.has(hash) || media.isHeld?.(hash)) continue
+    try { await media.remove(hash) } catch { /* left for the local clean-up */ }
+  }
+  for (const hash of marked) {
+    try { await media.markSynced(hash) } catch { /* stays pending; the others still go back */ }
+  }
 }

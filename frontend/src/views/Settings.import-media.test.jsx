@@ -45,10 +45,10 @@ vi.mock('../store/useUI.js', () => {
   return { useUI }
 })
 // The file read stands in for a zip already opened; storing and taking back its files is real.
-vi.mock('../lib/backup-media.js', async importOriginal => ({
-  ...await importOriginal(),
-  readBackupFile: async () => mocks.read,
-}))
+vi.mock('../lib/backup-media.js', async importOriginal => {
+  const real = await importOriginal()
+  return { ...real, readBackupFile: async () => mocks.read, undoBackupMedia: (...a) => (mocks.undo || real.undoBackupMedia)(...a) }
+})
 vi.mock('../lib/media-sync.js', async importOriginal => ({ ...await importOriginal(), syncMedia: (...a) => mocks.syncMedia(...a) }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }))
 vi.mock('../lib/api.js', () => ({
@@ -76,6 +76,7 @@ beforeEach(async () => {
   mocks.S = { unit: 'kg', restSec: 90, workouts: [], routines: [], exWeights: {} }
   mocks.user = { id: 'A', name: 'Ana' }
   mocks.listeners.clear()
+  mocks.undo = null
   mocks.sheets = []
   mocks.tokens = []
   mocks.stale = new Set()
@@ -127,6 +128,17 @@ describe('Settings import of a zip, when the account changes while its photos ar
     expect(await media.get(refs.synced.hash)).toMatchObject({ pending: false })
     expect(await media.get(refs.owed.hash)).toMatchObject({ pending: true })
     expect(mocks.syncMedia).not.toHaveBeenCalled()
+    expect(mocks.toast).not.toHaveBeenCalledWith('Backup imported')
+  })
+
+  // NATG-599: the undo is best effort, and its failing is not an unhandled rejection out of the confirm.
+  it('a failing undo ends the refused import quietly', async () => {
+    mocks.undo = vi.fn(async () => { throw new Error('IndexedDB gone') })
+    const put = media.put
+    media.put = async (...a) => { const was = await put(...a); if (!mocks.stale.size) mocks.accountChanges(); return was }
+    await confirmImport()   // throws if onConfirm rejects
+    expect(mocks.undo).toHaveBeenCalledTimes(1)
+    expect(mocks.importBackup).toHaveLastReturnedWith(false)
     expect(mocks.toast).not.toHaveBeenCalledWith('Backup imported')
   })
 })

@@ -357,9 +357,12 @@ export default function Settings({ page = null, find = null, via = null, entryKe
         kept = await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
       }
       if (!importBackup(read.state, { mergeWith, token })) {
+        // Best effort: whatever it cannot take back goes at the next local clean-up.
         if (kept) {
-          const { undoBackupMedia } = await import('../lib/backup-media.js')
-          await undoBackupMedia(kept, useStore.getState().S)
+          try {
+            const { undoBackupMedia } = await import('../lib/backup-media.js')
+            await undoBackupMedia(kept, useStore.getState().S)
+          } catch { /* the import is refused either way; nothing more to say */ }
         }
         return
       }
