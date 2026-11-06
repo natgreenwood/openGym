@@ -70,3 +70,43 @@ needed. Neither package defines a separate lint or type-check command.
 with fresh renders on this Linux runtime. They reproduce on the unchanged base;
 run `npx vitest run scripts/app-icons.test.mjs` to isolate them. Do not regenerate
 icons as part of unrelated frontend changes.
+
+## API checks
+
+Verified with Node 22.22.1 and npm 9.2.0. The API is plain JavaScript on
+`node:http`; its suite uses the built-in Node test runner. From `api/`:
+
+```sh
+npm ci --omit=optional --no-audit --no-fund
+npm test
+node --test test/server-reminder.test.js test/server-nudge.test.js
+```
+
+There is no API build, lint or type-check script. For the API job's coverage and
+reporter options, see `.github/workflows/test.yml`. Its other checks, from the
+repository root (install the root dependencies first):
+
+```sh
+npm ci --omit=optional --no-audit --no-fund
+node scripts/build-coach-assets.mjs --check
+node scripts/build-api-docs.mjs --check
+node api/scripts/check-core-loadable.mjs
+```
+
+The reminder and nudge integration tests spawn the real server with `PORT=0`,
+an isolated temporary `DATA_DIR`, and a shortened `REMINDER_TICK_MS`. Their
+fixtures and cleanup live in `api/test/`; no account or push provider is needed.
+`boundPort()` in `api/test/helpers.mjs` waits for the bound port's boot line.
+
+Payload-failure tests opt into `--import ./test/fail-push.mjs` and toggle the
+file named by `PUSH_FAULT_FILE`. They check unchanged database contents and
+mtime, retry after recovery, and one failure log across repeated ticks. The
+local-date rollover of failure logging is not automated: `userNow()` uses
+`new Date()`, while `test/fake-clock.mjs` only patches `Date.now()`. Review the
+date comparison in `payloadFailed()` when changing this behavior.
+
+`push-messages.test.js` covers routine-field normalization and language
+fallbacks. `server-bad-input.test.js` exercises malformed stored language on
+an actual rest-timer callback; `server-push-status.test.js` covers timer
+routing, cancellation and throttling. These tests establish send attempts,
+not delivery to a device.
