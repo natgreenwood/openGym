@@ -9,6 +9,7 @@ vi.mock('./mobile.js', () => ({ MOBILE: true, nativePlatform: async () => h.plat
 
 const { buildWidgetSnapshot, startWidgetSync, _setWidgetPluginForTest, _resetWidgets, WIDGET_DAYS } = await import('./widgets.js')
 const { sharedViewOf } = await import('./shared-routines.js')
+const { MAX_WIDGET_TEXT } = await import('./limits.js')
 
 // 2026-10-14 is a Wednesday (getDay 3).
 const TODAY = '2026-10-14'
@@ -122,6 +123,100 @@ describe('buildWidgetSnapshot', () => {
       // a plan of your own comes out the same with or without the argument
       expect(buildWidgetSnapshot(S(), { today: TODAY, shared: null })).toEqual(buildWidgetSnapshot(S(), { today: TODAY }))
       expect(buildWidgetSnapshot(S(), { today: TODAY, shared }).days).toEqual(buildWidgetSnapshot(S(), { today: TODAY }).days)
+    })
+  })
+
+  // Every text field is cut to MAX_WIDGET_TEXT code points, so a sharer's name can't make the
+  // snapshot the widget extension reads into memory as big as they like (SEC-526-01).
+  describe('text from routine data is bounded', () => {
+    const HUGE = 'x'.repeat(1 << 20) // 1 MiB
+    // Catalogue exercises only: a shared routine with a custom exercise is not available at all.
+    const routineNamed = name => ({ id: 'r9', name, ex: [legs.ex[0], push.ex[0]] })
+    // Its own hash per routine: the shared view keeps a routine it has already checked by hash.
+    const viewOf = routine => sharedViewOf({ S: { unit: 'kg' }, user: { id: 'u2', name: 'Jo' }, shares: { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: `h-${routine.name.length}`, routine }] } })
+    const everyDay = { 0: ['shared:s1'], 1: ['shared:s1'], 2: ['shared:s1'], 3: ['shared:s1'], 4: ['shared:s1'], 5: ['shared:s1'], 6: ['shared:s1'] }
+    const snapOf = (name, over = {}) => buildWidgetSnapshot(S({ routines: [], week: everyDay, ...over }), { today: TODAY, shared: viewOf(routineNamed(name)) })
+    const logged = { id: 'w1', d: TODAY, start: 1, end: 2, routineIds: ['shared:s1'], entries: [] }
+
+    it('cuts a 1 MiB shared routine name on all eight days, and changes nothing else', () => {
+      for (const workouts of [[], [logged]]) {
+        const big = snapOf(HUGE, { workouts })
+        const small = snapOf('Short', { workouts })
+        expect(big.days).toHaveLength(WIDGET_DAYS)
+        for (const d of big.days) {
+          expect(d.name.length).toBeLessThanOrEqual(MAX_WIDGET_TEXT)
+          expect(d.name).toBe(HUGE.slice(0, MAX_WIDGET_TEXT))
+        }
+        // counts, today's lines and done are as they are with a short name
+        expect(big.days.map(d => d.count)).toEqual(small.days.map(d => d.count))
+        expect(big.days.map(d => d.count)).toEqual(Array(WIDGET_DAYS).fill(2))
+        expect(big.days[0].exercises.map(e => e.line)).toEqual(small.days[0].exercises.map(e => e.line))
+        expect(big.days[0].exercises).toEqual(small.days[0].exercises)
+        expect(big.days[0].done).toBe(workouts.length > 0)
+        expect(big.days[0].done).toBe(small.days[0].done)
+        expect(big.week).toEqual(small.week)
+        // the whole snapshot stays small
+        expect(JSON.stringify(big).length).toBeLessThan(20000)
+      }
+    })
+
+    it('cuts an own routine\'s custom exercise name, a running session\'s name and the last PR\'s', () => {
+      const own = { id: 'r9', name: 'Mine', ex: [{ id: 'c9', name: HUGE, sets: 2, reps: 10 }] }
+      const [today] = buildWidgetSnapshot(S({ routines: [own], week: { 3: ['r9'] } }), { today: TODAY }).days
+      expect(today.exercises).toEqual([{ name: HUGE.slice(0, MAX_WIDGET_TEXT), line: '2 × 10' }])
+      const active = { id: 'a1', name: HUGE, start: 1000, entries: [{ id: 'c9', sets: [{ done: true }] }] }
+      const pr = { id: 'w2', d: '2026-10-13', end: 5, prs: ['c9'], entries: [{ id: 'c9', name: HUGE, target: { mode: 'reps' }, sets: [{ w: 40, r: 10, done: true }] }] }
+      const snap = buildWidgetSnapshot(S({ active, workouts: [pr] }), { today: TODAY })
+      expect(snap.active).toEqual({ id: 'a1', name: HUGE.slice(0, MAX_WIDGET_TEXT), start: 1000, done: 1, total: 1 })
+      expect(snap.lastPR).toEqual({ name: HUGE.slice(0, MAX_WIDGET_TEXT), value: '40 kg', d: '2026-10-13' })
+    })
+
+    it('cuts an own routine\'s exercise line built from oversized reps, minutes or pyramid steps', () => {
+      const own = { id: 'r9', name: 'Mine', ex: [
+        { id: '0025', sets: 3, reps: HUGE, weight: 60 },
+        { id: '0043', sets: 3, reps: 5, pyramid: [HUGE, 8] },
+        { id: 'c3', name: 'Run', mode: 'cardio', sets: 1, min: HUGE },
+      ] }
+      const [today] = buildWidgetSnapshot(S({ routines: [own], week: { 3: ['r9'] } }), { today: TODAY }).days
+      expect(today.exercises).toHaveLength(3)
+      for (const e of today.exercises) {
+        expect(e.line.length).toBeLessThanOrEqual(MAX_WIDGET_TEXT)
+        // cut, not dropped: the line still opens the way it reads in the app
+        expect(e.line.length).toBeGreaterThan(0)
+      }
+      expect(today.exercises[0].line.startsWith('3 × x')).toBe(true)
+      expect(today.exercises[1].line.startsWith('x')).toBe(true)
+    })
+
+    it('skips an own routine whose exercises are not a list, so count stays a number', () => {
+      const odd = { id: 'r9', name: 'Odd', ex: { length: HUGE } }
+      const every = { 0: ['r9'], 1: ['r9'], 2: ['r9'], 3: ['r9'], 4: ['r9'], 5: ['r9'], 6: ['r9'] }
+      const snap = buildWidgetSnapshot(S({ routines: [odd], week: every }), { today: TODAY })
+      expect(snap.days).toHaveLength(WIDGET_DAYS)
+      for (const d of snap.days) {
+        // skipped: the day reads as rest
+        expect(d).toMatchObject({ name: null, count: 0 })
+        expect(typeof d.count).toBe('number')
+      }
+      expect(JSON.stringify(snap).length).toBeLessThan(20000)
+    })
+
+    it('counts code points, so an emoji at the cut is kept or dropped whole', () => {
+      const nameOf = name => buildWidgetSnapshot(S({ routines: [{ ...push, name }] }), { today: TODAY }).days[0].name
+      const a = n => 'a'.repeat(n)
+      // the 200th code point is the emoji: kept whole (201 UTF-16 units)
+      expect(nameOf(a(199) + '💪' + 'tail')).toBe(a(199) + '💪')
+      // the emoji would be the 201st: dropped whole, not half of it
+      expect(nameOf(a(200) + '💪')).toBe(a(200))
+      // all emoji: 200 of them
+      expect(nameOf('💪'.repeat(300))).toBe('💪'.repeat(200))
+      // short names are untouched
+      expect(nameOf('Push 💪')).toBe('Push 💪')
+      for (const name of [a(199) + '💪💪', a(200) + '💪', '💪'.repeat(300)]) {
+        const cut = nameOf(name)
+        expect([...cut].length).toBeLessThanOrEqual(MAX_WIDGET_TEXT)
+        expect(cut).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
+      }
     })
   })
 })
