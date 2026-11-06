@@ -106,23 +106,6 @@ export function judgeRoutine(r) {
  */
 export const withinLimits = r => judgeRoutine(r) === 'ok'
 
-function typedSlot(e) {
-  if (!isObj(e) || typeof e.id !== 'string' || !e.id) return null
-  const out = {}
-  for (const k of NUM) if (typeof e[k] === 'number' && Number.isFinite(e[k])) out[k] = e[k]
-  for (const k of BOOL) if (typeof e[k] === 'boolean') out[k] = e[k]
-  for (const k of STR) if (typeof e[k] === 'string') out[k] = e[k]
-  // A pyramid step is a rep count or 'Max'; its rest and weight lists are numbers. The plan
-  // import's normalisers below clamp the lengths and values.
-  for (const k of ARR) if (Array.isArray(e[k])) out[k] = e[k].filter(x => (typeof x === 'number' && Number.isFinite(x)) || typeof x === 'string')
-  // Warm-up sets come as a number, an intensifier as an object (slotWellTyped checked both); the
-  // plan import's cleaners (cleanWarmupSets, cleanIntensifier) keep only a shape they know.
-  if (isNum(e.warmupSets)) out.warmupSets = e.warmupSets
-  if (isObj(e.intensifier)) out.intensifier = e.intensifier
-  if (typeof e.prog === 'string' && POLICIES.includes(e.prog)) out.prog = e.prog
-  return out
-}
-
 // One answer per share version and unit: the hash moves only when what the share shows does
 // (api/shared-routine.js contentHash), so the same answer is judged and converted once, not on
 // every render.
@@ -151,7 +134,10 @@ function evaluateShare(item, toUnit) {
       ...(text(r.emoji) ? { emoji: text(r.emoji) } : {}),
       ...(typeof r.prog === 'string' && POLICIES.includes(r.prog) ? { prog: r.prog } : {}),
       ...(r.excludeFromProgression === true ? { excludeFromProgression: true } : {}),
-      ex: (r.ex || []).map(typedSlot).filter(Boolean),
+      // Each slot as the sharer stored it: judgeRoutine has checked every field's type, and
+      // parsePlan's slot cleaner (cleanSlot) keeps only the plan fields, a known progression rule
+      // and a pyramid's number and text entries, before its normalisers clamp the rest.
+      ex: r.ex || [],
     }
     const from = item.unit === 'lb' ? 'lb' : 'kg'
     const got = parsePlan({ opengym_plan: 1, unit: from, routines: [typed] }, to).routines[0]
