@@ -662,11 +662,28 @@ export const useStore = create((set, get) => {
   // the server (QA 2026-10-06). Once the new owner's copy is saved it takes that copy as it is.
   // What it was asked to save was made on the empty copy it holds meanwhile, never on the previous
   // owner's: that small change is kept aside, as "Keep profile as is" keeps a device's copy.
+  // The owner key moves first, so a save can find it changed while this tab's event for it is still
+  // queued (NATG-530): the save is then the handover, as the event would have made it. That copy
+  // is the previous owner's whole copy with the change in it, so nothing of it is kept aside: a
+  // sign-out leaves nothing of the account in the browser. An owner that moved to the account this
+  // tab is signed in as is not another owner (answerIsFor): the copy is that account's, and is saved
+  // as before. What the save would push is guarded on its own (queuePush, doPush). A refused reset
+  // or import armed its replace before this save (replaceState): that is dropped with it, or the
+  // next owner's next push went out as that replace (NATG-570).
   const refuseStale = S => {
-    if (!handedOver) return false
+    if (!handedOver) {
+      const owner = readOwner()
+      // Required, not a leftover: the only place the save and the owner event differ. Fixtures that
+      // write gym_owner and then set the user (about 60 store tests) depend on it.
+      if (owner === seenOwner || answerIsFor(get()?.user?.id)) return false
+      handOver(owner)
+      return true
+    }
     takeSaved()
     clearTimeout(pushTm)
     pushTm = null
+    forceNext = false
+    replaceRev = null
     if (hasData(S)) keepAside(S, t('This device, before signing in'), staleUid).catch(() => {})
     return true
   }
@@ -937,8 +954,16 @@ export const useStore = create((set, get) => {
     const owner = readOwner()
     // The copy this tab holds needs handing over only when the owner now is not the one it holds.
     if (owner === seenOwner) { if (moved) set({}); return }
+    handOver(owner)
+  })
+  // Everything the owner event does, also run by a save that finds the owner moved before that
+  // event has (refuseStale). That ends the imports begun before it too (ownerEpoch), as the event
+  // would once it ran.
+  function handOver(owner) {
     clearTimeout(pushTm)
     pushTm = null
+    forceNext = false   // a replace armed for the previous owner is not the next one's (NATG-570)
+    replaceRev = null
     // A guest's workout running here went along with the sign-in in the other tab (it joined this
     // browser's saved copy first, setUser), and this tab shows it again once that tab is done
     // (followSignIn). Said, so a workout that leaves the screen mid-set is not taken for lost; only
@@ -952,12 +977,12 @@ export const useStore = create((set, get) => {
     meta.set(S, { base: null, owed: false })
     seenWid = readWid()
     seenOwner = owner
-    ownerEpoch++   // also for an event that carries no before and after
+    ownerEpoch++   // also for an event that carries no before and after, and for a save that hands over
     handedOver = true
     const user = get().user
     set({ ...(user && user.id !== owner ? { user: null } : {}), S })
     takeSaved()
-  })
+  }
   // Another tab of this browser synced — its marker moved to a revision this tab's copy does not
   // descend from. Rather than take that tab's saved copy (storage holds the copy and its marker
   // under two keys, and an event can arrive with one updated and not the other), this tab asks

@@ -688,3 +688,189 @@ describe('a request sent after its account has left the browser', () => {
     expect(ids(saved())).toEqual([])
   })
 })
+
+// NATG-530: the NATG-528 window reached from a local edit instead of a late answer. The other tab
+// has moved the owner key, this tab's storage event for it is still queued, and the user changes
+// something here. The save went through, wrote the previous account's copy under the new owner
+// and moved this tab's idea of the owner along, so the queued event found nothing to clear and
+// the push the edit scheduled sent that copy under the new session 1.5 s later.
+describe('an edit saved before this tab has heard that the other tab changed the owner', () => {
+  // Every PUT /api/data the server receives from here on, from either tab. Started once the owner
+  // has moved: the sign-out's own last push of the account (settle) is the one that should go.
+  const recordPuts = puts => {
+    const answer = h.api
+    h.api = (path, opts = {}) => {
+      if (opts.method === 'PUT' && path === '/api/data') puts.push(JSON.parse(opts.body).state)
+      return answer(path, opts)
+    }
+  }
+  // `change` runs as tab A while its storage callbacks wait, in order, for it to finish; then the
+  // queued callbacks run, as the browser delivers them, and the push debounce has its chance.
+  const editBeforeHearing = async (A, switchOwner, change) => {
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++
+    try {
+      await switchOwner()
+      writer = tabA
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+      change()
+    } finally { writer = null; tabA.busy-- }
+    try {
+      pump()
+      await vi.advanceTimersByTimeAsync(2000)
+    } finally { vi.useRealTimers() }
+  }
+  const stashedEntries = () => Object.values(JSON.parse(localStorage.getItem('gym_stash') || '{}'))
+  const stashed = () => stashedEntries().map(e => e.state)
+
+  it('after a sign-out: nothing of the account is saved or pushed, and the tab still hands over', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+
+    await editBeforeHearing(A, async () => {
+      await act(B, () => B.getState().signOut())
+      recordPuts(puts)
+      expect(localStorage.getItem('gym_owner')).toBeNull()
+      expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+    }, () => A.getState().update(s => { s.restSec = 45 }))
+
+    // Nothing of the account is saved in the browser, nor kept aside: on this path the edit was
+    // made on the account's whole copy.
+    expect(ids(saved())).toEqual([])
+    expect(saved().routines).toEqual([])
+    expect(saved().bodyweight).toEqual([])
+    expect(localStorage.getItem('gym_sync')).toBeNull()
+    expect(stashed().flatMap(ids)).toEqual([])
+    // Nor sent.
+    expect(puts).toEqual([])
+    // The tab hands over as it does when the event comes first.
+    expect(A.getState().user).toBeNull()
+    expect(ids(A.getState().S)).toEqual([])
+    expect(A.getState().S.routines).toEqual([])
+    const G = await openTab(null)   // a fresh signed-out tab
+    expect(ids(G.getState().S)).toEqual([])
+    // The next account signing in here is not asked about the signed-out account's workouts.
+    server({ ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 2 })
+    await act(G, () => G.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    const pre = JSON.parse(localStorage.getItem('gym_adopt') || 'null')?.pre
+    expect(pre?.workouts || []).toEqual([])
+    expect(pre?.routines || []).toEqual([])
+  })
+
+  it('after a sign-in to another account: nothing of the old account is saved or pushed, and the tab takes the new one', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+    const puts = []
+    recordPuts(puts)
+
+    await editBeforeHearing(A, async () => {
+      await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+      expect(localStorage.getItem('gym_owner')).toBe('Y-' + OWNER)
+      expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+    }, () => A.getState().update(s => { s.restSec = 45 }))
+
+    // Nothing of the old account is saved under the new owner, nor kept aside as this device's: the
+    // only place its copy may stay is under its own id, where the sign-in itself keeps what it owes
+    // (keepForPrevious).
+    expect(ids(saved())).toEqual([])
+    expect(saved().routines || []).toEqual([])
+    expect(stashedEntries().filter(e => e.uid !== OWNER && ids(e.state).includes('x1'))).toEqual([])
+    const pre = JSON.parse(localStorage.getItem('gym_adopt')).pre
+    expect(pre.workouts || []).toEqual([])
+    expect(pre.routines || []).toEqual([])
+    // Nor sent.
+    expect(puts).toEqual([])
+    // The tab hands over as it does when the event comes first.
+    expect(A.getState().user).toBeNull()
+    expect(ids(A.getState().S)).toEqual([])
+
+    await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+    expect(ids(srv.doc)).toEqual(['yW1'])
+    expect(srv.doc.routines || []).toEqual([])
+    expect(puts.some(s => ids(s).includes('x1') || (s.routines || []).length)).toBe(false)
+    // A follows the sign-in like any tab the owner changed under.
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+  })
+})
+
+describe('a reset or import refused before this tab has heard that the other tab changed the owner', () => {
+  /* NATG-570. A reset or an import arms its replace (no baseRev, or the revision it read) before
+     its save, and the save is the one refused: the owner moved. The tab then takes the new
+     account's copy, and the replace, left armed, went out with that account's next ordinary
+     change, over what another device had synced to it. Tab B signs in as Yan and keeps Yan's
+     profile while A's storage callbacks wait; the account A held is at revision 5, Yan at 4.
+     `replace` runs as A in that window, and `inWindow` checks A before its queued events run. */
+  const refusedThenEdit = async (replace, inWindow) => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const tabA = tabs.find(x => x.store === A)
+    const yan = 'Y-' + OWNER
+    tabA.busy++
+    try {
+      srv.doc = { ...clone(DEF), _ts: 500, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+      await act(B, () => B.getState().setUser({ id: yan, name: 'Yan' }, { adopt: true }))
+      await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+      tabs.find(x => x.store === B).busy++   // B writes nothing more: A is the only writer from here
+      writer = tabA
+      inWindow(A, await replace(A), yan)
+    } finally { writer = null; tabA.busy--; pump() }
+    // Either way A has handed over to Yan's copy as it is.
+    expect(A.getState().user?.id).toBe(yan)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    // Another device syncs a workout to Yan's profile; A has not pulled it.
+    srv.doc = { ...srv.doc, _rev: 5, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther', '2026-09-06')] }
+    const bases = []
+    const answer = h.api
+    h.api = (path, opts = {}) => {
+      if (opts.method === 'PUT' && path === '/api/data') bases.push(JSON.parse(opts.body).baseRev ?? null)
+      return answer(path, opts)
+    }
+    h.toasts = []
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    return { srv, bases }
+  }
+
+  it('a refused reset leaves no replace behind: the next account\'s change goes against its own revision', async () => {
+    const { srv, bases } = await refusedThenEdit(A => A.getState().resetEverything(), (A, _, yan) => {
+      // The reset's own save was refused, and was the handover.
+      expect(A.getState().user?.id).toBe(yan)
+      expect(ids(A.getState().S)).toEqual(['yW1'])
+    })
+    // Yan's revision, then the merge's retry; not a replace without one.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  /* Since NATG-535 an import holds a token of the account it was begun for, and one without (or
+     with one taken before the owner moved) is refused before it arms anything. So this no longer
+     reaches the replace NATG-570 is about: it guards that refusal, and the clear of replaceRev in
+     handOver() stays as a defensive one. The reset above is the test of the fix. */
+  it('a refused import leaves no replace behind: the previous account\'s revision does not go out with the next one\'s change', async () => {
+    const { srv, bases } = await refusedThenEdit(A => A.getState().importBackup({ ...clone(DEF), workouts: [w('b1', '2026-08-01')] }), (A, done) => {
+      // Refused before any save: A hands over only when its queued owner event runs.
+      expect(done).toBe(false)
+      expect(A.getState().user?.id).toBe(OWNER)
+    })
+    // Not the previous account's revision 5, which Yan's document has just reached too.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+    expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
+  })
+})

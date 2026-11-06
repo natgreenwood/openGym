@@ -10,33 +10,42 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF, useStore } from './useStore.js'
+import { DEF } from './useStore.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const ids = xs => (xs || []).map(x => x.id)
 const workout = (id, d = '2026-09-20') => ({ id, d, start: 1, end: 2, entries: [] })
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([, o]) => JSON.parse(o.body))
-const signedIn = (S, rev) => {
+// The account's copy, as a page loaded on a browser signed in to it sees it: the store is loaded
+// after the owner is written, so it holds that owner as its own.
+const signedIn = async (S, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
   localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
+  vi.resetModules()
+  ;({ useStore } = await import('./useStore.js'))
   useStore.setState({ S, user: { id: 'u1' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }
 const BACKUP = { ...clone(DEF), _ts: 50, restSec: 120, workouts: [workout('w1'), workout('w2')] }
 const SERVER = { ...clone(DEF), _ts: 300, restSec: 60, workouts: [workout('w1'), workout('w2'), workout('elsewhere', '2026-09-26')], _rev: 7 }
+
+// A fresh store per test: whose copy the browser holds is the module's to remember, and a test that
+// signs in left that behind for the next one, whose guest edit then read as another tab's sign-out.
+let useStore
+beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
 
 beforeEach(() => { localStorage.clear(); api.mockReset() })
 afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user: null, ready: false }) })
 
 describe('importing a backup over a profile that moved on', () => {
   it('names the workouts on the server that the backup lacks', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const c = await useStore.getState().importConflict(BACKUP)
     expect(c).toMatchObject({ workouts: 1, rev: 7 })
   })
 
   it('nothing to say when the backup has everything, when signed out, or when the server cannot be asked', async () => {
-    signedIn(clone(DEF), 6)
+    await signedIn(clone(DEF), 6)
     api.mockResolvedValueOnce({ state: clone(BACKUP), rev: 7 })
     expect(await useStore.getState().importConflict(BACKUP)).toBeNull()
     api.mockRejectedValueOnce(new TypeError('Failed to fetch'))
@@ -46,7 +55,7 @@ describe('importing a backup over a profile that moved on', () => {
   })
 
   it('"Merge them in" keeps the backup\'s settings and every workout of both, pushed against the server\'s revision', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const c = await useStore.getState().importConflict(BACKUP)
     api.mockResolvedValueOnce({ ok: true, rev: 8 })
@@ -60,7 +69,7 @@ describe('importing a backup over a profile that moved on', () => {
 
   // Review of 771184c9: a workout logged here and not yet sent was neither counted nor merged.
   it('counts this device\'s unsent workouts too, and "Merge them in" keeps them', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 7)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 7)
     useStore.getState().update(s => { s.workouts.push(workout('unsent', '2026-09-27')) })
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const c = await useStore.getState().importConflict(BACKUP)
@@ -72,7 +81,7 @@ describe('importing a backup over a profile that moved on', () => {
   })
 
   it('"Replace anyway" replaces, against the revision the check read (or the copy\'s own)', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const token = useStore.getState().importToken()
     await useStore.getState().importConflict(BACKUP, token)
@@ -98,14 +107,14 @@ describe('importing a backup over a profile that moved on', () => {
 describe('a backup imported while a workout is running', () => {
   const running = { start: 1000, entries: [{ id: 'bench', sets: [{ w: 100, r: 5, done: true }] }] }
   it('"Merge them in" keeps the running workout', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')], active: clone(running) }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')], active: clone(running) }, 6)
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const c = await useStore.getState().importConflict(BACKUP)
     useStore.getState().importBackup(BACKUP, { mergeWith: c })
     expect(useStore.getState().S.active).toEqual(running)
   })
   it('"Replace anyway" and the plain import keep it too', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')], active: clone(running) }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')], active: clone(running) }, 6)
     api.mockResolvedValueOnce({ state: clone(SERVER), rev: 7 })
     const token = useStore.getState().importToken()
     await useStore.getState().importConflict(BACKUP, token)
@@ -116,7 +125,7 @@ describe('a backup imported while a workout is running', () => {
     expect(useStore.getState().S.active).toEqual(running)
   })
   it('in the backup\'s unit when the backup is in another one', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, unit: 'kg', workouts: [workout('w1')], active: clone(running) }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, unit: 'kg', workouts: [workout('w1')], active: clone(running) }, 6)
     useStore.setState({ user: null })
     useStore.getState().importBackup({ ...BACKUP, unit: 'lb' }, { token: useStore.getState().importToken() })
     const S = useStore.getState().S
@@ -125,7 +134,7 @@ describe('a backup imported while a workout is running', () => {
     expect(S.active.entries[0].sets[0].w).not.toBe(100)
   })
   it('a backup taken mid-workout still brings its session when none runs here', async () => {
-    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
+    await signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, 6)
     useStore.setState({ user: null })
     useStore.getState().importBackup({ ...BACKUP, active: clone(running) }, { token: useStore.getState().importToken() })
     expect(useStore.getState().S.active).toEqual(running)
