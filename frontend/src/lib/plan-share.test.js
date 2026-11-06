@@ -428,6 +428,30 @@ describe('parsePlan stores every slot field in its own type', () => {
     }
   })
 
+  // NATG-540: the share path's old pre-filter (typedSlot) did these two; cleanSlot does them now,
+  // for a plan file, a Coach plan and a shared routine alike.
+  it('keeps an exercise’s progression rule only when the app knows it', () => {
+    expect(slotOf({ prog: 'triple' }).prog).toBe('triple')
+    for (const bad of ['nonsense', 'Linear', '', 'constructor', '__proto__']) {
+      expect('prog' in slotOf({ prog: bad }), bad).toBe(false)
+    }
+    const s = { unit: 'kg', routines: [], week: {}, customEx: [] }
+    mergePlan(s, { routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, prog: 'nonsense' }, { id: '0025', sets: 3, prog: 'double' }] }] })
+    expect(s.routines[0].ex.map(e => e.prog)).toEqual([undefined, 'double'])
+  })
+
+  it('keeps only number and text entries in a pyramid’s lists', () => {
+    const odd = [12, { n: 1 }, [8], true, null, 'max', 6]
+    expect(slotOf({ sets: 4, pyramid: odd }).pyramid).toEqual([12, 'max', 6])
+    const s = { unit: 'kg', routines: [], week: {}, customEx: [] }
+    mergePlan(s, { routines: [{ id: 'r', name: 'Push', ex: [{ id: '0025', sets: 3, pyramid: odd, pyramidRest: [90, {}, 60], pyramidWeight: [[40], 45, 50, 55] }] }] })
+    expect(s.routines[0].ex[0]).toMatchObject({ pyramid: [12, 'max', 6], pyramidRest: [90, 60], pyramidWeight: [45, 50, 55] })
+    for (const notList of ['12,8', 12, { 0: 12 }]) {
+      const slot = slotOf({ sets: 3, pyramid: notList, pyramidRest: notList, pyramidWeight: notList })
+      for (const k of ['pyramid', 'pyramidRest', 'pyramidWeight']) expect(k in slot, `${k}: ${JSON.stringify(notList)}`).toBe(false)
+    }
+  })
+
   it('keeps bodyweight and per side as flags, and drops them otherwise', () => {
     expect(slotOf({ bodyweight: false, side: true })).toMatchObject({ bodyweight: false, side: true })
     for (const bad of ['true', 1, 0, null, {}]) {
