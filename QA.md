@@ -52,18 +52,6 @@ For browser checks, use a synthetic plan JSON through Plan's file input. Check
 Cancel, Add, malformed JSON, unchanged scheduling when the schedule switch is
 off, and persistence after reload. Unknown slot fields must not survive import.
 
-## API checks
-
-From `api/` (Node 22):
-
-```sh
-npm ci --ignore-scripts --no-audit --no-fund
-npm test
-```
-
-The suite uses local fixtures and mock providers; no real Coach credentials are
-needed. Neither package defines a separate lint or type-check command.
-
 ## Known gaps
 
 `scripts/app-icons.test.mjs` currently has two failures comparing committed icons
@@ -73,7 +61,7 @@ icons as part of unrelated frontend changes.
 
 ## API checks
 
-Verified with Node 22.22.1 and npm 9.2.0. The API is plain JavaScript on
+Last verified: 2026-11-06 with Node 22.22.1 and npm 9.2.0. The API is plain JavaScript on
 `node:http`; its suite uses the built-in Node test runner. From `api/`:
 
 ```sh
@@ -97,6 +85,24 @@ The reminder and nudge integration tests spawn the real server with `PORT=0`,
 an isolated temporary `DATA_DIR`, and a shortened `REMINDER_TICK_MS`. Their
 fixtures and cleanup live in `api/test/`; no account or push provider is needed.
 `boundPort()` in `api/test/helpers.mjs` waits for the bound port's boot line.
+
+The suite uses local fixtures and mock providers; no real Coach credentials are
+needed. Origin-hint integration tests also spawn the server with an isolated
+temporary `DATA_DIR`, synthetic passkeys, `PORT=0`, `ORIGIN` and `RP_ID`.
+From `api/`, run their focused checks with:
+
+```sh
+node --test test/server-origin-hint.test.js
+node --test --experimental-test-coverage test/server-origin-hint.test.js
+```
+
+For log-wait changes, exercise a server-only 17 s preload delay, an exception
+before test 4's request, and a missing log line. Check that the delayed boot
+passes within the existing 20 s boot limit, early failures report once without
+`unhandledRejection` or activity-after-test warnings, and missing lines still
+fail normally. Test 4 must also fail if `logLine` is mutated to read only the
+caller's buffered output: this confirms its early-listener coverage. Use
+disposable copies for fault injection; do not alter the reviewed branch.
 
 Payload-failure tests opt into `--import ./test/fail-push.mjs` and toggle the
 file named by `PUSH_FAULT_FILE`. They check unchanged database contents and
