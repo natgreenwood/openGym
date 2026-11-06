@@ -9,7 +9,7 @@
 // grid, a main file only once it is opened (or made local by the sync), nothing ever loaded from
 // a server URL. They are the owner's own: no Coach payload, MCP tool, plan file or "Copy as text"
 // reads `media`; only the zip backup carries the files.
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { t } from '../lib/i18n.js'
@@ -129,11 +129,19 @@ export function WorkoutMediaViewer({ w, index = 0, close }) {
   const m = at >= 0 ? list[at] : null
   // The last one removed here, or the workout deleted on another device: nothing left to show.
   useEffect(() => { if (!m) close() }, [!m])
-  // Focus moves in on open (onto Close) and back to what opened it on the way out.
-  useEffect(() => {
-    const before = document.activeElement
+  // Focus moves in on open (onto Close) and back to what opened it on the way out. The opener is
+  // read in a layout effect, in the commit that mounts the viewer, before the browser has had a
+  // chance to move focus off it now that the sheet it sits in is inert. Focus goes back in a passive
+  // cleanup: that sheet is inert until the commit that removes the viewer is over. Read once: in
+  // development StrictMode runs these again straight away, when Close already has focus.
+  const before = useRef(null)
+  useLayoutEffect(() => {
+    if (before.current === null) before.current = document.activeElement
     box.current?.querySelector('button')?.focus()
-    return () => { if (before && typeof before.focus === 'function' && before.isConnected) before.focus() }
+  }, [])
+  useEffect(() => () => {
+    const b = before.current
+    if (b && typeof b.focus === 'function' && b.isConnected) b.focus()
   }, [])
   if (!m) return null
   const go = d => { setAsking(false); setI((at + d + list.length) % list.length) }
