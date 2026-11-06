@@ -966,9 +966,9 @@ describe('an edit saved before this tab has heard that the other tab changed the
 // account's copy under whichever session the browser holds now.
 describe('a push waiting in the debounce when the other tab changes the owner', () => {
   // Tab A edits (restSec 45), and the push waits in the debounce. `switchOwner` runs while A's
-  // storage callbacks wait, the clock passes the debounce while they still wait, and then they run,
-  // as the browser delivers them once tab 1 is free.
-  const editThenSwitch = async (A, switchOwner) => {
+  // storage callbacks wait, then `send` while they still wait: by default the clock passes the
+  // debounce. Then they run, as the browser delivers them once tab 1 is free.
+  const editThenSwitch = async (A, switchOwner, send = () => vi.advanceTimersByTimeAsync(2000)) => {
     const tabA = tabs.find(x => x.store === A)
     vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
     try {
@@ -977,7 +977,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       try {
         await switchOwner()
         writer = tabA
-        await vi.advanceTimersByTimeAsync(2000)
+        await send()
       } finally { writer = null; tabA.busy-- }
       pump()
       await vi.advanceTimersByTimeAsync(2000)
@@ -1064,6 +1064,57 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     expect(srv.doc.restSec).toBe(45)
     expect(ids(srv.doc)).toEqual(['x1', 'x2', 'x3'])
   })
+
+  /* NATG-577: the waiting push sent before its timer fires. Leaving the page (pagehide), hiding it
+     (visibilitychange) and a pull each send a push still waiting in the debounce straight away, and
+     none of them passes the timer's own check, so the check in doPush() is the only one between
+     them and the PUT. Each runs in tab A after the owner has moved and before A has heard. */
+  const sends = {
+    pagehide: async () => {
+      window.dispatchEvent(new Event('pagehide'))
+      await vi.advanceTimersByTimeAsync(0)
+    },
+    'visibilitychange (hidden)': async () => {
+      Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' })
+      try { document.dispatchEvent(new Event('visibilitychange')) } finally { delete document.visibilityState }
+      await vi.advanceTimersByTimeAsync(0)
+    },
+    pullState: A => A.getState().pullState(),
+  }
+  const moves = {
+    'a sign-out': async (B, srv, puts) => {
+      await act(B, () => B.getState().signOut())   // its settle's own push of the account should go
+      recordPuts(puts)
+    },
+    'a sign-in to another account': async (B, srv, puts) => {
+      srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+      recordPuts(puts)
+      await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    },
+  }
+  for (const [via, send] of Object.entries(sends)) {
+    for (const [move, switchOwner] of Object.entries(moves)) {
+      it(`${via} after ${move} in the other tab: the waiting push is not sent`, async () => {
+        DEF = (await import('./useStore.js')).DEF
+        const srv = server({ ...account(), _rev: 1 })
+        localStorage.setItem('gym_owner', OWNER)
+        savedCopy(srv.doc, 1)
+        const A = await openTab({ id: OWNER, name: 'Xavi' })
+        const B = await openTab({ id: OWNER, name: 'Xavi' })
+        const puts = []
+
+        await editThenSwitch(A, async () => {
+          await switchOwner(B, srv, puts)
+          expect(localStorage.getItem('gym_owner')).not.toBe(OWNER)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, () => send(A))
+
+        expect(puts).toEqual([])
+        expect(A.getState().user).toBeNull()
+        expect(ids(A.getState().S)).toEqual([])
+      })
+    }
+  }
 
   // AC2: a second edit's push, asked for while the first is still on its way, waits behind it
   // (pushAgain). The other tab signs in as Yan before the first one's answer lands: the follow-up
