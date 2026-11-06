@@ -5,7 +5,9 @@ import { isoOf } from './format.js'
 
 // #759: the weekly rate of change over the last three weeks, and a corridor to hold it against.
 const NOW = new Date('2026-10-21T09:00:00').getTime()
-const day = i => { const d = new Date(NOW - i * 86400000); return d.toISOString().slice(0, 10) }
+// The local calendar day `i` days before NOW. toISOString() would give the UTC date, a day early
+// in zones more than nine hours ahead of UTC (NATG-548). Step from noon, as WeightRate.test.jsx does.
+const day = i => { const d = new Date(NOW); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - i); return isoOf(d) }
 // Every other day for three weeks, losing 0.1 kg a day, with a water swing on top.
 const log = (perDay = -0.1, start = 85) => Array.from({ length: 11 }, (_, k) => {
   const i = 20 - k * 2
