@@ -8,6 +8,8 @@
    profile as is". Each "tab" is a fresh import of the store sharing one localStorage; the browser's
    storage events are replayed in the order the writes happened, as the browser delivers them. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { localTZ } from '../lib/format.js'
+import { sharedPointer } from '../lib/routine-lookup.js'
 
 const h = vi.hoisted(() => ({ api: null, toasts: [] }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -530,18 +532,24 @@ describe('a request sent after its account has left the browser', () => {
         s.session = null
         return { ok: true }
       }
+      if (method === 'GET' && path === '/api/config') return {}
       if (!who) throw httpError(401, { error: 'not signed in' })
+      if (method === 'GET' && path === '/api/me') return { user: { id: who, name: who } }
+      if (method === 'GET' && path === '/api/shares') return { incoming: [], outgoing: [], etag: 'shares-' + who }
       const doc = s.docs[who] || null
       if (method === 'GET' && path === '/api/data/rev') return { rev: doc?._rev || 0 }
       if (method === 'GET' && path === '/api/data') return { state: doc ? clone(doc) : null, rev: doc?._rev || 0 }
       if (method === 'PUT' && path === '/api/data') {
         const curRev = doc?._rev || 0
-        if (body.baseRev != null && body.baseRev !== curRev) throw httpError(409, { error: 'conflict', rev: curRev, state: clone(doc) })
+        if (body.baseRev != null && (body.baseRev !== curRev || (body.baseWid && doc?._wid && body.baseWid !== doc._wid))) throw httpError(409, { error: 'conflict', rev: curRev, state: clone(doc) })
         const next = clone(body.state)
         delete next.active
         next._rev = curRev + 1
+        // A write id per document write, and the ones it descends from, as api/server.js keeps them.
+        next._wid = who + '-w' + next._rev
+        next._wids = [...(doc?._wids || []), ...(doc?._wid ? [doc._wid] : [])].slice(-20)
         s.docs[who] = next
-        return { ok: true, rev: next._rev }
+        return { ok: true, rev: next._rev, wid: next._wid }
       }
       throw new Error('unexpected ' + method + ' ' + path)
     }
@@ -653,6 +661,150 @@ describe('a request sent after its account has left the browser', () => {
     expect(ids(saved())).not.toContain('x1')
     expect(ids(srv.docs[bId])).toEqual(['bW1'])
   })
+
+  // SEC-03: tab 1 reloads while signed in as A, with A's copy in step with A's revision, and its
+  // first wait (/api/config) outlasts the other tab signing out, signing in as B and settling B's
+  // sign-in. Boot then took the owner it saw after that wait (B) as its own, /api/me answered B,
+  // setUser(B) took A's copy and revision for B's, and the pull merged A's entries into B's
+  // document (their write ids do not descend from each other) and pushed them with B's own
+  // revision, which the server accepted.
+  it('SEC-03: a boot whose first answer lands after the other tab signed in as B syncs nothing into B', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
+    const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
+    srv.session = aId
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+    const S = clone(aDoc); delete S._rev
+    localStorage.setItem('gym_state_v1', JSON.stringify(S))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+    const A = await openTab({ id: aId, name: 'Xavi' })   // the tab that reloads
+    const B = await openTab({ id: aId, name: 'Xavi' })
+    A.setState({ ready: false })
+    const bBefore = clone(srv.docs[bId])
+
+    const held = srv.hold('GET', '/api/config')
+    const booting = A.getState().boot()
+    await held.asked
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until its boot has gone on
+    try {
+      await act(B, () => B.getState().signOut())
+      srv.session = bId
+      await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+      await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+      expect(ids(saved())).toEqual(['bW1'])
+      writer = tabA
+      held.release()
+      await booting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+    await act(A, settleTicks)
+
+    expect(srv.sent.filter(r => r.method === 'PUT' && r.who === bId)).toEqual([])
+    expect(srv.docs[bId]).toEqual(bBefore)
+    expect(ids(saved())).toEqual(['bW1'])
+    // Tab 1 ends on B's own copy, through the follow path, not on A's relabelled as B's.
+    expect(ids(A.getState().S)).not.toContain('x1')
+  })
+
+  // SEC-04: boot's own writes, made after the owner moved with this tab's storage callbacks still
+  // queued. Its pull rightly dropped its answer, but boot went on to write A's copy anyway: the
+  // reminder's timezone refresh after the pull, and the pointer sweep a share-list load left owed
+  // until boot was through. Either went through update() and persist(), which, not having heard of
+  // the handover yet, saved A's whole copy under the new owner and moved seenOwner, so the owner
+  // event found nothing to hand over. The next guest tab opened A's history; a tab signed in as B
+  // started from A's copy. Each case is run against a sign-out in the other tab, and against a
+  // sign-out followed by B's sign-in ("Keep profile as is").
+  const otherTz = localTZ() === 'Pacific/Chatham' ? 'Pacific/Kiritimati' : 'Pacific/Chatham'
+  async function bootThroughOwnerChange({ aDoc, hold, during = async () => {}, toB }) {
+    const aId = OWNER, bId = 'B-' + OWNER
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
+    const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
+    srv.session = aId
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+    const S = clone(aDoc); delete S._rev
+    localStorage.setItem('gym_state_v1', JSON.stringify(S))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: aDoc._rev, ts: S._ts, wid: aDoc._wid, uid: aId }))
+    const A = await openTab({ id: aId, name: 'Xavi' })   // the tab that reloads
+    const B = await openTab({ id: aId, name: 'Xavi' })
+    A.setState({ ready: false })
+    const bBefore = clone(srv.docs[bId])
+
+    const held = srv.hold('GET', hold)
+    const booting = A.getState().boot()
+    await held.asked
+    await during(A)
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until its boot has gone on
+    try {
+      await act(B, () => B.getState().signOut())
+      if (toB) {
+        srv.session = bId
+        await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+        await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+      }
+      writer = tabA
+      held.release()
+      await booting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+    await act(A, settleTicks)
+    return { srv, bId, bBefore }
+  }
+  // What the browser holds afterwards, as a tab opened now sees it, and what reached B's server
+  // document. (Tab 2's sign-out settles A's own copy with A's server first, as it always does.)
+  async function expectNothingOfA({ srv, bId, bBefore }, toB) {
+    if (!toB) {
+      expect(ids(saved())).toEqual([])
+      expect(saved().routines).toEqual([])
+      const G = await openTab(null)   // a fresh guest tab
+      expect(ids(G.getState().S)).toEqual([])
+      expect(G.getState().S.routines).toEqual([])
+      return
+    }
+    expect(ids(saved())).toEqual(['bW1'])
+    expect(saved().routines.map(r => r.id)).toEqual(['br'])
+    // A fresh tab signed in as B boots and syncs from what the browser holds: B's own copy.
+    const F = await openTab({ id: bId, name: 'Bea' })
+    F.setState({ ready: false })
+    await act(F, () => F.getState().boot())
+    await act(F, settleTicks)
+    expect(ids(F.getState().S)).toEqual(['bW1'])
+    expect(srv.sent.filter(r => r.method === 'PUT' && r.who === bId)).toEqual([])
+    expect(srv.docs[bId]).toEqual(bBefore)
+  }
+
+  for (const [label, toB] of [['signs out', false], ['signs out and in as B', true]]) {
+    it(`SEC-04: boot's timezone refresh writes nothing of A once the other tab ${label}`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const aId = OWNER
+      const aDoc = {
+        ...account(), reminder: { ...clone(DEF).reminder, on: true, tz: otherTz },
+        _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'],
+      }
+      const run = await bootThroughOwnerChange({ aDoc, hold: '/api/data', toB })   // /api/me has answered A
+      await expectNothingOfA(run, toB)
+    })
+
+    it(`SEC-04: boot's owed pointer sweep writes nothing of A once the other tab ${label}`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const aId = OWNER
+      // A's plan still names a share that has since been revoked: the lists' answer finds it gone.
+      const aDoc = { ...account(), week: { 1: sharedPointer('gone') }, _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+      const run = await bootThroughOwnerChange({
+        aDoc, hold: '/api/me', toB,
+        // The lists load while boot is out asking who this is: their sweep waits for finishBoot.
+        during: async A => { expect(await A.getState().loadShares()).toBeTruthy() },
+      })
+      await expectNothingOfA(run, toB)
+    })
+  }
 
   // SEC-02: a revision check whose answer is held while this tab signs out, with the logout not
   // reaching the server (the cookie survives, the logout is owed). Released, the check pulled with
