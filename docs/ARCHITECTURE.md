@@ -119,7 +119,7 @@ imported. When you change one side, change the other in the same pull request:
 | `lib/glyphs.js` | `api/coach/core/glyphs.js` | `lib/coach-parity.test.js` |
 | `lib/nudge.js` | `api/nudge.js` | mirrored cases in `lib/nudge.test.js` and `api/test/nudge.test.js` |
 | `lib/queue.js` | `api/queue.js` | mirrored cases in `lib/queue.test.js` and `api/test/queue.test.js` |
-| `PLAN_SLOT_FIELDS` in `lib/plan-share.js` (every slot field `cleanEx` can write, so what a plan export keeps of a routine) | `SLOT_FIELDS` and `SLOT_WITHHELD` in `api/shared-routine.js` (what a shared routine projects to its recipients) | `lib/shared-routine-parity.test.js` compares the field lists; `lib/plan-share.test.js` holds `cleanEx` to `PLAN_SLOT_FIELDS` |
+| `PLAN_SLOT_FIELDS` in `lib/plan-share.js` (every slot field `cleanEx` can write, so what a plan export keeps of a routine) | `SLOT_FIELDS` and `SLOT_WITHHELD` in `api/shared-routine.js` (what a shared routine projects to its recipients) | `lib/shared-routine-parity.test.js` compares the field lists; `lib/plan-share.test.js` holds `cleanEx` to `PLAN_SLOT_FIELDS`; `lib/shared-routines.boundary.test.js` holds the recipient's type check (`slotWellTyped`) to `SLOT_FIELDS` |
 | `MAX_PICK` in `components/ShareRoutineSheet.jsx` | `MAX_SHARE_RECIPIENTS` in `api/server.js` | nothing: the most people one share request takes |
 | `RESERVED_KEYS` in `lib/plan-share.js` | `RESERVED_IDS` in `api/coach/core/validate.js` | nothing: the ids a plan or a Coach answer may not use as an object key, kept the same by cross-reference comments |
 

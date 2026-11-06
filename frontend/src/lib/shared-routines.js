@@ -19,6 +19,9 @@ import { sharesOf } from './shares.js'
 // each field is checked here for the type the app reads it as (slotWellTyped), and a share holding
 // a value of another type is not available: nothing renders or computes with it (SEC-01: never
 // String() a value from a share; SEC-486-03: never Number() one either).
+// Every SLOT_FIELDS entry needs a type here (or a check of its own below). The guard is
+// shared-routines.boundary.test.js: its WRONG map must name every SLOT_FIELDS entry with a type,
+// and a field these lists don't type then fails its wrong-type cases, since the share passes.
 const NUM = ['sets', 'min', 'speed', 'incline', 'sec', 'weight', 'reps', 'inc', 'deloadFactor', 'repsMin', 'setsMax', 'repsMax', 'restSec', 'warmupRestSec', 'sideRestSec', 'sgRest']
 const BOOL = ['bodyweight', 'side', 'backoff', 'lastToFailure', 'restOff', 'warmupRestOff', 'sideRestOff']
 const STR = ['id', 'mode', 'dbLoad', 'sg', 'sgName', 'note']
