@@ -667,16 +667,24 @@ export const useStore = create((set, get) => {
   // is the previous owner's whole copy with the change in it, so nothing of it is kept aside: a
   // sign-out leaves nothing of the account in the browser. An owner that moved to the account this
   // tab is signed in as is not another owner (answerIsFor): the copy is that account's, and is saved
-  // as before. What the save would push is guarded on its own (queuePush, doPush).
+  // as before. What the save would push is guarded on its own (queuePush, doPush). A refused reset
+  // or import armed its replace before this save (replaceState): that is dropped with it, or the
+  // next owner's next push went out as that replace (NATG-570).
   const refuseStale = S => {
-    const owner = readOwner()
-    if (!handedOver && (owner === seenOwner || answerIsFor(get()?.user?.id))) return false
-    const theirs = !handedOver
-    if (theirs) handOver(owner)
+    if (!handedOver) {
+      const owner = readOwner()
+      // Required, not a leftover: the only place the save and the owner event differ. Fixtures that
+      // write gym_owner and then set the user (about 60 store tests) depend on it.
+      if (owner === seenOwner || answerIsFor(get()?.user?.id)) return false
+      handOver(owner)
+      return true
+    }
     takeSaved()
     clearTimeout(pushTm)
     pushTm = null
-    if (!theirs && hasData(S)) keepAside(S, t('This device, before signing in'), staleUid).catch(() => {})
+    forceNext = false
+    replaceRev = null
+    if (hasData(S)) keepAside(S, t('This device, before signing in'), staleUid).catch(() => {})
     return true
   }
   const persist = (S, push = true, stamp = true) => {
@@ -954,6 +962,8 @@ export const useStore = create((set, get) => {
   function handOver(owner) {
     clearTimeout(pushTm)
     pushTm = null
+    forceNext = false   // a replace armed for the previous owner is not the next one's (NATG-570)
+    replaceRev = null
     // A guest's workout running here went along with the sign-in in the other tab (it joined this
     // browser's saved copy first, setUser), and this tab shows it again once that tab is done
     // (followSignIn). Said, so a workout that leaves the screen mid-set is not taken for lost; only

@@ -802,3 +802,75 @@ describe('an edit saved before this tab has heard that the other tab changed the
     expect(ids(A.getState().S)).toEqual(['yW1'])
   })
 })
+
+describe('a reset or import refused before this tab has heard that the other tab changed the owner', () => {
+  /* NATG-570. A reset or an import arms its replace (no baseRev, or the revision it read) before
+     its save, and the save is the one refused: the owner moved. The tab then takes the new
+     account's copy, and the replace, left armed, went out with that account's next ordinary
+     change, over what another device had synced to it. Tab B signs in as Yan and keeps Yan's
+     profile while A's storage callbacks wait; the account A held is at revision 5, Yan at 4.
+     `replace` runs as A in that window, and `inWindow` checks A before its queued events run. */
+  const refusedThenEdit = async (replace, inWindow) => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const tabA = tabs.find(x => x.store === A)
+    const yan = 'Y-' + OWNER
+    tabA.busy++
+    try {
+      srv.doc = { ...clone(DEF), _ts: 500, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+      await act(B, () => B.getState().setUser({ id: yan, name: 'Yan' }, { adopt: true }))
+      await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+      tabs.find(x => x.store === B).busy++   // B writes nothing more: A is the only writer from here
+      writer = tabA
+      inWindow(A, await replace(A), yan)
+    } finally { writer = null; tabA.busy--; pump() }
+    // Either way A has handed over to Yan's copy as it is.
+    expect(A.getState().user?.id).toBe(yan)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    // Another device syncs a workout to Yan's profile; A has not pulled it.
+    srv.doc = { ...srv.doc, _rev: 5, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther', '2026-09-06')] }
+    const bases = []
+    const answer = h.api
+    h.api = (path, opts = {}) => {
+      if (opts.method === 'PUT' && path === '/api/data') bases.push(JSON.parse(opts.body).baseRev ?? null)
+      return answer(path, opts)
+    }
+    h.toasts = []
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    return { srv, bases }
+  }
+
+  it('a refused reset leaves no replace behind: the next account\'s change goes against its own revision', async () => {
+    const { srv, bases } = await refusedThenEdit(A => A.getState().resetEverything(), (A, _, yan) => {
+      // The reset's own save was refused, and was the handover.
+      expect(A.getState().user?.id).toBe(yan)
+      expect(ids(A.getState().S)).toEqual(['yW1'])
+    })
+    // Yan's revision, then the merge's retry; not a replace without one.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  /* Since NATG-535 an import holds a token of the account it was begun for, and one without (or
+     with one taken before the owner moved) is refused before it arms anything. So this no longer
+     reaches the replace NATG-570 is about: it guards that refusal, and the clear of replaceRev in
+     handOver() stays as a defensive one. The reset above is the test of the fix. */
+  it('a refused import leaves no replace behind: the previous account\'s revision does not go out with the next one\'s change', async () => {
+    const { srv, bases } = await refusedThenEdit(A => A.getState().importBackup({ ...clone(DEF), workouts: [w('b1', '2026-08-01')] }), (A, done) => {
+      // Refused before any save: A hands over only when its queued owner event runs.
+      expect(done).toBe(false)
+      expect(A.getState().user?.id).toBe(OWNER)
+    })
+    // Not the previous account's revision 5, which Yan's document has just reached too.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+    expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
+  })
+})
