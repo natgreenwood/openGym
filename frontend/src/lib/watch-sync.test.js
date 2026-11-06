@@ -3,6 +3,7 @@
 // watch's events applied once each through the workout screen's own actions, drained from the
 // native queue and acknowledged only when done.
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { buildCombinedEntries } from './session-merge.js'
 import { buildSnapshot, buildReady, applyEvents, bindWatchActions, bindWatchAppActions, drainWatchEvents, _setWatchPluginForTest, _resetWatchSync, SNAPSHOT_VERSION } from './watch-sync.js'
 
 const state = (over = {}) => ({
@@ -170,6 +171,23 @@ describe('starting and finishing on the watch', () => {
     expect(ready.today).toMatchObject({ routineIds: ['r-push'] })
     expect(ready.others.map(o => o.routineIds)).toEqual([['7'], ['r-pull']])
     expect(ready.others[0].entries[0].id).toBe('25')
+  })
+
+  // NATG-503 AC7: a routine over the session budget (buildCombinedEntries answers tooLarge, as
+  // starting it on the phone is refused) is left out of the ready list too, as today's session or
+  // as another routine, so the watch never offers what the phone would refuse.
+  it('an over-budget session (buildCombinedEntries tooLarge) is left out of the ready list too', () => {
+    // 11 exercises of 50 sets: each within the per-exercise limit, 550 rows together.
+    const huge = { id: 'r-huge', name: 'Huge', ex: Array.from({ length: 11 }, () => ({ id: '0025', sets: 50, reps: 5, weight: 60 })) }
+    const S = { unit: 'kg', workouts: [], routines: [huge, ...routines], week: { 2: 'r-push' }, dayPlan: {} }
+    expect(buildCombinedEntries(S, ['r-huge'])).toMatchObject({ tooLarge: true, routines: [] })
+    const ready = buildReady(S, '2026-10-13')
+    expect(ready.today).toMatchObject({ routineIds: ['r-push'] })
+    expect(ready.others.map(o => o.routineIds)).toEqual([['r-pull']])
+    // Planned for today, it leaves today's slot empty rather than offering it.
+    const planned = buildReady({ ...S, week: { 2: 'r-huge' } }, '2026-10-13')
+    expect(planned.today).toBeNull()
+    expect(planned.others.map(o => o.routineIds)).toEqual([['r-push'], ['r-pull']])
   })
 
   it('a start from the watch starts the session with the watch\'s id and time, once; the sets after it wait for the workout screen', () => {
