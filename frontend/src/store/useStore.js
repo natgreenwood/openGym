@@ -390,7 +390,9 @@ export const useStore = create((set, get) => {
   // Not reset in clearLocalSession on purpose: signing out and back in mid-DELETE would bring the toast back.
   const sharesRemoving = new Map()
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
-  let sweepOwed = null     // a load landed before boot was through: the pointers its clean-up may judge, run at finishBoot
+  // A load landed before boot was through: `{ uid, known }`, whose lists they were and the pointers
+  // their clean-up may judge, run at finishBoot while that account is still this tab's (SEC-04).
+  let sweepOwed = null
   const saveShares = v => {
     try { localStorage.setItem(SHARED_KEY, JSON.stringify(v)) } catch { /* full: the lists in memory stand, and load again next time */ }
     if (MOBILE) writeJsonFile(SHARED_FILE, v)
@@ -737,9 +739,16 @@ export const useStore = create((set, get) => {
     pushTm = setTimeout(() => { if (answerIsFor(uid)) get().pushState(); else pushTm = null }, 1500)
   }
   // Boot's last step: from here on changes push, and one made during boot goes now.
+  // A sweep owed to an account that has left meanwhile is dropped, and boot is through all the
+  // same (SEC-04): the store still names that account until this tab hears of the owner change,
+  // and the sweep's update() would save that account's whole copy under the new owner.
   const finishBoot = (extra = {}) => {
     set({ ready: true, ...extra })
-    if (sweepOwed) { const known = sweepOwed; sweepOwed = null; get().sweepSharedPointers(null, known) }
+    if (sweepOwed) {
+      const { uid, known } = sweepOwed
+      sweepOwed = null
+      if (answerIsFor(uid)) get().sweepSharedPointers(null, known)
+    }
     if (pushPending && get().user) queuePush()
     pushPending = false
   }
@@ -1816,7 +1825,7 @@ export const useStore = create((set, get) => {
             get().loadShares()
           } else if (shares.etag !== 'off' && Array.isArray(r?.incoming)) {
             if (get().ready && !adoptHold) get().sweepSharedPointers(before, mine.known)
-            else sweepOwed = mine.known
+            else sweepOwed = { uid: user.id, known: mine.known }
           }
           return shares
         } catch {
@@ -2444,9 +2453,14 @@ export const useStore = create((set, get) => {
         if (moved() || logoutOwed()) { finishBoot(); return }
         if (!me.user?.id) throw Object.assign(new Error('no user'), { status: 200, code: 'bad-response' })
         get().setUser(me.user)
+        const uid = me.user.id
         // Re-stamp the reminder's timezone on every load — keeps it correct if you're travelling,
-        // without needing to revisit Settings.
+        // without needing to revisit Settings. Only while the account boot signed in is still this
+        // tab's (SEC-04): run after a wait (the pull, the stash, the sign-in's question), it could
+        // find the owner moved with this tab not yet told, and update() then saved the departed
+        // account's whole copy under the new owner.
         const restampTz = () => {
+          if (!answerIsFor(uid)) return
           const tz = localTZ()
           if (get().S.reminder?.on && get().S.reminder.tz !== tz) {
             get().update(s => { s.reminder = { ...s.reminder, tz } })
