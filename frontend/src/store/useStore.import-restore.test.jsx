@@ -54,8 +54,9 @@ afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user:
 
 describe('a restored backup brings back what it holds, and it stays', () => {
   it('"Merge them in" restores a deleted workout, on the server and on a stale device', async () => {
-    const c = await useStore.getState().importConflict(backup)
-    useStore.getState().importBackup(backup, { mergeWith: c || { state: clone(doc), rev: doc._rev } })
+    const token = useStore.getState().importToken()
+    const c = await useStore.getState().importConflict(backup, token)
+    useStore.getState().importBackup(backup, { mergeWith: c || { state: clone(doc), rev: doc._rev }, token })
     await useStore.getState().pushState()
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w2', 'w3', 'w4'])
     expect(ids(doc.workouts)).toEqual(['w1', 'w2', 'w3', 'w4'])
@@ -64,8 +65,9 @@ describe('a restored backup brings back what it holds, and it stays', () => {
   })
 
   it('"Replace" restores it too, and a stale device with an unsent change does not delete it again', async () => {
-    await useStore.getState().importConflict(backup)
-    useStore.getState().importBackup(backup)
+    const token = useStore.getState().importToken()
+    await useStore.getState().importConflict(backup, token)
+    useStore.getState().importBackup(backup, { token })
     await useStore.getState().pushState()
     expect(ids(doc.workouts)).toEqual(['w1', 'w2', 'w3'])
     // RC review 2026-10-07: w4, which the replace dropped, came back from B's unsent change. The
@@ -79,8 +81,9 @@ describe('a restored backup brings back what it holds, and it stays', () => {
     // the server's w3 was corrected after the backup was made; B, offline, changed its note too
     doc.workouts = doc.workouts.map(w => (w.id === 'w3' ? { ...w, note: 'server', _ts: T + 10, _f: { note: T + 10 } } : w))
     other = change(other, S => { const w = S.workouts.find(x => x.id === 'w3'); w.note = 'B before'; w._ts = Date.now() })
-    await useStore.getState().importConflict(backup)
-    useStore.getState().importBackup(backup)
+    const token = useStore.getState().importToken()
+    await useStore.getState().importConflict(backup, token)
+    useStore.getState().importBackup(backup, { token })
     await useStore.getState().pushState()
     let m = mergeStates(other, doc)
     expect(m.workouts.find(w => w.id === 'w3').note).toBeUndefined()   // the backup's w3, as it was
@@ -96,17 +99,19 @@ describe('a restored backup brings back what it holds, and it stays', () => {
   it('the backup\'s settings win over an older unsent setting change on another device', async () => {
     other = change(other, S => { S.restSec = 45 })
     backup.restSec = 150
-    await useStore.getState().importConflict(backup)
-    useStore.getState().importBackup(backup)
+    const token = useStore.getState().importToken()
+    await useStore.getState().importConflict(backup, token)
+    useStore.getState().importBackup(backup, { token })
     await useStore.getState().pushState()
     expect(mergeStates(other, doc).restSec).toBe(150)
   })
 
   it('a workout another device synced while the confirm was open is kept, and that is said', async () => {
-    await useStore.getState().importConflict(backup)
+    const token = useStore.getState().importToken()
+    await useStore.getState().importConflict(backup, token)
     // the other device syncs w6 while the sheet is open
     doc = { ...clone(doc), workouts: [...doc.workouts, workout('w6', Date.now())], _rev: doc._rev + 1 }
-    useStore.getState().importBackup(backup)
+    useStore.getState().importBackup(backup, { token })
     await useStore.getState().pushState()
     expect(ids(doc.workouts)).toContain('w6')
     expect(ids(doc.workouts)).toEqual(expect.arrayContaining(['w1', 'w2', 'w3']))

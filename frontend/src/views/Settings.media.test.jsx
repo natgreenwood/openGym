@@ -17,7 +17,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const mocks = vi.hoisted(() => {
   const state = { S: null, user: null, config: null, sync: { status: 'ok' }, stashed: new Set() }
   state.replaceState = vi.fn()
-  state.importBackup = vi.fn()
+  state.importBackup = vi.fn(() => true)   // the import went (useStore importBackup)
   state.resetEverything = vi.fn()
   state.menuSheet = vi.fn()
   state.conflict = null
@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
   state.confirmSheet = vi.fn()
   state.api = vi.fn(() => Promise.resolve({ ok: true }))
   state.toast = vi.fn()
+  state.token = Object.freeze({ import: 1 })   // the import's own (useStore importToken)
   // Stable across renders: KeptChangesRows re-asks whenever the function changes, and sets a new
   // list each time.
   state.kept = []
@@ -35,13 +36,14 @@ const mocks = vi.hoisted(() => {
     signOut: vi.fn(), signOutAll: vi.fn(), resetDemo: vi.fn(), disconnectServer: vi.fn(),
     syncNow: vi.fn(), unsyncedChanges: () => ({ owed: false, count: 0 }), keptChanges: state.keptChanges,
     stashedMediaHashes: async () => state.stashed,
-    importConflict: async () => state.conflict, importBackup: state.importBackup, resetEverything: state.resetEverything
+    importConflict: async () => state.conflict, importBackup: state.importBackup, importIsCurrent: () => true, importToken: () => state.token, resetEverything: state.resetEverything
   })
   return state
 })
 vi.mock('../store/useStore.js', () => {
   const useStore = selector => selector ? selector(mocks.snapshot()) : mocks.snapshot()
   useStore.getState = mocks.snapshot
+  useStore.subscribe = () => () => {}
   return { useStore, DEF: { reminder: { time: '17:30' }, workouts: [] }, hasData: () => false }
 })
 vi.mock('../store/useUI.js', () => {
@@ -181,7 +183,7 @@ describe('Settings — photos and videos', () => {
     expect(await media.get(HASH)).toMatchObject({ mime: 'image/jpeg', pending: true })
     expect(mocks.importBackup).toHaveBeenCalledTimes(1)
     expect(mocks.importBackup.mock.calls[0][0].customEx[0].media.hash).toBe(HASH)
-    expect(mocks.importBackup.mock.calls[0][1]).toEqual({ mergeWith: null })   // the replace
+    expect(mocks.importBackup.mock.calls[0][1]).toEqual({ mergeWith: null, token: mocks.token })   // the replace
   })
 
   // QA, v1.3.9: the import replaced a workout another device had synced meanwhile, unsaid.
@@ -200,9 +202,9 @@ describe('Settings — photos and videos', () => {
     expect(sheet.items.map(i => i.label)).toEqual(['Replace anyway', 'Merge them in', 'Cancel'])
     await act(async () => { await sheet.items[1].onClick() })
     expect(mocks.importBackup).toHaveBeenCalledTimes(1)
-    expect(mocks.importBackup.mock.calls[0][1]).toEqual({ mergeWith: mocks.conflict })
+    expect(mocks.importBackup.mock.calls[0][1]).toEqual({ mergeWith: mocks.conflict, token: mocks.token })
     await act(async () => { await sheet.items[0].onClick() })
-    expect(mocks.importBackup.mock.calls[1][1]).toEqual({ mergeWith: null })
+    expect(mocks.importBackup.mock.calls[1][1]).toEqual({ mergeWith: null, token: mocks.token })
   })
 
   it('Reset, signed in: pushes, asks the server to sweep, and keeps only what a stash refers to', async () => {

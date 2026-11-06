@@ -108,7 +108,7 @@ describe('the store: load, save, backup', () => {
     // Settings → Export is JSON.stringify(S); Import is importBackup of it
     const backup = JSON.parse(JSON.stringify(useStore.getState().S, null, 2))
     useStore.getState().update(s => { s.workouts = [] })
-    useStore.getState().importBackup(backup)
+    useStore.getState().importBackup(backup, { token: useStore.getState().importToken() })
     expect(useStore.getState().S.workouts[0].entries[0].sets).toEqual(hrSets())
   })
 })

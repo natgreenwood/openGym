@@ -84,7 +84,7 @@ describe('a backup restored after a reset', () => {
     signedIn({ ...clone(DEF), _ts: T1, resetAt: T1, resetIds: resetIdsOf(PROFILE) }, 4)
     const backup = { ...clone(PROFILE), _ts: 50 }   // an old backup: no stamp
     api.mockResolvedValueOnce({ ok: true, rev: 5 })
-    useStore.getState().importBackup(backup)
+    useStore.getState().importBackup(backup, { token: useStore.getState().importToken() })
     await useStore.getState().pushState()
     const put = puts().at(-1)
     expect(ids(put.state.workouts)).toEqual(['w1', 'w2'])
