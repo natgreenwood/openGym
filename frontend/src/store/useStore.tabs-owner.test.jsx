@@ -122,6 +122,28 @@ const recordPuts = puts => {
     return answer(path, opts)
   }
 }
+// `hold(method, path)`: the next such request, to whichever server h.api is now, is answered as it
+// arrives (refused, 409 and all, as the server would), and that answer held until `release()`, as
+// QA's route held the real one. `asked` resolves once it has arrived.
+const hold = (method, path = '/api/data') => {
+  const answer = h.api
+  const g = {}
+  g.asked = new Promise(r => { g.ask = r })
+  const released = new Promise(r => { g.release = r })
+  h.api = async (p, opts = {}) => {
+    if ((opts.method || 'GET') === method && p === path) {
+      h.api = answer
+      let res, err = null
+      try { res = await answer(p, opts) } catch (e) { err = e }
+      g.ask()
+      await released
+      if (err) throw err
+      return res
+    }
+    return answer(p, opts)
+  }
+  return g
+}
 
 beforeEach(async () => {
   localStorage.clear()
@@ -311,25 +333,7 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
 // answer was taken as the signed-out tab's copy and saved, so the account's routines came back in
 // a tab that showed nobody signed in, and the next sign-in was asked to adopt them.
 describe('a pull still on its way when another tab changes the owner', () => {
-  // GET /api/data held after the server has answered, as QA's route did: `release` lets it land.
-  const holdPull = srv => {
-    const answer = h.api
-    const gate = { release: null, asked: null }
-    const asked = new Promise(r => { gate.asked = r })
-    const released = new Promise(r => { gate.release = r })
-    h.api = async (path, opts = {}) => {
-      if ((opts.method || 'GET') === 'GET' && path === '/api/data' && gate.asked) {
-        const res = await answer(path, opts)   // answered as the account it was sent for
-        h.api = answer
-        gate.asked(); gate.asked = null
-        await released
-        return res
-      }
-      return answer(path, opts)
-    }
-    return { asked, release: () => gate.release() }
-  }
-
+  // hold('GET'): the pull's GET /api/data is answered as the account it was sent for, then held.
   it('an answer landing after a sign-out in the other tab is dropped, in both tabs and in storage', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
@@ -338,7 +342,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     await act(B, () => B.getState().signOut())
@@ -378,7 +382,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     // Another device's newer revision, so the held answer is one this tab would take and save.
     srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     const tabA = tabs.find(x => x.store === A)
@@ -422,31 +426,16 @@ describe('a pull still on its way when another tab changes the owner', () => {
     await act(A, () => A.getState().update(s => { s.restSec = 90 }))   // waits in the debounce
 
     // The PUT held once the server has refused it with its document (409), as the pull's GET above.
-    const answer = h.api
-    let asked, release
-    const isAsked = new Promise(r => { asked = r })
-    const released = new Promise(r => { release = r })
-    h.api = async (path, opts = {}) => {
-      if (opts.method === 'PUT' && path === '/api/data') {
-        h.api = answer
-        let err = null
-        try { await answer(path, opts) } catch (e) { err = e }
-        asked()
-        await released
-        if (err) throw err
-        throw new Error('expected a 409')
-      }
-      return answer(path, opts)
-    }
+    const held = hold('PUT')
     const pull = A.getState().pullState()
-    await isAsked
+    await held.asked
     const tabA = tabs.find(x => x.store === A)
     tabA.busy++
     try {
       await act(B, () => B.getState().signOut())
       expect(A.getState().user?.id).toBe(OWNER)
       writer = tabA
-      release()
+      held.release()
       await pull
     } finally { writer = null; tabA.busy-- }
     pump()
@@ -467,7 +456,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
@@ -492,7 +481,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     savedCopy(srv.doc, 1)
     const A = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const old = A.getState().pullState()
     await held.asked
     await act(A, () => A.getState().setUser(null))
@@ -521,7 +510,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     await openTab({ id: OWNER, name: 'Xavi' })
     srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr2')], _ts: 200, _rev: 2 }   // another device's edit
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     held.release()
@@ -537,7 +526,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
 // holds: a request is answered as whoever that cookie names when it arrives, as the real API does.
 describe('a request sent after its account has left the browser', () => {
   function accounts(docs) {
-    const s = { docs: clone(docs), session: null, logoutFails: false, sent: [], held: [] }
+    const s = { docs: clone(docs), session: null, logoutFails: false, sent: [] }
     const answer = (method, path, body, who) => {
       if (method === 'POST' && path.startsWith('/api/logout')) {
         if (s.logoutFails) throw Object.assign(new TypeError('Failed to fetch'), { status: 0 })
@@ -565,30 +554,13 @@ describe('a request sent after its account has left the browser', () => {
       }
       throw new Error('unexpected ' + method + ' ' + path)
     }
-    // `hold(method, path)`: the next such request is answered as it arrives, and its answer held
-    // until `release()`, as QA's route held the real one.
-    s.hold = (method, path) => {
-      const g = { method, path }
-      g.asked = new Promise(r => { g.ask = r })
-      const released = new Promise(r => { g.release = r })
-      g.wait = released
-      s.held.push(g)
-      return g
-    }
+    // A request `hold` keeps back is still sent, and answered, under the session it arrived with.
     h.api = async (path, opts = {}) => {
       const method = opts.method || 'GET'
       const body = opts.body ? JSON.parse(opts.body) : undefined
       const who = s.session
       s.sent.push({ method, path, who })
-      const i = s.held.findIndex(g => g.method === method && g.path === path)
-      if (i < 0) return answer(method, path, body, who)
-      const g = s.held.splice(i, 1)[0]
-      let res, err = null
-      try { res = answer(method, path, body, who) } catch (e) { err = e }
-      g.ask()
-      await g.wait
-      if (err) throw err
-      return res
+      return answer(method, path, body, who)
     }
     return s
   }
@@ -610,7 +582,7 @@ describe('a request sent after its account has left the browser', () => {
     const A = await openTab({ id: aId, name: 'Xavi' })
     const B = await openTab({ id: aId, name: 'Xavi' })
 
-    const held = srv.hold('PUT', '/api/data')
+    const held = hold('PUT')
     const first = A.getState().pushState()
     await held.asked
     A.getState().pushState()   // asked for while the upload is out, before anything changes owner
@@ -697,7 +669,7 @@ describe('a request sent after its account has left the browser', () => {
     A.setState({ ready: false })
     const bBefore = clone(srv.docs[bId])
 
-    const held = srv.hold('GET', '/api/config')
+    const held = hold('GET', '/api/config')
     const booting = A.getState().boot()
     await held.asked
     const tabA = tabs.find(x => x.store === A)
@@ -732,7 +704,7 @@ describe('a request sent after its account has left the browser', () => {
   // started from A's copy. Each case is run against a sign-out in the other tab, and against a
   // sign-out followed by B's sign-in ("Keep profile as is").
   const otherTz = localTZ() === 'Pacific/Chatham' ? 'Pacific/Kiritimati' : 'Pacific/Chatham'
-  async function bootThroughOwnerChange({ aDoc, hold, during = async () => {}, toB }) {
+  async function bootThroughOwnerChange({ aDoc, hold: heldPath, during = async () => {}, toB }) {
     const aId = OWNER, bId = 'B-' + OWNER
     const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
     const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
@@ -747,7 +719,7 @@ describe('a request sent after its account has left the browser', () => {
     A.setState({ ready: false })
     const bBefore = clone(srv.docs[bId])
 
-    const held = srv.hold('GET', hold)
+    const held = hold('GET', heldPath)
     const booting = A.getState().boot()
     await held.asked
     await during(A)
@@ -832,7 +804,7 @@ describe('a request sent after its account has left the browser', () => {
     const A = await openTab({ id: aId, name: 'Xavi' })
     srv.docs[aId] = { ...srv.docs[aId], routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }   // another device
 
-    const held = srv.hold('GET', '/api/data/rev')
+    const held = hold('GET', '/api/data/rev')
     window.dispatchEvent(new Event('online'))   // the revision check, unthrottled
     await held.asked
     srv.logoutFails = true
