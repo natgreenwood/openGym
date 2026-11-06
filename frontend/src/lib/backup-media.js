@@ -18,7 +18,7 @@
  * and links go through the same gates as everywhere else (sanitizeCustomMedia).
  */
 import { zipStore, readZip, looksLikeZip } from './zip.js'
-import { referencedFiles, normalizeMediaRef, workoutMediaOf, cleanUrl, MEDIA_MIMES } from './media-refs.js'
+import { referencedFiles, referencedHashes, normalizeMediaRef, workoutMediaOf, cleanUrl, MEDIA_MIMES } from './media-refs.js'
 import { sniffKind } from './media-sniff.js'
 import { sha256Hex } from './sha256.js'
 import { mediaStore } from './media-store.js'
@@ -128,11 +128,15 @@ export async function readBackupFile(file) {
 /**
  * Checks and keeps a backup's media files: each must sniff as a stored type, stay under that
  * kind's cap, and hash to its name. Kept as pending — the server has not seen them from this
- * device. Resolves { stored, skipped }.
+ * device. Resolves { stored, skipped, added, marked }: `added` the hashes that were not here
+ * before, `marked` those that were here and synced and are now pending again — what
+ * undoBackupMedia takes back when the import is refused after all.
  */
 export async function storeBackupMedia(files, { media = mediaStore, limits = DEFAULT_LIMITS } = {}) {
   let stored = 0, skipped = 0
+  const added = [], marked = []
   const cap = { image: limits.imageMB, gif: limits.gifMB, video: limits.videoMB }
+  const before = new Map((await media.list()).map(r => [r.hash, r]))
   for (const { hash, entry } of files) {
     try {
       const head = new Uint8Array(await entry.blob.slice(0, 64).arrayBuffer())
@@ -142,7 +146,22 @@ export async function storeBackupMedia(files, { media = mediaStore, limits = DEF
       if ((await sha256Hex(bytes)) !== hash) throw new Error('tampered')
       await media.put(hash, new Blob([bytes], { type: s.mime }), { mime: s.mime, pending: true })
       stored++
+      const had = before.get(hash)
+      if (!had) added.push(hash)
+      else if (!had.pending && !had.rejected) marked.push(hash)
     } catch { skipped++ }
   }
-  return { stored, skipped }
+  return { stored, skipped, added, marked }
+}
+
+/**
+ * Takes back what storeBackupMedia did, for an import refused once its files were written: the
+ * account changed meanwhile (NATG-557). Each file it added goes again, unless `state` (whatever
+ * the store holds now) refers to it or an open editor holds it; each file that was here and synced
+ * is marked synced again. Files that were here before the import stay, and nothing else is touched.
+ */
+export async function undoBackupMedia({ added = [], marked = [] } = {}, state, { media = mediaStore } = {}) {
+  const keep = referencedHashes(state)
+  for (const hash of added) if (!keep.has(hash) && !media.isHeld?.(hash)) await media.remove(hash)
+  for (const hash of marked) await media.markSynced(hash)
 }

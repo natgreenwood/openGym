@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { exportBackupZip, readBackupFile, backupImportError, storeBackupMedia, sanitizeCustomMedia, BACKUP_JSON } from './backup-media.js'
+import { exportBackupZip, readBackupFile, backupImportError, storeBackupMedia, undoBackupMedia, sanitizeCustomMedia, BACKUP_JSON } from './backup-media.js'
 import { createMediaStore, memoryBackend } from './media-store.js'
 import { zipStore, readZip } from './zip.js'
 import { sha256Hex } from './sha256.js'
@@ -60,7 +60,7 @@ describe('import', () => {
     expect(read.state.customEx[0].url).toBe('https://youtu.be/x')
     expect(read.files.map(f => f.hash)).toEqual([main.hash])   // only what the state refers to
     const media = createMediaStore(memoryBackend())
-    expect(await storeBackupMedia(read.files, { media })).toEqual({ stored: 1, skipped: 0 })
+    expect(await storeBackupMedia(read.files, { media })).toEqual({ stored: 1, skipped: 0, added: [main.hash], marked: [] })
     expect(await media.get(main.hash)).toMatchObject({ mime: 'image/jpeg', pending: true })
   })
 
@@ -81,7 +81,7 @@ describe('import', () => {
     ])
     const read = await readBackupFile(new File([zip], 'b.zip'))
     const media = createMediaStore(memoryBackend())
-    expect(await storeBackupMedia(read.files, { media })).toEqual({ stored: 0, skipped: 3 })
+    expect(await storeBackupMedia(read.files, { media })).toEqual({ stored: 0, skipped: 3, added: [], marked: [] })
     expect(await media.list()).toEqual([])
   })
 
@@ -146,7 +146,64 @@ describe('a workout\'s photos and videos in the zip', () => {
     expect(read.state.workouts[0].media).toEqual([p, v])
     expect(read.files.map(f => f.hash).sort()).toEqual([p.hash, v.hash].sort())
     const into = createMediaStore(memoryBackend())
-    expect(await storeBackupMedia(read.files, { media: into })).toEqual({ stored: 2, skipped: 0 })
+    expect(await storeBackupMedia(read.files, { media: into })).toMatchObject({ stored: 2, skipped: 0, marked: [] })
     expect(await into.get(v.hash)).toMatchObject({ mime: 'video/mp4', pending: true })
+  })
+})
+
+// NATG-557: an import refused once its files are written (the account changed meanwhile) takes
+// back what it wrote, and only that. What was here before the import stays as it was.
+describe('a refused import\'s files', () => {
+  const records = async media => (await media.list())
+    .map(({ hash, pending, rejected }) => ({ hash, pending, rejected }))
+    .sort((a, b) => a.hash.localeCompare(b.hash))
+
+  async function setUp() {
+    const media = createMediaStore(memoryBackend())
+    const synced = jpeg(), owed = png(), fresh = png(3, 2), other = png(5, 1)
+    const refs = {
+      synced: await refFor(synced, 'image/jpeg'), owed: await refFor(owed, 'image/png'),
+      fresh: await refFor(fresh, 'image/png'), other: await refFor(other, 'image/png'),
+    }
+    // Already here: one on the server, one still owed to it, one the backup does not carry.
+    await media.put(refs.synced.hash, new Blob([synced]), { mime: 'image/jpeg', pending: false })
+    await media.put(refs.owed.hash, new Blob([owed]), { mime: 'image/png', pending: true })
+    await media.put(refs.other.hash, new Blob([other]), { mime: 'image/png', pending: false })
+    const S = stateWith([{ id: 'a', media: refs.synced }, { id: 'b', media: refs.owed }, { id: 'c', media: refs.fresh }])
+    const zip = await zipStore([
+      { name: BACKUP_JSON, blob: new Blob([JSON.stringify(S)]) },
+      { name: `media/${refs.synced.hash}.jpg`, blob: new Blob([synced]) },
+      { name: `media/${refs.owed.hash}.png`, blob: new Blob([owed]) },
+      { name: `media/${refs.fresh.hash}.png`, blob: new Blob([fresh]) },
+    ])
+    const read = await readBackupFile(new File([zip], 'backup.zip'))
+    return { media, refs, read }
+  }
+
+  it('storeBackupMedia says which files it added and which synced ones it marked pending again', async () => {
+    const { media, refs, read } = await setUp()
+    expect(await storeBackupMedia(read.files, { media })).toEqual({ stored: 3, skipped: 0, added: [refs.fresh.hash], marked: [refs.synced.hash] })
+  })
+
+  it('undoBackupMedia leaves the store as it was before the import: new files gone, files already here kept as they were', async () => {
+    const { media, read } = await setUp()
+    const before = await records(media)
+    const kept = await storeBackupMedia(read.files, { media })
+    await undoBackupMedia(kept, stateWith([]), { media })
+    expect(await records(media)).toEqual(before)
+  })
+
+  it('keeps a file it added that the state now in the store refers to, or that an open editor holds', async () => {
+    const { media, refs, read } = await setUp()
+    const kept = await storeBackupMedia(read.files, { media })
+    await undoBackupMedia(kept, stateWith([{ id: 'x', media: refs.fresh }]), { media })
+    expect(await media.get(refs.fresh.hash)).toMatchObject({ pending: true })
+
+    const { media: m2, refs: r2, read: read2 } = await setUp()
+    const kept2 = await storeBackupMedia(read2.files, { media: m2 })
+    const release = m2.hold([r2.fresh.hash])
+    await undoBackupMedia(kept2, stateWith([]), { media: m2 })
+    release()
+    expect(await m2.has(r2.fresh.hash)).toBe(true)
   })
 })
