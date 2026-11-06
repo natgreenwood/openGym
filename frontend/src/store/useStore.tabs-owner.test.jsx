@@ -955,14 +955,19 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       await vi.advanceTimersByTimeAsync(2000)
     } finally { vi.useRealTimers() }
   }
-
-  it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
-    DEF = (await import('./useStore.js')).DEF
-    const srv = server({ ...account(), _rev: 1 })
+  // Two tabs signed in as Xavi, holding the server's copy at revision 1.
+  const twoTabs = async srv => {
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
+    return { A, B, tabA: tabs.find(x => x.store === A) }
+  }
+
+  it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    const { A, B } = await twoTabs(srv)
     const puts = []
 
     await editThenSwitch(A, async () => {
@@ -983,10 +988,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   it('after a sign-in to another account: the waiting push is not sent under the new session', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const { A, B } = await twoTabs(srv)
     const yan = 'Y-' + OWNER
     const puts = []
 
@@ -1013,10 +1015,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   it('after the other tab signed out and back in as the same account: the waiting push still goes', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const { A, B } = await twoTabs(srv)
     const puts = []
 
     await editThenSwitch(A, async () => {
@@ -1053,26 +1052,34 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     },
     pullState: A => A.getState().pullState(),
   }
+  // Each owner change tab B makes (`switchOwner`), and what it leaves on the server besides
+  // (`kept`): Yan's document as it was.
   const moves = {
-    'a sign-out': async (B, srv, puts) => {
-      await act(B, () => B.getState().signOut())   // its settle's own push of the account should go
-      recordPuts(puts)
+    'a sign-out': {
+      switchOwner: async (B, srv, puts) => {
+        await act(B, () => B.getState().signOut())   // its settle's own push of the account should go
+        recordPuts(puts)
+      },
+      kept: () => {},
     },
-    'a sign-in to another account': async (B, srv, puts) => {
-      srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
-      recordPuts(puts)
-      await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    'a sign-in to another account': {
+      switchOwner: async (B, srv, puts) => {
+        srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+        recordPuts(puts)
+        await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+      },
+      kept: srv => {
+        expect(ids(srv.doc)).toEqual(['yW1'])
+        expect(srv.doc._rev).toBe(4)
+      },
     },
   }
   for (const [via, send] of Object.entries(sends)) {
-    for (const [move, switchOwner] of Object.entries(moves)) {
+    for (const [move, { switchOwner }] of Object.entries(moves)) {
       it(`${via} after ${move} in the other tab: the waiting push is not sent`, async () => {
         DEF = (await import('./useStore.js')).DEF
         const srv = server({ ...account(), _rev: 1 })
-        localStorage.setItem('gym_owner', OWNER)
-        savedCopy(srv.doc, 1)
-        const A = await openTab({ id: OWNER, name: 'Xavi' })
-        const B = await openTab({ id: OWNER, name: 'Xavi' })
+        const { A, B } = await twoTabs(srv)
         const puts = []
 
         await editThenSwitch(A, async () => {
@@ -1090,46 +1097,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
 
   /* Sends that resume after an await: an answer A was waiting for lands, or a pull A's own
      sign-out was waiting for, after the other tab has moved the owner and before A has heard.
-     `hold(method)`: the next such request to /api/data is answered as it arrives (refused, 409 and
-     all, as the server would), and that answer held until `release()`. */
-  const hold = method => {
-    const answer = h.api
-    const g = {}
-    g.asked = new Promise(r => { g.ask = r })
-    const released = new Promise(r => { g.release = r })
-    h.api = async (path, opts = {}) => {
-      if ((opts.method || 'GET') === method && path === '/api/data') {
-        h.api = answer
-        let res, err = null
-        try { res = await answer(path, opts) } catch (e) { err = e }
-        g.ask()
-        await released
-        if (err) throw err
-        return res
-      }
-      return answer(path, opts)
-    }
-    return g
-  }
-  // What each move leaves on the server besides: Yan's document as it was.
-  const kept = {
-    'a sign-out': () => {},
-    'a sign-in to another account': srv => {
-      expect(ids(srv.doc)).toEqual(['yW1'])
-      expect(srv.doc._rev).toBe(4)
-    },
-  }
-  const twoTabs = async srv => {
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
-    return { A, B, tabA: tabs.find(x => x.store === A) }
-  }
-  // `resume` runs as A while its storage callbacks still wait; then they run, and the clock is
-  // given the chance to start anything left (the debounce, a follow-up).
-  const thenResume = async (tabA, resume) => {
+     The request is held with hold(method), so its answer lands only on `release()`. */
+  // `switchOwner` runs while A's storage callbacks wait, then `resume` as A while they still wait;
+  // then they run, and the clock is given the chance to start anything left (the debounce, a
+  // follow-up).
+  const thenResume = async (tabA, switchOwner, resume) => {
+    tabA.busy++
     try {
+      await switchOwner()
       writer = tabA
       await resume()
     } finally { writer = null; tabA.busy-- }
@@ -1137,7 +1112,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     await vi.advanceTimersByTimeAsync(2000)
   }
 
-  for (const [move, switchOwner] of Object.entries(moves)) {
+  for (const [move, { switchOwner, kept }] of Object.entries(moves)) {
     // AC2: a second edit's push, asked for while the first is still on its way, waits behind it
     // (pushAgain). The other tab moves the owner before the first one's answer lands: the
     // follow-up is for Xavi, and does not go.
@@ -1155,14 +1130,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
         await held.asked   // the first push is out
         await act(A, () => A.getState().update(s => { s.restSec = 50 }))
         await vi.advanceTimersByTimeAsync(2000)   // its push asked for while the first is in flight
-        tabA.busy++
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
-        await thenResume(tabA, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
+        await thenResume(tabA, async () => {
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
     })
@@ -1182,14 +1157,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
         await act(A, () => A.getState().update(s => { s.restSec = 45 }))
         await vi.advanceTimersByTimeAsync(2000)
         await held.asked   // refused, and the refusal on its way back
-        tabA.busy++
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
-        await thenResume(tabA, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
+        await thenResume(tabA, async () => {
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
       expect(A.getState().S.routines).toEqual([])
@@ -1209,13 +1184,15 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       try {
         const pull = A.getState().pullState()
         await held.asked
-        tabA.busy++
-        writer = tabA
-        const signingOut = A.getState().signOut()   // waits for the pull
-        writer = null
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        let signingOut
         await thenResume(tabA, async () => {
+          // Only signOut()'s synchronous start is A's (settle() can write before it awaits the pull); the rest runs in `resume`, as A.
+          writer = tabA
+          signingOut = A.getState().signOut()   // waits for the pull
+          writer = null
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => {
           held.release()
           await vi.advanceTimersByTimeAsync(2000)
           await pull
@@ -1224,7 +1201,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
     })
