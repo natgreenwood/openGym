@@ -68,10 +68,18 @@ function slotWellTyped(e) {
   return true
 }
 
+// The counts judgeRoutine holds to lib/limits.js, each set or absent; a number by now (slotWellTyped).
+const countsWhole = e => {
+  const x = isObj(e.intensifier) ? e.intensifier : {}
+  const counts = [e.sets, e.setsMax, x.type === 'dropset' ? x.count : null, x.type === 'restpause' ? x.totalReps : null]
+  return counts.every(v => unset(v) || Number.isInteger(v))
+}
+
 /**
  * What a shared routine is, judged on it as it came and before anything is copied or built from
- * it: 'ok', 'unreadable' (a field that is not the primitive the app reads it as, SEC-486-03) or
- * 'too-large' (a count outside lib/limits.js, or more rows than MAX_ROUTINE_ROWS, SEC-486-01).
+ * it: 'ok', 'unreadable' (a field that is not the primitive the app reads it as, SEC-486-03, or a
+ * count that isn't a whole number) or 'too-large' (a whole count outside lib/limits.js, or more
+ * rows than MAX_ROUTINE_ROWS, SEC-486-01).
  * The order matters: a list too long to walk is turned away on its length, then every field's
  * type is checked, and only then are counts read, so nothing here can throw on a sharer's data.
  */
@@ -86,6 +94,9 @@ export function judgeRoutine(r) {
   if (!unset(r.excludeFromProgression) && typeof r.excludeFromProgression !== 'boolean') return 'unreadable'
   for (const k of ARR) for (const e of ex) if (isObj(e) && Array.isArray(e[k]) && e[k].length > MAX_PYRAMID_SETS) return 'too-large'
   if (!ex.every(slotWellTyped)) return 'unreadable'
+  // A count that drives a loop is a whole number. One that isn't (3.5 sets) is malformed, not
+  // too large, so it reads as unreadable (NATG-503), and is judged before any count's size.
+  if (!ex.every(countsWhole)) return 'unreadable'
   // Each count that drives a loop, strictly: a whole number within its limit.
   for (const e of ex) {
     // 0 is "not set" (the editor's stepper starts there, and the builders read it as 1).
