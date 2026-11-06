@@ -2705,4 +2705,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'È più di quanto possa contenere un allenamento. Scegli meno routine o routine con meno serie.',
   '{0} is too much to add to this workout.': '{0} è troppo da aggiungere a questo allenamento.',
   'too much for this workout': 'troppo per questo allenamento',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Max {0}',
+  'Some counts were lowered': 'Alcuni valori sono stati ridotti',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} esercizio superava quanto consentito dall’app. Verrà aggiunto con al massimo {1} serie o intervalli, {2} drop e {3} ripetizioni rest-pause.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} esercizi superavano quanto consentito dall’app. Verranno aggiunti con al massimo {1} serie o intervalli, {2} drop e {3} ripetizioni rest-pause.',
+  'People you share this with won’t be able to open it': 'Le persone con cui la condividi non potranno aprirla',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'È troppo grande per una routine condivisa. Puoi comunque condividerla. Quando avrà meno serie o esercizi, potranno aprirla.',
 }

@@ -2752,4 +2752,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Det är mer än ett pass rymmer. Välj färre rutiner, eller rutiner med färre set.',
   '{0} is too much to add to this workout.': '{0} är för mycket att lägga till i det här passet.',
   'too much for this workout': 'för mycket för det här passet',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Max {0}',
+  'Some counts were lowered': 'Vissa antal sänktes',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} övning hade mer än appen tillåter. Den läggs till med högst {1} set eller intervaller, {2} drops och {3} rest-pause-reps.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} övningar hade mer än appen tillåter. De läggs till med högst {1} set eller intervaller, {2} drops och {3} rest-pause-reps.',
+  'People you share this with won’t be able to open it': 'De du delar den med kommer inte att kunna öppna den',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Den är för stor för en delad rutin. Du kan ändå dela den. När den har färre set eller övningar kan de öppna den.',
 }
