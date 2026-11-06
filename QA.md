@@ -26,6 +26,28 @@ The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
 
+## Store ownership and sync
+
+_Last verified: 2026-11-06 by QA agent_
+
+From `frontend/`:
+
+```sh
+npm test -- src/store --no-file-parallelism
+npm test -- src/store/useStore.tabs-owner.test.jsx
+npm test -- src/store/useStore.import-owner.test.jsx src/store/useStore.import-check.test.jsx src/store/useStore.restore.test.jsx src/store/useStore.signin-safety.test.jsx src/store/useStore.media.test.jsx --no-file-parallelism --sequence.shuffle --sequence.seed=530
+```
+
+`tabs-owner` models tabs with separate store imports and shared localStorage. Its
+queued-event cases hold one tab's callbacks while another changes owner, then
+advance fake timers beyond the push debounce. HTTP is mocked; these checks do
+not exercise a live browser or server.
+
+Owner-sensitive fixtures must write their storage before loading a fresh store
+with `vi.resetModules()` and dynamic import. In media tests, re-import
+`media-store.js` and `media-owed.js` with the store so the fixture and application
+use the same instances.
+
 ## Shared routines
 
 - `src/store/shared-routines.reload-newer.test.jsx` holds controlled GET/DELETE
