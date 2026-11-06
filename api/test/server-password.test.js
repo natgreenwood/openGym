@@ -12,7 +12,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { hashPassword, hashResetCode } from '../password.js';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -84,6 +84,7 @@ async function startServer(t, { env = {}, users = [], creds = [], invites = [] }
   // The boot line carries the port the listener bound, so it is both the address and the
   // readiness signal — see boundPort in helpers.mjs for why the test does not pick one.
   h.api = `http://127.0.0.1:${await boundPort(child, () => h.log)}`;
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   // Every request looks like the app talking to its own backend unless a test says otherwise.
   h.req = async (method, p, { body, cookie, ip = '198.51.100.1', headers = {} } = {}) => {
     const r = await fetch(`${h.api}${p}`, {
@@ -412,6 +413,7 @@ test('sign-ins still running when an admin resets the password answer 401, not a
     assert.ok([200, 401].includes(r.status), `status ${r.status}: ${JSON.stringify(r.body)}`);
     if (r.cookie) assert.equal((await h.req('GET', '/api/me', { cookie: r.cookie })).status, 401);
   }
+  await h.settled();
   assert.doesNotMatch(h.log, /TypeError/);
 });
 

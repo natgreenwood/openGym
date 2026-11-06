@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -43,7 +43,7 @@ async function startServer(t, subs = []) {
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
   // The boot line is fine; anything that looks like a stack frame after this is a defect.
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   return h;
 }
 
@@ -86,7 +86,7 @@ test('malformed and non-object JSON bodies are a 400 with no stack trace, on eve
   assert.deepEqual(r, { status: 400, body: { error: 'name required' } });
   r = await status(h, 'PUT', '/api/data', authed, JSON.stringify({ state: { workouts: [], routines: [] }, baseRev: 0 }));
   assert.equal(r.status, 200);
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
   assert.doesNotMatch(h.log, /bad json|TypeError/);
 });
 
@@ -123,7 +123,7 @@ test('a body over the 5 MiB cap is a 413 that every client gets to read, and not
   await rawPut(h, new http.Agent(), huge).catch(() => {});
   r = await status(h, 'GET', '/api/health', {});
   assert.equal(r.status, 200);
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 test('PUT /api/data: an array is not a document, and null entries never reach the disk', async t => {
@@ -168,7 +168,7 @@ test('PUT /api/data: an array is not a document, and null entries never reach th
   r = await put({ state: { unit: 'kg' }, baseRev: 4, stamped: true });
   assert.equal(r.status, 200);
   assert.equal('workouts' in onDisk(), false);
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 test('PUT /api/data: a document nested too deep to store is a 400, not a 500, and nothing is written', async t => {
@@ -185,7 +185,7 @@ test('PUT /api/data: a document nested too deep to store is a 400, not a 500, an
   assert.equal(onDisk()._rev, 1);
   r = await status(h, 'GET', '/api/data/rev', authed);
   assert.deepEqual(r.body, { rev: 1, wid: onDisk()._wid });
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 test('POST /api/push/rest-timer: a missing or invalid `seconds` is a 400, never a 1-second timer', async t => {
@@ -199,7 +199,7 @@ test('POST /api/push/rest-timer: a missing or invalid `seconds` is a 400, never 
     const r = await post(b);
     assert.deepEqual(r, { status: 200, body: { ok: true } }, `body ${b}`);
   }
-  assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
 });
 
 // NATG-542: a stored `lang` that is not a string made the rest timer's push throw on its timer
@@ -219,6 +219,6 @@ test('a rest timer for a profile whose lang is not a string fires without taking
     assert.equal(h.child.exitCode, null, `the API exited with lang ${label}:\n${h.log}`);
     assert.match(h.log, /push send failed u_bad_1/, `the rest timer never sent, lang ${label}:\n${h.log}`);
     assert.equal((await fetch(`${h.api}/api/health`)).status, 200);
-    assert.equal(h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
+    assert.equal(await h.stackFrames(), 0, `stack traces in the log:\n${h.log}`);
   }
 });

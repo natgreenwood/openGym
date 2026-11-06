@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, logLine, stackFrames } from './helpers.mjs';
 import * as M from './media-samples.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -46,7 +46,7 @@ async function start(t, env = {}) {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', MEDIA_MIN_FREE_MB: '1', ...env }
   });
-  const h = { log: '', dataDir, uploads: path.join(dataDir, 'uploads') };
+  const h = { log: '', dataDir, child, uploads: path.join(dataDir, 'uploads') };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -59,7 +59,7 @@ async function start(t, env = {}) {
   h.pushState = (state, uid = U1) => fetch(`${h.api}/api/data`, { method: 'PUT', headers: { ...cookie(uid), 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
   h.files = uid => { try { return fs.readdirSync(path.join(h.uploads, uid)).filter(n => !n.startsWith('.')).sort(); } catch { return []; } };
   h.tmp = uid => { try { return fs.readdirSync(path.join(h.uploads, uid, '.tmp')); } catch { return []; } };
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   return h;
 }
 
@@ -120,7 +120,7 @@ test('an upload is served back whole, with the headers that keep it from ever be
   assert.equal((await again.json()).existed, true);
   const miss = await (await h.post('/api/media/missing', { hashes: [M.sha(bytes)] })).json();
   assert.deepEqual(miss, { missing: [], usage: { bytes: 5000, count: 1, quotaBytes: 200 * 1048576 } });
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 
 test("another profile's file is exactly as missing as one that was never uploaded", async t => {
@@ -156,7 +156,7 @@ test('refusals: a wrong hash, SVG, a video posing as an image — each leaves no
 
   assert.deepEqual(h.files(U1), []);
   assert.deepEqual(h.tmp(U1), []);
-  assert.equal(h.stackFrames(), 0, `a refusal is not a server error:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `a refusal is not a server error:\n${h.log}`);
 });
 
 test('a declared length over the cap is answered before the body is sent', async t => {
@@ -386,9 +386,8 @@ test('PUT /api/data still answers 200 when the media bookkeeping fails', async t
   assert.equal(r.status, 200);
   assert.equal((await r.json()).ok, true);
   // The line goes to stderr before the reply, but the test hears the two on separate pipes: on a
-  // busy machine the reply can be read first.
-  for (let i = 0; i < 100 && !/media noteState/.test(h.log); i++) await new Promise(res => setTimeout(res, 20));
-  assert.match(h.log, /media noteState/);
+  // busy machine the reply can be read first (see logLine).
+  await logLine(h.child, 'media noteState', () => h.log);
   const saved = JSON.parse(fs.readFileSync(path.join(h.dataDir, `state-${U1}.json`), 'utf8'));
   assert.equal(saved._rev, 1, 'the state itself was saved');
 });

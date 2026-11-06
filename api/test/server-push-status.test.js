@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -43,6 +43,7 @@ async function startServer(t, subs = []) {
   // readiness signal — see boundPort in helpers.mjs for why the test does not pick one.
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   return h;
 }
 const readDb = h => JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
@@ -120,15 +121,19 @@ test('a rest started on a device whose row has no id rings that row, never anoth
   const phone = { userId: 'u_test_1', endpoint: 'https://localhost/phone', keys, created: new Date().toISOString() };
   const desk = { userId: 'u_test_1', endpoint: 'https://localhost/desk', keys, deviceId: 'dev_desk0000', created: new Date().toISOString() };
   const h = await startServer(t, [phone, desk]);
+  // "push send failed" goes to stderr, and an exact count also says no further send came: each
+  // count below waits for the stderr marker first (stderrSettled in helpers.mjs).
   const sent = () => (h.log.match(/push send failed u_test_1/g) || []).length;
 
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sent(), 1, `no row carries the phone's id: the id-less row (an older client) rings, the desk does not:\n${h.log}`);
 
   assert.equal((await post(h, '/api/push/subscribe', { subscription: { endpoint: phone.endpoint, keys }, deviceId: 'dev_phone000' })).status, 200);
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sent(), 2, `after the repair the phone's alert goes to the phone alone:\n${h.log}`);
 });
 
@@ -166,20 +171,24 @@ test('a rest timer belongs to the device that set it: another device cancelling 
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   assert.equal((await post(h, '/api/push/rest-timer/cancel', { deviceId: 'dev_desk0000' })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sends(), 1, `the phone's alert went out, to the phone's subscription only:\n${h.log}`);
 
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   assert.equal((await post(h, '/api/push/rest-timer/cancel', { deviceId: 'dev_phone000' })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sends(), 1, 'cancelled by its own device: nothing more went out');
 
   // an older client, no device id: the account-wide behaviour it always had
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1 })).status, 200);
   assert.equal((await post(h, '/api/push/rest-timer/cancel', {})).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sends(), 1, 'legacy cancel clears the legacy timer');
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1 })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sends(), 3, 'a legacy timer goes to every subscription of the account');
 });
 
@@ -192,6 +201,7 @@ test('an account keeps at most five rest timers; the oldest give way', async t =
     assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: `dev_cap0000${i}` })).status, 200);
   }
   await new Promise(r => setTimeout(r, 2500));
+  await h.settled();
   assert.equal(sent(), 5, `three were dropped before they rang:\n${h.log}`);
 });
 

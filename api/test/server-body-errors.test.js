@@ -14,7 +14,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, stackFrames } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -44,6 +44,7 @@ async function startServer(t) {
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
   h.cookie = `gymsid=${mintSession('u_body_1')}`;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   return h;
 }
 
@@ -66,7 +67,6 @@ function raw(h, requestLine, headers, write) {
     s.on('close', () => resolve(got || 'closed'));
   });
 }
-const stackLines = log => log.split('\n').filter(l => /^\s+at /.test(l));
 
 test('a client that hangs up mid-body costs one log line and no stack', async t => {
   const h = await startServer(t);
@@ -76,10 +76,12 @@ test('a client that hangs up mid-body costs one log line and no stack', async t 
       `Cookie: ${h.cookie}\r\nContent-Type: application/json\r\nContent-Length: 5000\r\n`,
       (s, done) => { s.write('{"state":{'); setTimeout(() => { s.destroy(); done(); }, 60); });
   }
+  // Time for the server to notice the hang-ups at all. Whether what it logged has reached this
+  // process is the marker's job (stackFrames in helpers.mjs), and it comes before every check below.
   await new Promise(r => setTimeout(r, 300));
 
   assert.equal(h.exited, null);
-  assert.deepEqual(stackLines(h.log), [], `nothing to trace:\n${h.log}`);
+  assert.equal(await h.stackFrames(), 0, `nothing to trace:\n${h.log}`);
   assert.equal((h.log.match(/client went away mid-body/g) || []).length, aborts, `one line each:\n${h.log}`);
   assert.equal(fs.existsSync(path.join(h.dataDir, 'state-u_body_1.json')), false, 'and nothing was written');
   assert.equal((await fetch(`${h.api}/api/health`)).status, 200);

@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, logLine, stderrSettled } from './helpers.mjs';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -40,6 +40,7 @@ async function startServer(t, subs = [sub], { fault = false } = {}) {
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
   h.port = await boundPort(child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   h.write = state => fs.writeFileSync(path.join(dataDir, 'state-' + UID + '.json'), JSON.stringify(state));
   h.db = () => JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
   return h;
@@ -64,16 +65,12 @@ const missedToday = (tz, over = {}) => ({
 });
 const firings = log => (log.match(new RegExp(`nudge firing ${UID} r1`, 'g')) || []).length;
 const wait = ms => new Promise(r => setTimeout(r, ms));
-async function until(pred, ms = 15000) {
-  const end = Date.now() + ms;
-  while (Date.now() < end && !pred()) await wait(100);
-}
 
 test('fires once on the evening of a missed planned day, in the user\'s zone', async t => {
   const tz = zoneAt(20);
   const h = await startServer(t);
   h.write(missedToday(tz));
-  await until(() => firings(h.log) > 0);
+  await logLine(h.child, `nudge firing ${UID} r1`, () => h.log);
   assert.equal(firings(h.log), 1, h.log);
   await wait(1200);  // several more ticks: once per local date
   assert.equal(firings(h.log), 1, 'fired twice in one evening');
@@ -104,7 +101,7 @@ test('silent outside the evening, on a rest day, on a trained day, and when swit
   assert.equal(h.db().users[0].lastNudge, undefined);
   // …and the same server does fire once the day really is a missed one
   h.write(missedToday(eve));
-  await until(() => firings(h.log) > 0);
+  await logLine(h.child, `nudge firing ${UID} r1`, () => h.log);
   assert.equal(firings(h.log), 1, h.log);
 });
 
@@ -126,7 +123,7 @@ test('no push subscription, or a workout on screen right now: no nudge', async t
   assert.equal(firings(h.log), 0, `a session is under way:\n${h.log}`);
   // the session ends without a workout being saved: the nudge is owed again
   await fetch(`${h.api}/api/activity`, { method: 'POST', headers: { Cookie: `gymsid=${mintSession(UID)}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ active: false }) });
-  await until(() => firings(h.log) > 0);
+  await logLine(h.child, `nudge firing ${UID} r1`, () => h.log);
   assert.equal(firings(h.log), 1, h.log);
 });
 
@@ -141,9 +138,11 @@ test('a nudge whose payload fails to build does not spend the evening, and is lo
   const beforeMtime = fs.statSync(dbFile).mtimeMs;
   h.write(missedToday(tz));
   const failures = () => (h.log.match(new RegExp(`nudge payload ${UID} r1 Error: payload fault`, 'g')) || []).length;
-  await until(() => failures() > 0);
+  await logLine(h.child, `nudge payload ${UID} r1 Error: payload fault`, () => h.log);
+  await h.settled();   // an exact count says no second line has come; stderr has to be all in
   assert.equal(failures(), 1, h.log);
   await wait(1200);  // several more ticks, all failing
+  await h.settled();
   assert.equal(failures(), 1, `logged on more than one tick:\n${h.log}`);
   assert.equal(firings(h.log), 0, h.log);
   assert.doesNotMatch(h.log, /reminder tick/, 'the failure is the payload\'s, not the tick\'s');
@@ -152,7 +151,7 @@ test('a nudge whose payload fails to build does not spend the evening, and is lo
   assert.equal(fs.statSync(dbFile).mtimeMs, beforeMtime, 'a failed build saved the database');
 
   fs.rmSync(h.faultFile);
-  await until(() => firings(h.log) > 0);
+  await logLine(h.child, `nudge firing ${UID} r1`, () => h.log);
   assert.equal(firings(h.log), 1, h.log);
   await wait(800);
   assert.equal(firings(h.log), 1, 'fired twice in one evening');

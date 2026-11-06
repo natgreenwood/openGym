@@ -87,6 +87,37 @@ export function logLine(child, prefix, tail = () => '', ms = 15000) {
   });
 }
 
+/* Everything the server has written to stderr so far, and only then.
+ *
+ * A check that a line is absent (no stack trace after a 400) is only as good as the log it
+ * reads, and the log is read off a pipe that can lag behind the HTTP answer (see logLine). So
+ * after the answer, ask the server for one more line and wait for it: a POST with an Origin it
+ * will never accept is refused before any handler runs and logged, origin and all, on stderr,
+ * where the stack traces go too. One pipe keeps its order, so when that line is in, every line
+ * the server wrote to stderr before it is in as well. A fresh origin per call keeps the line
+ * this call waits for apart from an earlier call's: logLine finds the first line that matches.
+ * The refusal is logged before throttling and without an audit entry, so it moves no counter a
+ * test asserts on. verify-error.test.js pins the wording.
+ *
+ * It says nothing about stdout (the `reminder firing` lines), which is a different pipe.
+ */
+let settles = 0;
+export async function stderrSettled(child, api, tail = () => '') {
+  const origin = `http://settled-${++settles}.invalid`;
+  const r = await fetch(`${api}/api/login/options`, { method: 'POST', headers: { Origin: origin }, body: '{}' });
+  await r.text();
+  if (r.status !== 403) throw new Error(`marker request answered ${r.status}, not the 403 of a refused origin:\n${tail()}`);
+  return logLine(child, `refused cross-origin POST /api/login/options: origin="${origin}"`, tail);
+}
+
+/* The stack-trace lines in the child's output, once stderr has settled (above). Async on
+ * purpose: a caller that forgets the `await` compares a Promise with 0 and fails, rather than
+ * passing on a log that is not all in yet. */
+export async function stackFrames(child, api, tail) {
+  await stderrSettled(child, api, tail);
+  return tail().split('\n').filter(l => /^\s+at /.test(l)).length;
+}
+
 export function tempData() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'coach-test-'));
   fs.writeFileSync(path.join(dir, 'secret'), 'a'.repeat(64), { mode: 0o600 });

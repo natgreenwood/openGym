@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { boundPort } from './helpers.mjs';
+import { boundPort, logLine, stackFrames, stderrSettled } from './helpers.mjs';
 import { contentHash } from '../shared-routine.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -62,7 +62,7 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState(),
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1', ...env }
   });
-  const h = { log: '', dataDir };
+  const h = { log: '', dataDir, child };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -92,7 +92,8 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState(),
     try { return fs.readFileSync(path.join(dataDir, 'audit.log'), 'utf8').trim().split('\n').filter(Boolean).map(l => JSON.parse(l)); }
     catch { return []; }
   };
-  h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
+  h.stackFrames = () => stackFrames(child, h.api, () => h.log);
+  h.settled = () => stderrSettled(child, h.api, () => h.log);
   return h;
 }
 // An accepted share of Alex's `routineId` for Sam, and its id.
@@ -414,8 +415,9 @@ test('AC4: an unreadable sharer document hides the share as unreadable and keeps
   const [healed] = await h.incoming(SAM);
   assert.equal(healed.id, id);
   assert.equal(healed.routine.name, 'Push A');
+  await h.settled();
   assert.equal(h.log.match(/sharer state unreadable/g)?.length, 1, 'logged once, not once per read');
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 
 /* ---------- AC5: a routine that gained a custom exercise ---------- */
@@ -482,10 +484,6 @@ const onlyShared = (ptr, reminder) => ({
   reminder
 });
 const wait = ms => new Promise(r => setTimeout(r, ms));
-async function until(pred, ms = 15000) {
-  const end = Date.now() + ms;
-  while (Date.now() < end && !pred()) await wait(100);
-}
 // An Etc/GMT zone whose local hour is `hour` right now (POSIX sign: Etc/GMT-5 is UTC+5).
 function zoneAt(hour) {
   let off = (hour - new Date().getUTCHours() + 48) % 24;
@@ -523,8 +521,10 @@ test('AC6: the reminder tick reminds about a day whose only routine is a shared 
     shares, subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
     sam: onlyShared(ptr, { on: true, time, tz: 'UTC', nudge: false })
   });
-  await until(() => new RegExp(`reminder firing ${SAM} ${ptr}`).test(h.log));
-  assert.match(h.log, new RegExp(`reminder firing ${SAM} ${ptr}`), h.log);
+  await logLine(h.child, `reminder firing ${SAM} ${ptr}`, () => h.log);
+  // The tick logs the line before it saves lastReminder, and the line can be read here before the
+  // save is done. The server answers the marker request only once the tick has finished.
+  await h.settled();
   assert.equal(h.db().users.find(u => u.id === SAM).lastReminder, dateIn('UTC'));
 });
 
@@ -540,8 +540,7 @@ test('AC6: no reminder for the same day while the share is still pending', async
   assert.doesNotMatch(h.log, /reminder firing/);
   // Accepting it inside the reminder's window makes the day a training day for the next tick.
   assert.equal((await h.accept('00000000000000aa', SAM)).status, 200);
-  await until(() => /reminder firing/.test(h.log));
-  assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:00000000000000aa`), h.log);
+  await logLine(h.child, `reminder firing ${SAM} shared:00000000000000aa`, () => h.log);
 });
 
 test('AC6: the sharer\'s PUT /api/data clears a rest day the tick settled for a recipient', async t => {
@@ -559,8 +558,7 @@ test('AC6: the sharer\'s PUT /api/data clears a rest day the tick settled for a 
   assert.doesNotMatch(h.log, /reminder firing/);
   // Alex takes the custom exercise out: Sam's file did not change, the share did.
   assert.equal((await h.put(ALEX, alexState())).status, 200);
-  await until(() => /reminder firing/.test(h.log));
-  assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:00000000000000aa`), h.log);
+  await logLine(h.child, `reminder firing ${SAM} shared:00000000000000aa`, () => h.log);
 });
 
 test('AC6: the missed-day nudge fires on the evening of a shared-only day', async t => {
@@ -572,8 +570,8 @@ test('AC6: the missed-day nudge fires on the evening of a shared-only day', asyn
     shares, subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
     sam: onlyShared(ptr, { on: true, time: '08:00', tz, nudge: true, tone: 'drill' })
   });
-  await until(() => /nudge firing/.test(h.log));
-  assert.match(h.log, new RegExp(`nudge firing ${SAM} ${ptr}`), h.log);
+  await logLine(h.child, `nudge firing ${SAM} ${ptr}`, () => h.log);
+  await h.settled();   // the save follows the line, as for the reminder above
   assert.equal(h.db().users.find(u => u.id === SAM).lastNudge, dateIn(tz));
 });
 
@@ -602,7 +600,7 @@ test('SEC-01: a pending share of a routine whose name is not text answers 200 ev
 
   assert.equal((await h.post(`/api/shares/${bad.id}/decline`, SAM)).status, 200);
   assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [good.id]);
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 
 test('SEC-01: the same routine after acceptance: the list, the poll, the nudge check and the reminder still answer; the recipient removes it', async t => {
@@ -621,12 +619,12 @@ test('SEC-01: the same routine after acceptance: the list, the poll, the nudge c
   // Sam's day holds only this routine, and the reminder is due now: its push text reads the name.
   assert.equal((await h.put(SAM, onlyShared(`shared:${bad.id}`, { on: true, time, tz: 'UTC', nudge: true }))).status, 200);
   assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).status, 200);
-  await until(() => /reminder firing/.test(h.log));
-  assert.match(h.log, new RegExp(`reminder firing ${SAM} shared:${bad.id}`), h.log);
+  await logLine(h.child, `reminder firing ${SAM} shared:${bad.id}`, () => h.log);
+  await h.settled();
   assert.doesNotMatch(h.log, /reminder tick/, 'the push was built without throwing');
   assert.equal((await h.del(`/api/shares/${bad.id}`, SAM)).status, 200);
   assert.deepEqual(await h.incoming(SAM), []);
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 
 test('SEC-01: a share the server cannot project at all is unreadable with its id, alone; the poll still writes nothing', async t => {
@@ -652,8 +650,9 @@ test('SEC-01: a share the server cannot project at all is unreadable with its id
   assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).status, 200);
   assert.equal((await h.del(`/api/shares/${id}`, SAM)).status, 200, 'the recipient can still remove it');
   assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [keep]);
+  await h.settled();
   assert.equal(h.log.match(/cannot project share/g)?.length, 1, 'logged once');
-  assert.equal(h.stackFrames(), 0, h.log);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });
 /* QA contract checks: the design and ShareIncoming require primitive text: a string, or a number
    rendered as a string; anything else is empty for `name` and left out for `emoji`. */
