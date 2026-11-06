@@ -136,7 +136,6 @@ export async function storeBackupMedia(files, { media = mediaStore, limits = DEF
   let stored = 0, skipped = 0
   const added = [], marked = []
   const cap = { image: limits.imageMB, gif: limits.gifMB, video: limits.videoMB }
-  const before = new Map((await media.list()).map(r => [r.hash, r]))
   for (const { hash, entry } of files) {
     try {
       const head = new Uint8Array(await entry.blob.slice(0, 64).arrayBuffer())
@@ -144,9 +143,10 @@ export async function storeBackupMedia(files, { media = mediaStore, limits = DEF
       if (!s || !MEDIA_MIMES[s.mime] || entry.size > (cap[s.kind] || 0) * MB) throw new Error('refused')
       const bytes = new Uint8Array(await entry.blob.arrayBuffer())
       if ((await sha256Hex(bytes)) !== hash) throw new Error('tampered')
-      await media.put(hash, new Blob([bytes], { type: s.mime }), { mime: s.mime, pending: true })
+      // What the write itself found there, not a list taken before the loop: a sign-out's clean-up
+      // can remove a file meanwhile, and its bytes written again are this import's (NATG-598).
+      const had = await media.put(hash, new Blob([bytes], { type: s.mime }), { mime: s.mime, pending: true })
       stored++
-      const had = before.get(hash)
       if (!had) added.push(hash)
       else if (!had.pending && !had.rejected) marked.push(hash)
     } catch { skipped++ }

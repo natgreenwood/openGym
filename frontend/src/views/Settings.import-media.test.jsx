@@ -118,7 +118,7 @@ describe('Settings import of a zip, when the account changes while its photos ar
     const before = await records(media)
     // The account changes once the first photo is in.
     const put = media.put
-    media.put = async (...a) => { await put(...a); if (!mocks.stale.size) mocks.accountChanges() }
+    media.put = async (...a) => { const was = await put(...a); if (!mocks.stale.size) mocks.accountChanges(); return was }
     await confirmImport()
     expect(mocks.importBackup).toHaveBeenCalledTimes(1)
     expect(mocks.importBackup).toHaveLastReturnedWith(false)

@@ -193,6 +193,24 @@ describe('a refused import\'s files', () => {
     expect(await records(media)).toEqual(before)
   })
 
+  // NATG-598: what counts as "here before" is what each write found, not a list taken when the
+  // import began. A sign-out's clean-up (retainOnly) can remove a photo in between.
+  it('takes back a photo that was removed after the import began and written again by it', async () => {
+    for (const was of ['synced', 'owed']) {
+      const { media, refs, read } = await setUp()
+      const put = media.put
+      media.put = async (hash, ...rest) => {
+        if (hash === refs[was].hash) await media.retainOnly(new Set([refs.other.hash]), { keepPutAfter: Infinity })
+        return put(hash, ...rest)
+      }
+      const kept = await storeBackupMedia(read.files, { media })
+      expect(kept.added).toContain(refs[was].hash)
+      expect(kept.marked).not.toContain(refs[was].hash)
+      await undoBackupMedia(kept, stateWith([]), { media })
+      expect(await media.has(refs[was].hash)).toBe(false)
+    }
+  })
+
   it('keeps a file it added that the state now in the store refers to, or that an open editor holds', async () => {
     const { media, refs, read } = await setUp()
     const kept = await storeBackupMedia(read.files, { media })

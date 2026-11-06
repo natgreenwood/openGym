@@ -36,6 +36,15 @@ describe('media store (memory backend)', () => {
     expect(await store.usage()).toEqual({ bytes: 3, count: 1 })
   })
 
+  it('put answers with the record that was there before it, or null when there was none', async () => {
+    expect(await store.put(H1, new Blob(['abc']), { mime: 'image/webp', pending: false })).toBeNull()
+    const was = await store.put(H1, new Blob(['abc']), { mime: 'image/webp' })
+    expect(was).toMatchObject({ hash: H1, pending: false, rejected: false })
+    expect((await store.get(H1)).pending).toBe(true)   // a copy: the answer is what was there, not what is
+    await store.remove(H1)
+    expect(await store.put(H1, new Blob(['abc']), { mime: 'image/webp' })).toBeNull()
+  })
+
   it('refuses a type outside the allowlist', async () => {
     await expect(store.put(H1, new Blob(['<html>']), { mime: 'text/html' })).rejects.toThrow()
     await expect(store.put(H1, new Blob(['<svg/>']), { mime: 'image/svg+xml' })).rejects.toThrow()
