@@ -1990,10 +1990,15 @@ export const useStore = create((set, get) => {
         rejoined = owner === u.id
         const other = !!owner && owner !== u.id
         // The hold goes on before anything else can run: a poll, a resume, a debounced push.
+        // A replace a reset or an import armed for that push goes with it: the adoption decides
+        // what this copy is, and pushes it against the server's revision. Left armed, it went out
+        // with the next account's first push, over what another device had synced (NATG-572).
         if (adopt) {
           adoptHold = true
           clearTimeout(pushTm)
           pushTm = null
+          forceNext = false
+          replaceRev = null
         } else {
           // Boot signing the account back in: an adoption it still owes holds sync until it is
           // answered (resumeAdoption); one another account left behind is void.
