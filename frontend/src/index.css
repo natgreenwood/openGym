@@ -948,6 +948,13 @@ body.chips-dragging *{cursor:inherit}
 }
 .stp .num::-webkit-inner-spin-button{display:none}
 .stp.invalid{box-shadow:inset 0 0 0 1px var(--red)}
+/* A count at its limit (Stepper capHint, NATG-503): the + is aria-disabled, not disabled, so it
+   keeps focus; the "Max 50" line under it fades in. Kept in the tree while empty so it can
+   announce, with the column's gap taken back so an empty one adds no height. */
+.stp button[aria-disabled="true"]{opacity:.32;cursor:default}
+.stp button[aria-disabled="true"]:active{background:none}
+.stp-h{font-size:13px;line-height:1.38;color:var(--label-2);text-align:center;transition:opacity var(--fast) var(--ease)}
+.stp-h:empty{margin-top:-6px;opacity:0}
 
 /* --- slider --- */
 .sld{position:relative;height:32px;display:flex;align-items:center;cursor:pointer;touch-action:none}
@@ -1531,7 +1538,8 @@ body.chips-dragging *{cursor:inherit}
 .setrow .setgo:disabled{opacity:.3;cursor:default}
 .setrow .setgo:not(:disabled):active{background:var(--surface-3)}
 /* exercise-config sheet: three steppers side by side on narrow phones */
-.cfgrow{gap:8px}
+/* top-aligned: a stepper showing its "Max 50" line grows, and the ones beside it stay level */
+.cfgrow{gap:8px;align-items:flex-start}
 .cfgrow>div{flex:1;min-width:0}
 .cfgrow .stp button{width:30px}
 .cfgrow .stp-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
