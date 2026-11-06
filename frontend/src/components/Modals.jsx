@@ -52,11 +52,56 @@ export function useBehindSheet() {
   return open ? { inert: true, 'aria-hidden': true } : {}
 }
 
+// A text field on the page behind, still focused when a sheet opens (WebKit does not blur it on a
+// button tap). The pin below blurs it so its keyboard goes, and a closing sheet does not give it
+// focus back, which would bring that keyboard up again over the page.
+const pageField = a => !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable) && !a.closest?.('#modal-root')
+const canFocus = el => !!el && typeof el.focus === 'function' && el.isConnected
+
+// Focus for a bottom sheet or centred dialog: in on open, back out on close. A screen reader only
+// treats an aria-modal dialog as entered once focus is inside it. The container itself takes focus
+// (tabIndex -1, no ring: index.css) unless the sheet has already put it somewhere of its own, such
+// as an autoFocus field. On close focus goes back to whatever had it when the sheet opened, or, when
+// that is gone, to the sheet now on top. A full-screen viewer does this itself (WorkoutMedia.jsx).
+function useSheetFocus(box, skip) {
+  // Read while rendering, before anything in the sheet mounts: an autoFocus field inside it has
+  // focus by the time any effect of this component runs. <body> is nothing to go back to.
+  const opener = useRef(undefined)
+  if (opener.current === undefined) {
+    const a = skip ? null : document.activeElement
+    opener.current = a && a !== document.body ? a : null
+  }
+  useLayoutEffect(() => {
+    const el = box.current
+    if (skip || !canFocus(el)) return
+    if (!el.contains(document.activeElement)) el.focus({ preventScroll: true })
+  }, [])
+  // Back out in a passive cleanup, not a layout one. The opener of a stacked sheet is in the sheet
+  // under it, and the opener of the first one is on the page: both are inert until the commit that
+  // removes this sheet is over, and an inert element refuses focus. Passive cleanups run after it.
+  useEffect(() => () => {
+    if (skip) return
+    // Only when focus went with this sheet. A sheet under the top one can be closed too, and the
+    // top one keeps its focus; a sheet that moved focus on purpose as it closed keeps that.
+    const a = document.activeElement
+    if (a && a !== document.body && a.isConnected) return
+    const back = opener.current
+    if (canFocus(back) && !pageField(back)) { back.focus({ preventScroll: true }); return }
+    const layers = document.querySelectorAll('#modal-root > div')
+    const top = layers.length ? layers[layers.length - 1].querySelector('[role="dialog"]') : null
+    if (canFocus(top)) top.focus({ preventScroll: true })
+  }, [])
+}
+
 // One bottom sheet (or centered dialog) with swipe-to-dismiss. `top`: the sheet last opened, the
 // only one that can be used; a sheet under it is inert and hidden like the page.
 function Sheet({ sheet, top }) {
   const closeSheet = useUI(s => s.closeSheet)   // not the whole store: an open sheet re-rendered on every rest tick
   const ref = useRef(null)
+  // A centred dialog's container, for focus. Not `ref`: that one is also the swipe surface, which
+  // a centred dialog does not have. A bottom sheet's container is `ref` itself.
+  const box = useRef(null)
+  useSheetFocus(sheet.kind === 'center' ? box : ref, sheet.kind === 'viewer')
   // startY null = no gesture. axis stays null until the finger has travelled far enough to
   // tell a vertical pull from a sideways scroll; 'x' hands the gesture to whatever scrolls
   // horizontally under it (chip strips, heatmap) and the sheet stays put.
@@ -142,14 +187,14 @@ function Sheet({ sheet, top }) {
     return (
       <div {...under}>
         <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-        <div className={'center' + (sheet.wide ? ' wide' : '')} role="dialog" aria-modal="true">{sheet.render(close)}</div>
+        <div className={'center' + (sheet.wide ? ' wide' : '')} role="dialog" aria-modal="true" tabIndex={-1} ref={box}>{sheet.render(close)}</div>
       </div>
     )
   }
   return (
     <div {...under}>
       <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-      <div className="sheet" role="dialog" aria-modal="true" ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+      <div className="sheet" role="dialog" aria-modal="true" tabIndex={-1} ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
         <div className="grab" />
         {sheet.render(close)}
@@ -232,7 +277,7 @@ export default function Modals() {
     // stays up under the sheet, or leaves the viewport displaced when it finally goes. The
     // sheet owns the screen now; a field inside the sheet (the picker search) is left alone.
     const a = document.activeElement
-    if (a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable) && !a.closest?.('#modal-root')) a.blur?.()
+    if (pageField(a)) a.blur?.()
     const y = window.scrollY || 0
     const b = document.body.style
     b.position = 'fixed'; b.top = -y + 'px'; b.left = '0'; b.right = '0'; b.width = '100%'

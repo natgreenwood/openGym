@@ -1694,6 +1694,9 @@ body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
   max-height:calc(100dvh - var(--native-kb) - 2*var(--sat) - 24px);
 }
 @keyframes pop{from{transform:translate(-50%,-50%) scale(.94);opacity:0}to{transform:translate(-50%,-50%) scale(1);opacity:1}}
+/* An opening sheet or dialog takes focus on its container (components/Modals.jsx) so a screen
+   reader enters it. That is no control, so no ring, even after a keyboard press opened it. */
+.sheet:focus-visible,.center:focus-visible{outline:none}
 
 /* --- RIR/RPE conversion table (effort help sheet) ---
    The two scales only click when you see them side by side, so the numbers get fixed-width

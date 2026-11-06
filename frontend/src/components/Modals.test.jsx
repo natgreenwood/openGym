@@ -584,3 +584,145 @@ describe('the page behind an open sheet', () => {
     expect(behindIsHidden()).toEqual([[true, 'true'], [true, 'true']])
   })
 })
+
+// Focus in and out of a bottom sheet or centred dialog (NATG-552). linkedom has no focus at all, so
+// these run on happy-dom, which also does what a browser does with inert: an inert element refuses
+// focus. That is what makes the close cases worth having. A sheet's opener sits in the sheet under
+// it, or on the page, and both are inert until the commit that removes the top sheet is over.
+describe('focus in and out of a sheet', () => {
+  let happy
+  const h = React.createElement
+  const active = () => document.activeElement
+  const box = sel => document.querySelector(sel)
+
+  // The page and the bars beside #modal-root take useBehindSheet(), as in App.jsx, so the page's
+  // own button is inert while any sheet is open.
+  function Host() {
+    const behind = useBehindSheet()
+    return h(React.Fragment, null,
+      h('div', { id: 'app', ...behind }, h('button', { id: 'page-btn' }, 'Open')),
+      h('div', { id: 'modals' }, h(Modals)))
+  }
+  const withButton = (id, label = id) => () => h('button', { id }, label)
+
+  beforeEach(async () => {
+    await act(async () => { root.unmount() })
+    const { Window } = await import('happy-dom')
+    happy = new Window({ url: 'https://opengym.test/' })
+    happy.document.body.innerHTML = '<div id="root"></div>'
+    happy.scrollTo = vi.fn()
+    globalThis.window = happy
+    globalThis.document = happy.document
+    for (const key of ['HTMLElement', 'Node', 'Element', 'Event']) globalThis[key] = happy[key]
+    container = document.getElementById('root')
+    root = createRoot(container)
+    await act(async () => { root.render(h(Host)) })
+  })
+
+  afterEach(async () => {
+    if (root) await act(async () => { root.unmount() })
+    root = null
+    await happy.happyDOM.abort()
+  })
+
+  it('moves focus to a bottom sheet when it opens, and back to its opener when it closes', async () => {
+    document.getElementById('page-btn').focus()
+    await setSheets([sheet('one')])
+    expect(active()).toBe(box('.sheet'))
+    expect(box('.sheet').getAttribute('tabindex')).toBe('-1')
+    expect(box('#app').hasAttribute('inert')).toBe(true)
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(active()).toBe(document.getElementById('page-btn'))
+  })
+
+  it('does the same for a centred dialog', async () => {
+    document.getElementById('page-btn').focus()
+    await setSheets([{ ...sheet('confirm'), kind: 'center' }])
+    expect(active()).toBe(box('.center'))
+    expect(box('.center').getAttribute('tabindex')).toBe('-1')
+
+    await act(async () => { mocks.state.closeSheet('confirm') })
+    expect(active()).toBe(document.getElementById('page-btn'))
+  })
+
+  it('leaves focus where the sheet put it on opening (an autoFocus field)', async () => {
+    const render = () => h('input', { id: 'search', autoFocus: true })
+    document.getElementById('page-btn').focus()
+    await setSheets([sheet('picker', { render })])
+    expect(active()).toBe(document.getElementById('search'))
+
+    // and still knows what opened it
+    await act(async () => { mocks.state.closeSheet('picker') })
+    expect(active()).toBe(document.getElementById('page-btn'))
+  })
+
+  it('hands focus back into the sheet underneath when the top one of a stack closes', async () => {
+    const one = sheet('one', { render: withButton('in-one', 'Open two') })
+    document.getElementById('page-btn').focus()
+    await setSheets([one])
+    document.getElementById('in-one').focus()
+    await setSheets([one, sheet('two', { render: withButton('in-two') })])
+    expect(active()).toBe(document.querySelectorAll('.sheet')[1])
+
+    await act(async () => { mocks.state.closeSheet('two') })
+    // the opener is in sheet one, which was inert until this close: focus has landed on it
+    expect(active()).toBe(document.getElementById('in-one'))
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(active()).toBe(document.getElementById('page-btn'))
+  })
+
+  it('falls back to the container of the sheet now on top when the opener has gone', async () => {
+    const one = sheet('one', { render: withButton('in-one', 'Open two') })
+    await setSheets([one])
+    document.getElementById('in-one').focus()
+    const two = sheet('two')
+    await setSheets([one, two])
+    // sheet one re-renders without its button while sheet two is open
+    await setSheets([{ ...one, render: () => h('p', null, 'gone') }, two])
+    expect(document.getElementById('in-one')).toBe(null)
+
+    await act(async () => { mocks.state.closeSheet('two') })
+    expect(active()).toBe(document.querySelector('.sheet'))
+    expect(document.querySelectorAll('.sheet').length).toBe(1)
+  })
+
+  it('closes without an error when the opener has gone and no sheet is left', async () => {
+    const opener = document.createElement('button')
+    document.body.appendChild(opener)
+    opener.focus()
+    await setSheets([sheet('one')])
+    opener.remove()
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(document.querySelector('#modal-root')).toBe(null)
+    expect(active()).toBe(document.body)
+  })
+
+  it('does not take focus from the top sheet when a sheet under it closes', async () => {
+    await setSheets([sheet('one'), sheet('two', { render: withButton('in-two') })])
+    document.getElementById('in-two').focus()
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(active()).toBe(document.getElementById('in-two'))
+  })
+
+  it('does not give focus back to a text field on the page, whose keyboard the sheet put away', async () => {
+    const field = document.createElement('input')
+    document.getElementById('app').appendChild(field)
+    field.focus()
+    await setSheets([sheet('one')])
+    expect(active()).toBe(box('.sheet'))
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(active()).not.toBe(field)
+  })
+
+  it('leaves a full-screen viewer to its own focus handling', async () => {
+    const render = () => h('div', { className: 'mviewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photo', tabIndex: -1 })
+    document.getElementById('page-btn').focus()
+    await setSheets([{ ...sheet('viewer', { render }), kind: 'viewer' }])
+    expect(active()).not.toBe(box('.mviewer'))
+  })
+})
