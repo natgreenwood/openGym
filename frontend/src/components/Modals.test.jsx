@@ -688,6 +688,34 @@ describe('focus in and out of a sheet', () => {
     expect(document.querySelectorAll('.sheet').length).toBe(1)
   })
 
+  // NATG-603: an opener still in the document can refuse focus. Focus then goes to the sheet now on
+  // top, as it does for an opener that has gone, instead of being left on <body>.
+  it('falls back to the sheet now on top when the opener was disabled while the top sheet was open', async () => {
+    const one = sheet('one', { render: withButton('in-one', 'Open dialog') })
+    document.getElementById('page-btn').focus()
+    await setSheets([one])
+    document.getElementById('in-one').focus()
+    await setSheets([one, { ...sheet('dialog'), kind: 'center' }])
+    document.getElementById('in-one').disabled = true
+
+    await act(async () => { mocks.state.closeSheet('dialog') })
+    expect(document.getElementById('in-one').isConnected).toBe(true)
+    expect(active()).toBe(document.querySelector('.sheet'))
+  })
+
+  it('falls back to the sheet now on top when both sheets opened in one go from the page', async () => {
+    document.getElementById('page-btn').focus()
+    // both record the page button as their opener, and it stays inert while sheet one is open
+    await setSheets([sheet('one'), { ...sheet('dialog'), kind: 'center' }])
+    expect(active()).toBe(box('.center'))
+
+    await act(async () => { mocks.state.closeSheet('dialog') })
+    expect(active()).toBe(document.querySelector('.sheet'))
+
+    await act(async () => { mocks.state.closeSheet('one') })
+    expect(active()).toBe(document.getElementById('page-btn'))
+  })
+
   it('closes without an error when the opener has gone and no sheet is left', async () => {
     const opener = document.createElement('button')
     document.body.appendChild(opener)

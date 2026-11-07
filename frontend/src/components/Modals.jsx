@@ -86,7 +86,12 @@ function useSheetFocus(box, skip) {
     const a = document.activeElement
     if (a && a !== document.body && a.isConnected) return
     const back = opener.current
-    if (canFocus(back) && !pageField(back)) { back.focus({ preventScroll: true }); return }
+    if (canFocus(back) && !pageField(back)) {
+      back.focus({ preventScroll: true })
+      // A connected opener can still refuse focus: disabled while the sheet was open, or inert
+      // because the sheet under this one was opened in the same tap from that same opener.
+      if (document.activeElement === back) return
+    }
     const layers = document.querySelectorAll('#modal-root > div')
     const top = layers.length ? layers[layers.length - 1].querySelector('[role="dialog"]') : null
     if (canFocus(top)) top.focus({ preventScroll: true })
