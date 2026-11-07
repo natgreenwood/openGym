@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified: 2026-11-06 by QA agent_
+_Last verified: 2026-11-07 by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -35,8 +35,9 @@ npx vitest run src/lib/backup-media.test.js src/views/Settings.import-media.test
 ```
 
 The helper tests read real ZIPs and check media validation, rollback, current
-references and editor holds. The Settings test uses real media helpers and a
-memory backend, with the file read and account store mocked.
+references, editor holds, removal during import and continuation after per-file
+storage errors. The Settings test uses real media helpers and a memory backend,
+with the file read and account store mocked.
 
 For browser verification, use synthetic photos in a real ZIP through Settings
 → Data & backup → Import backup. Seed one synced and one pending photo already
@@ -46,6 +47,15 @@ flags restored, and no success message shown. Also verify an accepted import
 keeps all photos pending. Inspect IndexedDB again after reload; an in-memory
 check alone cannot establish persistence. These flows can run locally without
 an account or production credentials.
+
+Also schedule sign-out's `retainOnly` cleanup just before an existing photo's
+write, for both synced and pending photos. A refused import must remove the
+recreated bytes. Inject a backend patch failure restoring the first of two synced
+photos: rollback must continue, restore the second and avoid a UI rejection or
+success message. The failed record itself can remain pending after reload;
+rollback is best effort. Verify backend flags as well as the in-memory index.
+When wrapping `media.put` to control timing, return its original result: rollback
+uses that previous-record snapshot to classify each write.
 
 ## Shared routines
 
