@@ -285,7 +285,7 @@ function Shell() {
   // alone; they stay mounted either way, so opening a sheet never remounts the bars inside them.
   const behind = useBehindSheet()
   if (!ready && !authed) return (
-    <div id="app">
+    <div id="app" {...behind}>
       <div style={{ paddingTop: '44vh', display: 'flex', justifyContent: 'center', fontSize: 34, color: 'var(--label-3)' }}>
         <Icon name="dumbbell" />
       </div>
