@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Frontend last verified: 2026-11-07; API last verified: 2026-11-04 by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -21,6 +21,17 @@ node scripts/check-locales.mjs
 node scripts/check-source-strings.mjs --strict
 npm run build
 ```
+
+Check test-order isolation with the whole suite, changing the seed between runs:
+
+```sh
+npx vitest run --sequence.shuffle --sequence.seed=7
+```
+
+Vitest's shuffle seed controls test order, not fast-check's property inputs.
+`src/lib/plates.property.test.js` can independently fail its fewest-plates
+property: `plateStack` sometimes chooses more plates than necessary. Inspect
+the failing test rather than treating every shuffled-run failure as an order leak.
 
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
