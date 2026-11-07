@@ -2511,8 +2511,12 @@ export const useStore = create((set, get) => {
         // screen, which says so. The copy stays here with its owner, and signing in again as the
         // same account merges it (adoptProfile). A later reload still says so while that copy
         // owes its account changes — the user is gone by then, the owner and the copy are not —
-        // unless whoever is here chose to go on as a guest.
+        // unless whoever is here chose to go on as a guest. A 401 that lands after another tab
+        // signed out or in is about the session this copy's owner had, not the browser's now:
+        // setUser(null) would remove the new account's gym_user, so this tab only follows the
+        // other one (the owner event), as boot's other waits do (NATG-574).
         if (e.status === 401) {
+          if (moved()) { finishBoot(); return }
           const kept = !!get().user || (!get().isGuest() && !!localStorage.getItem('gym_owner') && owes())
           get().setUser(null)
           if (kept) failed(e, { pending: owes() })
