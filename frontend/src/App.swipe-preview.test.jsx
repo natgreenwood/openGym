@@ -8,6 +8,10 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App.jsx'
+// Settings is its own chunk (App.jsx lazyView), and these tests are about the swipe, not about
+// loading it. Its first import can take longer than a waitFor's second on a loaded CPU, so the
+// real module is imported here, before any test; App's lazy import then resolves from the cache.
+import './views/Settings.jsx'
 import { DEF, useStore } from './store/useStore.js'
 import { BACK_PREVIEW_EVENT } from './lib/edge-swipe-back.js'
 
