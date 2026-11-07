@@ -29,12 +29,19 @@ async function startServer(t, first) {
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost' }
   });
   const h = { api: '', log: '', child };
-  // `first` sees the child before this file's own listeners are attached (the last test).
-  if (first) h.first = first(child, () => h.log);
+  let booted;
+  const boot = new Promise(r => { booted = r; });
+  // `first` sees the child before this file's own listeners are attached (the last test), and
+  // `boot`, which resolves once the server has bound, for anything it times from there.
+  // Its promise is handled from the start: it can settle while boot is still awaited below, or
+  // after a test that failed early has stopped the child, and then nobody is awaiting it. The
+  // test that awaits it still sees the rejection.
+  if (first) { h.first = first(child, () => h.log, boot); h.first.catch(() => {}); }
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
   h.api = `http://127.0.0.1:${await boundPort(child, () => h.log)}`;
+  booted();
   return h;
 }
 const post = (h, p, body, headers = {}) => fetch(h.api + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) });
@@ -70,7 +77,7 @@ test('a passkey made at another address is refused with the same code', async t 
 });
 
 test('the wait for a log line finds it when it starts listening before the test collects any output', async t => {
-  const h = await startServer(t, (child, log) => logLine(child, 'refused cross-origin', log));
+  const h = await startServer(t, (child, log, boot) => logLine(child, 'refused cross-origin', log, undefined, boot));
   const r = await post(h, '/api/login/options', {}, { Origin: 'http://10.11.0.4:3030' });
   assert.equal(r.status, 403);
   assert.match(await h.first, /origin="http:\/\/10\.11\.0\.4:3030" expected=http:\/\/localhost:8080/);
