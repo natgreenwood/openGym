@@ -131,7 +131,10 @@ export function createMediaStore(backend, {
       return { blob, mime: r.mime, size: r.size, pending: !!r.pending, rejected: !!r.rejected }
     },
     /** Keeps `blob` under `hash`. The same hash is the same bytes, so a second put only updates
-     *  the record — `pending` as the caller says: false when the server has just sent it. */
+     *  the record — `pending` as the caller says: false when the server has just sent it.
+     *  Resolves with a copy of the record that was there before, or null when there was none:
+     *  read in the same step that decides insert or update, so a removal (retainOnly) cannot
+     *  land between the two. */
     async put(hash, blob, { mime, pending = true } = {}) {
       if (!MEDIA_MIMES[mime]) throw new Error('media-store: not a media type: ' + mime)
       await ready()
@@ -147,6 +150,7 @@ export function createMediaStore(backend, {
         index.set(hash, rec)
       }
       emit()
+      return cur ? { ...cur } : null
     },
     /** A URL to show the file by, or null when it is not here. Release it when done. */
     async url(hash) {

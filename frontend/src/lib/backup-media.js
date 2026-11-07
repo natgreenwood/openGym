@@ -18,7 +18,7 @@
  * and links go through the same gates as everywhere else (sanitizeCustomMedia).
  */
 import { zipStore, readZip, looksLikeZip } from './zip.js'
-import { referencedFiles, normalizeMediaRef, workoutMediaOf, cleanUrl, MEDIA_MIMES } from './media-refs.js'
+import { referencedFiles, referencedHashes, normalizeMediaRef, workoutMediaOf, cleanUrl, MEDIA_MIMES } from './media-refs.js'
 import { sniffKind } from './media-sniff.js'
 import { sha256Hex } from './sha256.js'
 import { mediaStore } from './media-store.js'
@@ -128,10 +128,13 @@ export async function readBackupFile(file) {
 /**
  * Checks and keeps a backup's media files: each must sniff as a stored type, stay under that
  * kind's cap, and hash to its name. Kept as pending — the server has not seen them from this
- * device. Resolves { stored, skipped }.
+ * device. Resolves { stored, skipped, added, marked }: `added` the hashes that were not here
+ * before, `marked` those that were here and synced and are now pending again — what
+ * undoBackupMedia takes back when the import is refused after all.
  */
 export async function storeBackupMedia(files, { media = mediaStore, limits = DEFAULT_LIMITS } = {}) {
   let stored = 0, skipped = 0
+  const added = [], marked = []
   const cap = { image: limits.imageMB, gif: limits.gifMB, video: limits.videoMB }
   for (const { hash, entry } of files) {
     try {
@@ -140,9 +143,32 @@ export async function storeBackupMedia(files, { media = mediaStore, limits = DEF
       if (!s || !MEDIA_MIMES[s.mime] || entry.size > (cap[s.kind] || 0) * MB) throw new Error('refused')
       const bytes = new Uint8Array(await entry.blob.arrayBuffer())
       if ((await sha256Hex(bytes)) !== hash) throw new Error('tampered')
-      await media.put(hash, new Blob([bytes], { type: s.mime }), { mime: s.mime, pending: true })
+      // What the write itself found there, not a list taken before the loop: a sign-out's clean-up
+      // can remove a file meanwhile, and its bytes written again are this import's (NATG-598).
+      const had = await media.put(hash, new Blob([bytes], { type: s.mime }), { mime: s.mime, pending: true })
       stored++
+      if (!had) added.push(hash)
+      else if (!had.pending && !had.rejected) marked.push(hash)
     } catch { skipped++ }
   }
-  return { stored, skipped }
+  return { stored, skipped, added, marked }
+}
+
+/**
+ * Takes back what storeBackupMedia did, for an import refused once its files were written: the
+ * account changed meanwhile (NATG-557). Each file it added goes again, unless `state` (whatever
+ * the store holds now) refers to it or an open editor holds it; each file that was here and synced
+ * is marked synced again. Files that were here before the import stay, and nothing else is touched.
+ * Best effort, file by file: one the backend will not change is left for the local clean-up and
+ * the rest still go back (NATG-599). Never rejects.
+ */
+export async function undoBackupMedia({ added = [], marked = [] } = {}, state, { media = mediaStore } = {}) {
+  const keep = referencedHashes(state)
+  for (const hash of added) {
+    if (keep.has(hash) || media.isHeld?.(hash)) continue
+    try { await media.remove(hash) } catch { /* left for the local clean-up */ }
+  }
+  for (const hash of marked) {
+    try { await media.markSynced(hash) } catch { /* stays pending; the others still go back */ }
+  }
 }
