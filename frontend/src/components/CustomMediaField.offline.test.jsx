@@ -8,11 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-const h = vi.hoisted(() => ({ offline: true, toast: vi.fn() }))
-vi.mock('../lib/media-ingest.js', () => {
-  if (h.offline) throw new TypeError('Failed to fetch dynamically imported module')
-  return { ingestMediaFile: async () => ({ blobs: [], warnings: [], media: { kind: 'image', hash: 'h' } }) }
-})
+const h = vi.hoisted(() => ({
+  offline: true, toast: vi.fn(),
+  ingest: () => {
+    if (h.offline) throw new TypeError('Failed to fetch dynamically imported module')
+    return { ingestMediaFile: async () => ({ blobs: [], warnings: [], media: { kind: 'image', hash: 'h' } }) }
+  },
+}))
 vi.mock('../lib/media-store.js', () => ({ mediaStore: { ready: async () => {}, persistent: true, put: async () => {} } }))
 vi.mock('../store/useUI.js', () => {
   const useUI = sel => sel({ toast: h.toast })
@@ -20,12 +22,18 @@ vi.mock('../store/useUI.js', () => {
   return { useUI }
 })
 
-const { useMediaPicker, mediaErrorText } = await import('./CustomMediaField.jsx')
+let useMediaPicker, mediaErrorText
 
 let host, root, picker
 function Probe() { picker = useMediaPicker(); return null }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // Each test starts with the ingest never loaded: once one test had loaded it, the mock stayed
+  // loaded (vi.resetModules keeps a mock's module), and the offline pick in the next test found it.
+  // The mock is registered again and the component imported fresh, so its import goes through it.
+  vi.resetModules()
+  vi.doMock('../lib/media-ingest.js', () => h.ingest())
+  ;({ useMediaPicker, mediaErrorText } = await import('./CustomMediaField.jsx'))
   h.offline = true
   h.toast.mockReset()
   host = document.createElement('div')

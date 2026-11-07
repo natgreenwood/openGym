@@ -2,12 +2,12 @@
 // v1.3.11: "Weigh in before workouts" starts off for a profile created from nothing. A profile
 // that already exists keeps what it had: one saved with the switch on stays on, and one saved
 // before the setting existed (no key) still reads as on through DEF and `!== false`.
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api.js', () => ({ api: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
-import { freshState, DEF, restoredStateFor, restartedState, useStore } from './useStore.js'
+import { freshState, DEF, restoredStateFor, restartedState } from './useStore.js'
 
 describe('weigh-in default', () => {
   it('a fresh profile starts with the weigh-in off', () => {
@@ -40,6 +40,10 @@ describe('exercise animations default', () => {
 // defaults as a first run, in the language already on screen, and the reset keeps its stamps.
 describe('starting over', () => {
   const old = () => ({ ...JSON.parse(JSON.stringify(DEF)), lang: 'de', weighIn: true, gifSize: 'full', resetAt: 5, resetIds: { workouts: ['w-old'] }, workouts: [{ id: 'w1', d: '2026-09-01', entries: [] }] })
+  // A store of its own for each test: the account that signed in last stays the owner the store
+  // has seen, and a reset after it took its own save for another tab's (setState cannot reset it).
+  let useStore
+  beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
   afterEach(() => { localStorage.clear(); useStore.setState({ S: JSON.parse(JSON.stringify(DEF)), user: null, ready: false }) })
 
   it('Reset everything gives weigh-in off and small animations, in the same language', async () => {

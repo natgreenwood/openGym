@@ -90,11 +90,16 @@ beforeEach(async () => {
   await act(async () => { root.render(React.createElement(Modals)) })
 })
 
+// linkedom's window is globalThis behind a proxy, so what a test sets on it outlives the test: a
+// read-only scrollY broke the next test's assignment, and a visualViewport left the keyboard up.
+const WINDOW_KEYS = ['scrollY', 'scrollTo', 'innerHeight', 'visualViewport', 'requestAnimationFrame']
+
 afterEach(async () => {
   if (root) await act(async () => { root.unmount() })
   root = null
   container = null
   dom = null
+  for (const key of WINDOW_KEYS) delete globalThis[key]
   vi.restoreAllMocks()
 })
 

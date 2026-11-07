@@ -8,9 +8,12 @@ import { sharedRoutineOf, sharedView, sharedViewOf, orphanPointers, sharedNames,
 import { registerCustom } from './exercises.js'
 
 const ME = { id: 'u2', name: 'Jo Patel' }
+// The hash covers the unit and the routine, as the server's does (api/server.js contentHash): the
+// module keeps one projection per id and hash, so two fixtures that differ in either need two
+// hashes, or the second test to run reads the first one's projection back.
 const accepted = (id, routine, extra = {}) => ({
   id, state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, created: '2026-11-03T00:00:00Z', acceptedAt: '2026-11-03T00:00:00Z',
-  unit: 'kg', hash: 'h-' + id, routine, ...extra,
+  unit: 'kg', hash: 'h-' + JSON.stringify([extra.unit || 'kg', routine]), routine, ...extra,
 })
 const LEG = { id: 'r1', name: 'Leg Day', emoji: 'barbell', prog: 'linear', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }, { id: '0007', sets: 3, reps: 10, weight: 40 }] }
 const lists = (incoming, extra = {}) => ({ uid: ME.id, incoming, outgoing: [], etag: 'e1', fetchedAt: 1000, ...extra })

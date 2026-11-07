@@ -113,12 +113,14 @@ async function expectNothingImported(run) {
   expect(mocks.toast).not.toHaveBeenCalledWith('Backup imported')
 }
 
-// First in the file, and without settling the owner: the owner events further down leave this
-// store handed over to the new owner (it writes nothing until it has taken that owner's saved
-// copy), as a real tab would be.
+// Without settling the owner. The owner events in the other tests leave this store handed over to
+// the new owner (it writes nothing until it has taken that owner's saved copy), as a real tab would
+// be; signing in as A, as that tab then does, is what ends it. This test used to rely on running
+// first instead, and failed in any other order.
 describe('with no owner event, the import goes as before', () => {
   it('with no owner event the menu stays open, and "Merge them in" imports and says so', async () => {
     asA({ settle: false })
+    useStore.getState().setUser({ id: 'A' })
     await chooseFile()
     const sheet = mocks.menuSheet.mock.results[0].value
     act(() => { useStore.setState({ ready: true }) })   // the store moves for another reason

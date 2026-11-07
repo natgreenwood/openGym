@@ -46,7 +46,9 @@ const button = text => [...host.querySelectorAll('button')].find(b => b.textCont
 const shareCalls = () => api.mock.calls.filter(([p]) => p.startsWith('/api/shares'))
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // Reset, not cleared: the retry test's api.mockImplementation (every /api/shares refused) stayed
+  // for the tests after it. resetAllMocks puts each vi.fn back to the implementation it was made with.
+  vi.resetAllMocks()
   answers.shares = { incoming: [], outgoing: [], etag: 'e' }
   useUI.setState({ sheets: [] })
 })

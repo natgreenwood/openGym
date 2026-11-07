@@ -65,7 +65,9 @@ beforeEach(async () => {
   hs = await import('./health-sync.js')
 })
 
-afterEach(() => { vi.useRealTimers() })
+// restoreAllMocks: the history tests spy on the mocked registerPlugin, and vi.resetModules does
+// not undo a spy, so every later test was offered the history permission too.
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks() })
 
 describe('switched off (the default)', () => {
   it('reads nothing at all', async () => {
