@@ -1279,3 +1279,71 @@ describe('a reset or import refused before this tab has heard that the other tab
     expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
   })
 })
+
+describe('a reset or import followed, before its push, by this tab signing in to another account', () => {
+  /* NATG-572. A reset or an import arms its replace (no baseRev, or the revision it read) and
+     queues its push. Before the 1.5 s debounce fires, this same tab signs in to another account,
+     the way a device link does (Passkeys: setUser with `adopt` while signed in). The sign-in drops
+     the queued push, and the replace, left armed, went out with the new account's next change,
+     over what another device had synced to it. The account this tab held is at revision 5, Yan at
+     4; another device then takes Yan to 5. */
+  const signInBeforePush = async replace => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => replace(A))
+    expect(puts).toEqual([])   // still in the debounce
+    const yan = 'Y-' + OWNER
+    srv.doc = { ...clone(DEF), _ts: 500, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+    await act(A, () => A.getState().setUser({ id: yan, name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().user?.id).toBe(yan)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    // Another device syncs a workout to Yan's profile; A has not pulled it.
+    srv.doc = { ...srv.doc, _rev: 5, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther', '2026-09-06')] }
+    h.toasts = []
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    return { srv, bases: puts.map(p => p.baseRev) }
+  }
+
+  it('a reset leaves no replace behind: the next account\'s change goes against its own revision', async () => {
+    const { srv, bases } = await signInBeforePush(A => A.getState().resetEverything())
+    // Yan's revision, then the merge's retry; not a replace without one.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  it('an import leaves no replace behind: the previous account\'s revision does not go out with the next one\'s change', async () => {
+    const backup = { ...clone(DEF), workouts: [w('b1', '2026-08-01')] }
+    const { srv, bases } = await signInBeforePush(async A => {
+      const token = A.getState().importToken()
+      expect(await A.getState().importConflict(backup, token)).not.toBeNull()   // the check read revision 5
+      expect(A.getState().importBackup(backup, { token })).toBe(true)
+    })
+    // Not the previous account's revision 5, which Yan's document has just reached too.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+    expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
+  })
+
+  it('with no sign-in in between, the reset still goes out as a replace of the account\'s copy', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().resetEverything())
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([null])
+    expect(ids(srv.doc)).toEqual([])
+  })
+})
