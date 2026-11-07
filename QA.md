@@ -7,8 +7,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
-React, Vite and Zustand; component and store tests use happy-dom.
+Frontend checks reverified 2026-11-07 with Node 22.22.1, npm 9.2.0 and
+Vitest 5.1.0. The frontend uses React, Vite and Zustand; component and store tests
+use happy-dom.
 
 From `frontend/`:
 
@@ -25,6 +26,27 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Account sync and sign-out
+
+From `frontend/`, exercise the store and the adjacent leave-server UI together:
+
+```sh
+npx vitest run src/store/ src/components/ServerSync.leave.test.jsx src/components/ServerSync.media.test.jsx src/views/Settings.server-sync.test.jsx --reporter=dot
+```
+
+`useStore.sync-status.test.jsx` covers clean sign-out, owed marks, debounced and
+in-flight pushes, failed uploads, forced stashes and logout failures.
+`useStore.tabs-join.test.jsx` and `useStore.tabs-owner.test.jsx` cover saved-tab
+changes and account switches; `useStore.hold-signout.test.jsx` and
+`useStore.media.test.jsx` cover adoption holds and pending media.
+
+In a browser with a synthetic profile, use Settings → Account → Sign out and
+Sign out everywhere. A clean copy sends only the corresponding logout POST;
+an edited copy sends `PUT /api/data` before logout. Both clear memory and the
+saved workout list. A failed PUT keeps the account and workouts locally and
+sends no logout. Browser checks with intercepted API responses cannot establish
+server revision changes or delivery to other devices.
 
 ## Shared routines
 
