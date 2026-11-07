@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-07 by QA agent (frontend; API notes retained)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,32 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Sheets and media focus
+
+From `frontend/`:
+
+```sh
+npx vitest run src/components/Modals.test.jsx src/sheets.workout-media.test.jsx
+```
+
+The modal focus cases use happy-dom because linkedom does not implement focus.
+Keep the global-window restoration check when editing that block. The media
+suite also covers focus returning from a viewer to an underlying sheet.
+
+In a browser, use keyboard Tab/Enter to open a sheet and a centre dialog above
+it. Check container focus without a ring, visible rings on controls, and Escape
+restoring the lower opener, then the page opener. Repeat with a removed,
+disabled or hidden lower opener and with two sheets opened in one update:
+closing the top must focus the surviving dialog container. Check autoFocus
+search inputs retain focus and closing a lower sheet leaves the top alone.
+
+Viewer checks: Close takes focus, Tab/Shift+Tab stay inside, and closing returns
+to the underlying thumbnail. Check `#app` gains/removes `inert` and `aria-hidden`
+in both boot and ready branches. Keyboard flows were exercised in Chromium at
+1280 px and 390 px widths; screen-reader announcements and native shells still
+need device testing. A page text field intentionally does not regain focus on
+close, to avoid reopening the keyboard.
 
 ## Shared routines
 
