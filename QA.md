@@ -68,18 +68,6 @@ For browser checks, use a synthetic plan JSON through Plan's file input. Check
 Cancel, Add, malformed JSON, unchanged scheduling when the schedule switch is
 off, and persistence after reload. Unknown slot fields must not survive import.
 
-## API checks
-
-From `api/` (Node 22):
-
-```sh
-npm ci --ignore-scripts --no-audit --no-fund
-npm test
-```
-
-The suite uses local fixtures and mock providers; no real Coach credentials are
-needed. Neither package defines a separate lint or type-check command.
-
 ## Known gaps
 
 `scripts/app-icons.test.mjs` currently has two failures comparing committed icons
@@ -97,6 +85,12 @@ npm ci --omit=optional --no-audit --no-fund
 npm test
 node --test test/server-reminder.test.js test/server-nudge.test.js
 ```
+
+This install matches CI and leaves out the optional Agent SDK
+(`@anthropic-ai/claude-agent-sdk`). Only include it, with a plain `npm ci`, when
+you are checking the Coach's Agent SDK adapter (`coach/adapters/claude.js`); the
+suite passes either way. The suite uses local fixtures and mock providers; no
+real Coach credentials are needed.
 
 There is no API build, lint or type-check script. For the API job's coverage and
 reporter options, see `.github/workflows/test.yml`. Its other checks, from the
