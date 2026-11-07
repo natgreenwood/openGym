@@ -62,8 +62,10 @@ describe('text from routine data is bounded', () => {
   const bytesOf = v => new TextEncoder().encode(JSON.stringify(v)).length
   // Catalogue exercises only: a shared routine with a custom exercise is not available at all.
   const sharedNamed = name => ({ id: 'r9', name, ex: [{ id: '0025', sets: 3, reps: 8, weight: 60 }, { id: '0001', sets: 2, reps: 10 }] })
-  // Its own hash per routine: the shared view keeps a routine it has already checked by hash.
-  const viewOf = routine => sharedViewOf({ S: { unit: 'kg' }, user: { id: 'u2', name: 'Jo' }, shares: { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: `h-${routine.name.length}`, routine }] } })
+  // A new hash per view: the shared view keeps a routine it has already checked by hash, and two
+  // routines here can share a name but not their slots.
+  let views = 0
+  const viewOf = routine => sharedViewOf({ S: { unit: 'kg' }, user: { id: 'u2', name: 'Jo' }, shares: { uid: 'u2', etag: 'e', outgoing: [], incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: `h-${++views}`, routine }] } })
   // A session started from the shared routine the way sheets.jsx beginWorkout starts one.
   const startedFrom = (name, ids = ['shared:s1'], over = {}) => {
     const S = { unit: 'kg', restSec: 90, workouts: [], routines: [], week: {}, dayPlan: {}, ...over }
@@ -111,6 +113,23 @@ describe('text from routine data is bounded', () => {
     const snap = buildSnapshot({ ...S, active: { id: 'w1', name: 'Mine', entries: [{ id: 'c9', target: { name: HUGE }, sets: [{ r: 10, done: false }] }] } }, { ready: alone })
     expect(snap.active.entries[0].name).toBe(CUT)
     expect(bytesOf(snap)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+  })
+
+  it('cuts a shared slot\'s superset group id, and keeps the superset together', () => {
+    const routineWithGroup = sg => ({ id: 'r9', name: 'Short', ex: [{ id: '0025', sets: 3, reps: 8, sg }, { id: '0001', sets: 2, reps: 10, sg }] })
+    const snapOf = sg => {
+      const S = { unit: 'kg', restSec: 90, workouts: [], routines: [], week: {}, dayPlan: {} }
+      const { entries } = buildCombinedEntries(S, ['shared:s1'], viewOf(routineWithGroup(sg)))
+      return buildSnapshot({ ...S, active: { id: 'w-9', name: 'Short', cur: 0, entries } })
+    }
+    const big = snapOf(HUGE)
+    // both exercises still carry the same group, so the watch still runs them in turns
+    expect(big.active.entries.map(e => e.group)).toEqual([CUT, CUT])
+    expect(bytesOf(big)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+    expect(fitSnapshot(big)).toBe(big)
+    // a group id at or under the limit is unchanged
+    expect(snapOf('A').active.entries.map(e => e.group)).toEqual(['A', 'A'])
+    expect(snapOf('g'.repeat(MAX_WIDGET_TEXT)).active.entries[0].group).toBe('g'.repeat(MAX_WIDGET_TEXT))
   })
 
   it('counts code points, so an emoji at the cut is kept or dropped whole, and leaves short names alone', () => {

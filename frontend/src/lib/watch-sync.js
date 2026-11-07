@@ -116,8 +116,9 @@ function watchEntry (e, H, S) {
     sets: (e.sets || []).map(watchSet),
     ...(isBw(cfg) ? { bodyweight: true } : {}),
     ...(isPerSide(cfg) ? { perSide: true } : {}),
-    // a superset: the exercises next to each other with the same group, done in turns
-    ...(e.sg ? { group: String(e.sg) } : {}),
+    // a superset: the exercises next to each other with the same group, done in turns. A shared
+    // slot's group id is the sharer's text, so it is cut like a name (NATG-553).
+    ...(e.sg ? { group: clipText(e.sg) } : {}),
     ...(best ? { best } : {}),
     ...(mode === 'reps' && isAssisted(e.id) ? { assisted: true } : {}),
     // the step the weight moves in, as on the phone (this exercise's own, else its plates' default)
