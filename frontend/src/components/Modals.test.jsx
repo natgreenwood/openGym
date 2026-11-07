@@ -1,7 +1,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { parseHTML } from 'linkedom'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import Modals, { afterScrollRestore, scrollRestorePending, useBehindSheet } from './Modals.jsx'
 
 const mocks = vi.hoisted(() => {
@@ -591,6 +591,8 @@ describe('the page behind an open sheet', () => {
 // it, or on the page, and both are inert until the commit that removes the top sheet is over.
 describe('focus in and out of a sheet', () => {
   let happy
+  let linkedom
+  const SWAPPED = ['window', 'document', 'HTMLElement', 'Node', 'Element', 'Event']
   const h = React.createElement
   const active = () => document.activeElement
   const box = sel => document.querySelector(sel)
@@ -611,6 +613,7 @@ describe('focus in and out of a sheet', () => {
     happy = new Window({ url: 'https://opengym.test/' })
     happy.document.body.innerHTML = '<div id="root"></div>'
     happy.scrollTo = vi.fn()
+    linkedom = Object.fromEntries(SWAPPED.map(key => [key, globalThis[key]]))
     globalThis.window = happy
     globalThis.document = happy.document
     for (const key of ['HTMLElement', 'Node', 'Element', 'Event']) globalThis[key] = happy[key]
@@ -619,10 +622,12 @@ describe('focus in and out of a sheet', () => {
     await act(async () => { root.render(h(Host)) })
   })
 
+  // Put linkedom back, so nothing after this block runs on a closed happy-dom window.
   afterEach(async () => {
     if (root) await act(async () => { root.unmount() })
     root = null
     await happy.happyDOM.abort()
+    Object.assign(globalThis, linkedom)
   })
 
   it('moves focus to a bottom sheet when it opens, and back to its opener when it closes', async () => {
@@ -752,5 +757,16 @@ describe('focus in and out of a sheet', () => {
     document.getElementById('page-btn').focus()
     await setSheets([{ ...sheet('viewer', { render }), kind: 'viewer' }])
     expect(active()).not.toBe(box('.mviewer'))
+  })
+})
+
+// The top-level beforeEach puts linkedom back before every test, but a later block's beforeAll runs
+// ahead of it and would still see the happy-dom window, closed by then, without the restore above.
+describe('after the happy-dom block', () => {
+  let seen
+  beforeAll(() => { seen = globalThis.window })
+  it('leaves linkedom in place for what runs before the next beforeEach', () => {
+    expect(seen.happyDOM).toBeUndefined()
+    expect(typeof seen.document.querySelector).toBe('function')
   })
 })
