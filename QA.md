@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-07 by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,37 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Backup media
+
+From `frontend/`:
+
+```sh
+npx vitest run src/lib/backup-media.test.js src/views/Settings.import-media.test.jsx src/lib/media-store.test.js src/lib/media-sync.test.js
+```
+
+The helper tests read real ZIPs and check media validation, rollback, current
+references, editor holds, removal during import and continuation after per-file
+storage errors. The Settings test uses real media helpers and a memory backend,
+with the file read and account store mocked.
+
+For browser verification, use synthetic photos in a real ZIP through Settings
+→ Data & backup → Import backup. Seed one synced and one pending photo already
+on the device, plus a new photo in the backup. Schedule an account change after
+the first write: the import must be refused, the new photo removed, the existing
+flags restored, and no success message shown. Also verify an accepted import
+keeps all photos pending. Inspect IndexedDB again after reload; an in-memory
+check alone cannot establish persistence. These flows can run locally without
+an account or production credentials.
+
+Also schedule sign-out's `retainOnly` cleanup just before an existing photo's
+write, for both synced and pending photos. A refused import must remove the
+recreated bytes. Inject a backend patch failure restoring the first of two synced
+photos: rollback must continue, restore the second and avoid a UI rejection or
+success message. The failed record itself can remain pending after reload;
+rollback is best effort. Verify backend flags as well as the in-memory index.
+When wrapping `media.put` to control timing, return its original result: rollback
+uses that previous-record snapshot to classify each write.
 
 ## Shared routines
 
@@ -70,6 +101,18 @@ needed. Neither package defines a separate lint or type-check command.
 with fresh renders on this Linux runtime. They reproduce on the unchanged base;
 run `npx vitest run scripts/app-icons.test.mjs` to isolate them. Do not regenerate
 icons as part of unrelated frontend changes.
+
+`backup-media.test.js` builds 1,999 media entries in its ZIP entry-limit test.
+It can exceed Vitest's default five-second timeout during concurrent heavy
+suites. The focused four-file command above passed on rerun after the frontend
+suite finished; record any timeout separately from rollback assertion failures.
+
+The MCP rate-limit test in `mcp/test/write-tools.test.js` generates local dates
+by subtracting elapsed 24-hour periods. Late in the day after the autumn DST
+change, Europe/London can produce a duplicate date and fail the test. This
+reproduces on unchanged main. From `mcp/`, `TZ=UTC npm test` passes on the same
+runtime; retain the local-time failure as a fixture defect rather than treating
+the UTC run as a fix.
 
 ## API checks
 
