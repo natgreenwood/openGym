@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-07 by QA agent (frontend; API notes retain their earlier verification)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -51,6 +51,28 @@ npx vitest run src/lib/plan-share.test.js src/lib/shared-routine-parity.test.js 
 For browser checks, use a synthetic plan JSON through Plan's file input. Check
 Cancel, Add, malformed JSON, unchanged scheduling when the schedule switch is
 off, and persistence after reload. Unknown slot fields must not survive import.
+
+## Count limits and sharing notices
+
+From `frontend/`, run the count caps and adjacent import/share/watch boundaries:
+
+```sh
+npx vitest run src/sheets.config-count-caps.test.jsx src/components/ui.test.jsx src/lib/plan-share.test.js src/lib/shared-routines.limits.test.js src/lib/shared-routines.boundary.test.js src/lib/shared-routine-parity.test.js src/lib/watch-sync.test.js src/sheets.plan-import-toast.test.jsx src/components/ShareRoutineSheet.test.jsx --maxWorkers=2
+```
+
+In a browser, check click, hold, keyboard activation and typing above the cap
+followed directly by Save. Sets (reps, time and Sets from) and cardio Intervals
+cap at 50, Drops at 10, Rest-pause reps at 1,000 and Sets up to at 10. The hint
+has `role="status"`; at the cap, + is `aria-disabled` but retains keyboard focus.
+Check the rest-pause hint at 320px as well as wider viewports.
+
+Import synthetic counts of 80 sets, 25 drops and 5,000 rest-pause reps: the
+preview reports lowered counts, and Add stores 50, 10 and 1,000. At-limit
+imports show no reduction notice. Export also caps older over-limit data.
+`capped` counts exercises, not fields; it excludes `setsMax` and dropped slots.
+The sharing notice informs without blocking Share; verify both over-limit and
+within-limit routines with mocked recipients. These checks do not establish
+live-server delivery or native watch behavior.
 
 ## API checks
 
