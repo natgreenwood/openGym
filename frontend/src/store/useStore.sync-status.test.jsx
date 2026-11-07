@@ -124,6 +124,12 @@ describe('sync status', () => {
 })
 
 describe('the web boot', () => {
+  // Each boot is a page load in a browser this account owns: a store of its own, loaded after
+  // beforeEach wrote the owner. The file's store saw the owner key appear after it loaded, which a
+  // boot takes for another tab signing in (it ends there), unless an earlier test had saved under it.
+  let useStore
+  beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
+  afterEach(() => { useStore.setState({ user: null, ready: false }) })
   const boot = async (me, user = USER) => {
     api.mockImplementation(async path => {
       if (path === '/api/config') return { allow_guest: true }

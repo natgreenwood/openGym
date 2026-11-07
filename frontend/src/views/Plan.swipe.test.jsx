@@ -76,7 +76,10 @@ beforeEach(() => {
 })
 afterEach(() => {
   closeOpenRow(true)
-  act(() => root.unmount()); host.remove()
+  // Only what this test mounted: the restoreRoutine tests mount nothing, and unmounted the root an
+  // earlier test had left behind, or nothing at all when they ran first.
+  if (root) { act(() => root.unmount()); host.remove() }
+  root = host = null
   localStorage.removeItem('gym_plan_view')
   widthSpy.mockRestore()
   vi.clearAllTimers(); vi.useRealTimers()

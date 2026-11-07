@@ -11,6 +11,7 @@ import { DEF, useStore } from '../store/useStore.js'
 import { _setLangState } from '../lib/i18n-core.js'
 import de from '../locales/de.js'
 import { buildPlanBundle, parsePlan } from '../lib/plan-share.js'
+import { registerCustom } from '../lib/exercises.js'
 
 const cssSource = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
 
@@ -37,6 +38,9 @@ function setRoutine(ex) {
   const S = clone(DEF)
   S.routines = [{ id: 'r1', name: 'Move test', emoji: 'dumbbell', ex }]
   S.customEx = ['c1', 'c2', 'c3', 'c4'].map(custom)
+  // Registered as the store does when it loads or saves a copy: setState does neither, and the rows
+  // were named after these exercises only once an earlier test had saved one.
+  registerCustom(S.customEx)
   useStore.setState({ S, user: null })
 }
 

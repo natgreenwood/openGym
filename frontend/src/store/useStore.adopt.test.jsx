@@ -28,8 +28,12 @@ const server = { ...clone(DEF), _ts: 100, unit: 'lb', restSec: 60, workouts: [wo
 // what a guest tracked after signing out: newer, one workout, its own routine and settings
 const guest = { ...clone(DEF), _ts: 900, unit: 'kg', restSec: 120, workouts: [workout('w9', '2026-09-11')], routines: [routine('rg')], week: { 2: ['rg'] }, active: { id: 'running' } }
 
-beforeEach(() => { localStorage.clear(); api.mockReset(); toast.mockReset(); useStore.setState({ S: clone(DEF), user: null, ready: false }) })
-afterEach(() => { vi.useRealTimers(); localStorage.clear(); useStore.setState({ S: clone(DEF), user: null, ready: false }) })
+// Signed out through setUser, not setState: the store keeps what a sign-in decided (whether this
+// copy is the account's own, whether sync is held) outside its state, and only setUser(null)
+// clears it. A test that signed in as the copy's owner otherwise answered the next one's question.
+const signedOut = () => { useStore.getState().setUser(null); useStore.setState({ S: clone(DEF), user: null, ready: false }) }
+beforeEach(() => { localStorage.clear(); api.mockReset(); toast.mockReset(); signedOut() })
+afterEach(() => { vi.useRealTimers(); localStorage.clear(); signedOut() })
 
 describe('adoptProfile — sign-in takes the server profile', () => {
   it('adopts the server copy over newer local data when the user keeps the profile as is', async () => {
