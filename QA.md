@@ -7,7 +7,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,29 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Weight-rate timezone checks
+
+_Verified: 2026-11-07 by QA agent_
+
+From `frontend/`, run each timezone in a fresh process so module-level fixture
+dates use that zone:
+
+```sh
+TZ=Pacific/Auckland npx vitest run src/lib/bodyweight-rate.test.js
+TZ=UTC npx vitest run src/lib/bodyweight-rate.test.js
+TZ=America/Los_Angeles npx vitest run src/lib/bodyweight-rate.test.js
+```
+
+For adjacent bodyweight, display, unit and date-format behavior at UTC+14:
+
+```sh
+TZ=Pacific/Kiritimati npx vitest run src/lib/bodyweight-rate.test.js src/lib/bodyweight.test.js src/components/WeightRate.test.jsx src/views/Stats.bodyweight.test.jsx src/lib/units.test.js src/lib/format.helpers.test.js --maxWorkers=2
+```
+
+Date-only fixtures must use local calendar dates: start at noon, subtract days
+with `setDate`, then format with `isoOf`. `toISOString()` uses UTC and can move
+the fixture to the previous date; subtracting 86400000 also crosses DST poorly.
 
 ## Shared routines
 
