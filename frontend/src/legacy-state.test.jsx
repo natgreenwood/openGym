@@ -108,19 +108,25 @@ describe('a phone that has kept its v1.0.0 data updates to this build', () => {
     expect(render(<Plan />).textContent).toContain('Push day')
   })
 
-  // Last: it saves a change.
+  // It saves a change, so it puts the copy the store loaded back when it is done: the other tests
+  // read that copy, and used to rely on this one running last.
   it('keeps all of it through the next save, a sync with a server and a backup', async () => {
     const { mergeStates } = await import('./lib/sync-merge.js')
-    act(() => useStore.getState().update(s => { s.restSec = 90 }))
-    const saved = JSON.parse(localStorage.getItem('gym_state_v1'))
-    const server = { ...clone(DEF), _ts: 1, workouts: [{ id: 'new1', d: '2026-10-01', start: 1, end: 2, entries: [] }] }
-    for (const S of [saved, mergeStates(saved, server), mergeStates(server, saved), JSON.parse(JSON.stringify(saved))]) {
-      expect(S.workouts.map(w => w.id)).toEqual(expect.arrayContaining(['old1', 'old2']))
-      const old1 = S.workouts.find(w => w.id === 'old1')
-      expect(old1.entries[0].sets).toEqual(V1_STATE.workouts[0].entries[0].sets)
-      expect(old1.entries[1].sets).toEqual([{ min: 15, speed: 6, done: true }])
-      expect(S.routines.find(r => r.id === 'rA').ex).toEqual(V1_STATE.routines[0].ex)
-      expect(S.bodyweight.map(b => b.w)).toEqual([81.2, 80.4, 79.9])
+    const loaded = useStore.getState().S
+    try {
+      act(() => useStore.getState().update(s => { s.restSec = 90 }))
+      const saved = JSON.parse(localStorage.getItem('gym_state_v1'))
+      const server = { ...clone(DEF), _ts: 1, workouts: [{ id: 'new1', d: '2026-10-01', start: 1, end: 2, entries: [] }] }
+      for (const S of [saved, mergeStates(saved, server), mergeStates(server, saved), JSON.parse(JSON.stringify(saved))]) {
+        expect(S.workouts.map(w => w.id)).toEqual(expect.arrayContaining(['old1', 'old2']))
+        const old1 = S.workouts.find(w => w.id === 'old1')
+        expect(old1.entries[0].sets).toEqual(V1_STATE.workouts[0].entries[0].sets)
+        expect(old1.entries[1].sets).toEqual([{ min: 15, speed: 6, done: true }])
+        expect(S.routines.find(r => r.id === 'rA').ex).toEqual(V1_STATE.routines[0].ex)
+        expect(S.bodyweight.map(b => b.w)).toEqual([81.2, 80.4, 79.9])
+      }
+    } finally {
+      useStore.setState({ S: loaded })
     }
   })
 })
