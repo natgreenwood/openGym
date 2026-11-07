@@ -2698,4 +2698,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '這超出了一次訓練能容納的量。請少選幾個課表，或選組數較少的。',
   '{0} is too much to add to this workout.': '{0}太多了，無法加入這次訓練。',
   'too much for this workout': '對這次訓練來說太多',
+  // --- count limits (NATG-503) ---
+  'Max {0}': '最多 {0}',
+  'Some counts were lowered': '部分數值已調低',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 個動作超出了應用程式允許的範圍。加入時最多 {1} 組或間歇、{2} 次遞減和 {3} 次休息暫停。',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 個動作超出了應用程式允許的範圍。加入時最多 {1} 組或間歇、{2} 次遞減和 {3} 次休息暫停。',
+  'People you share this with won’t be able to open it': '你分享給的人將無法開啟它',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '它對共享訓練計畫來說太大了。你仍然可以分享它。等組數或動作減少後，他們就能開啟了。',
 }

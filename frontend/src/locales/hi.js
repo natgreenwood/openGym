@@ -2705,4 +2705,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'यह एक वर्कआउट की क्षमता से ज़्यादा है। कम रूटीन चुनें, या कम सेट वाले रूटीन।',
   '{0} is too much to add to this workout.': '{0} इस वर्कआउट में जोड़ने के लिए बहुत ज़्यादा है।',
   'too much for this workout': 'इस वर्कआउट के लिए बहुत ज़्यादा',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'अधिकतम {0}',
+  'Some counts were lowered': 'कुछ संख्याएँ घटाई गईं',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} एक्सरसाइज़ में ऐप की अनुमति से ज़्यादा था। इसे अधिकतम {1} सेट या इंटरवल, {2} ड्रॉप और {3} रेस्ट-पॉज़ रेप्स के साथ जोड़ा जाएगा।',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} एक्सरसाइज़ में ऐप की अनुमति से ज़्यादा था। इन्हें अधिकतम {1} सेट या इंटरवल, {2} ड्रॉप और {3} रेस्ट-पॉज़ रेप्स के साथ जोड़ा जाएगा।',
+  'People you share this with won’t be able to open it': 'जिनके साथ आप इसे साझा करेंगे, वे इसे खोल नहीं पाएँगे',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'साझा रूटीन के लिए यह बहुत बड़ा है। आप फिर भी इसे साझा कर सकते हैं। सेट या एक्सरसाइज़ कम होते ही वे इसे खोल पाएँगे।',
 }

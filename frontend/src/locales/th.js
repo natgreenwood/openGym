@@ -2716,4 +2716,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'มากเกินกว่าที่การฝึกหนึ่งครั้งจะรับได้ เลือกรูทีนให้น้อยลง หรือรูทีนที่มีเซตน้อยลง',
   '{0} is too much to add to this workout.': '{0} มากเกินกว่าจะเพิ่มในการฝึกนี้',
   'too much for this workout': 'มากเกินไปสำหรับการฝึกนี้',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'สูงสุด {0}',
+  'Some counts were lowered': 'ลดจำนวนบางรายการลงแล้ว',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'มี {0} ท่าที่เกินกว่าที่แอปอนุญาต จะถูกเพิ่มโดยมีสูงสุด {1} เซ็ตหรืออินเทอร์วัล {2} ดรอป และ {3} ครั้งเรสต์-พอส',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'มี {0} ท่าที่เกินกว่าที่แอปอนุญาต จะถูกเพิ่มโดยมีสูงสุด {1} เซ็ตหรืออินเทอร์วัล {2} ดรอป และ {3} ครั้งเรสต์-พอส',
+  'People you share this with won’t be able to open it': 'คนที่คุณแชร์ให้จะเปิดรูทีนนี้ไม่ได้',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินไปสำหรับการแชร์ คุณยังแชร์ได้อยู่ เมื่อมีเซ็ตหรือท่าน้อยลง พวกเขาจะเปิดได้',
 }
