@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-07 (frontend) by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,28 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Apple Watch and iPhone widgets
+
+From `frontend/`, run the snapshot, event, settings and widget regressions:
+
+```sh
+npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js
+```
+
+These tests use local fixtures and a mocked native bridge; no credentials or
+paired device are required. They cover shared-session construction, routine and
+exercise text boundaries, superset IDs, ready sessions, event application and
+widget snapshots. For a direct module probe in Node, load these modules through
+Vite's `createServer({ server: { middlewareMode: true } }).ssrLoadModule(...)`;
+their imports depend on Vite transforms. Close the server in `finally`.
+
+Measure the UTF-8 bytes of serialized snapshots against `SNAPSHOT_MAX_BYTES`,
+and compare the active workout before and after `fitSnapshot`. Per-field text
+limits do not guarantee the total budget for many-entry active workouts, even
+with accepted shared routines. Serialization tests cannot establish native
+delivery: pairing, locked-phone operation and transport failures require an
+iPhone and Apple Watch.
 
 ## Shared routines
 
