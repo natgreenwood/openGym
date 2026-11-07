@@ -1,13 +1,13 @@
 # QA Notes
 
-_Last verified: 2026-11-04 by QA agent_
+_Last verified: 2026-11-06 by QA agent_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
 
 ## Frontend checks
 
-Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. The frontend uses
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 5.1.0. The frontend uses
 React, Vite and Zustand; component and store tests use happy-dom.
 
 From `frontend/`:
@@ -25,6 +25,22 @@ npm run build
 The workflow in `.github/workflows/test.yml` runs the whole suite with coverage,
 the web build and locale checks. Its source-string check is report-only; the
 command above uses strict mode. There is no separate lint or TypeScript check.
+
+## Cross-tab account ownership
+
+From `frontend/`:
+
+```sh
+npx vitest run src/store/useStore.tabs-owner.test.jsx --no-fsModuleCache
+```
+
+The harness uses fresh store imports sharing localStorage, a mock API, held storage
+events and fake timers. It covers owner changes before edits and before pending
+or resumed sends, including same-account sign-in. It does not exercise real browser
+session cookies or storage-event scheduling.
+
+For mutation checks that transform guards in memory, disable `fsModuleCache`:
+changing only a plugin's environment options can reuse a previous transformed module.
 
 ## Shared routines
 
