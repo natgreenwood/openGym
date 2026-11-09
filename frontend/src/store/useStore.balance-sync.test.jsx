@@ -41,7 +41,7 @@ describe('a role chosen here and a conflict with the other device', () => {
   it('keeps the choice and the clear made here over the older ones in a newer copy', async () => {
     const shared = { ...clone(DEF), _ts: 100, balanceOverrides: { [PULLUPS]: { id: '0017', _ts: 90 } } }
     signedIn(clone(shared))
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     choose(DIPS, '0009')
     choose(PULLUPS, null)
     // The other device logged a set after that, and had picked the dips machine long before.
@@ -63,7 +63,7 @@ describe('a role chosen here and a conflict with the other device', () => {
 
   it('takes the other device\'s choice when it was made after the one here', async () => {
     signedIn({ ...clone(DEF), _ts: 100 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     choose(DIPS, '0009')
     const mine = useStore.getState().S.balanceOverrides[DIPS]._ts
     const there = { ...clone(DEF), _ts: 50, balanceOverrides: { [DIPS]: { id: '2364', _ts: mine + 1_000 } } }
@@ -80,7 +80,7 @@ describe('a role chosen here and a conflict with the other device', () => {
 describe('a role chosen before a forced sign-out', () => {
   it('is kept aside and comes back on the next sign-in over the server\'s older choice', async () => {
     signedIn({ ...clone(DEF), _ts: 100 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })   // a check in step: the fingerprint of rev 1 is taken
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 10))
