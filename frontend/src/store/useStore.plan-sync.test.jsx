@@ -96,7 +96,7 @@ describe('a conflict between the plan edit and a session logged at the old plan'
     there.routines[0]._ts = 250                           // … while the plan was edited over there
     there._ts = 200
     signedIn(here)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockRejectedValueOnce(httpError(409, { error: 'conflict', rev: 2, state: { ...there, _rev: 2 } }))
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
 
@@ -119,7 +119,7 @@ describe('a conflict between the plan edit and a session logged at the old plan'
   it('edit here, session on the other device: the same, from the other side', async () => {
     const base = shared()
     signedIn({ ...clone(base) })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     useStore.getState().update(s => { const c = benchOf(s); c.sets = 2; c.reps = 10 })
     const editedAt = useStore.getState().S.routines[0]._ts
     const there = { ...clone(base) }
@@ -170,7 +170,7 @@ describe('converting the numbers to lb', () => {
 describe('changes kept aside by a forced sign-out', () => {
   it('carry the planned-sessions setting and the edited routine, and bring both back on the next sign-in', async () => {
     signedIn(withPlan({ workouts: [] }))
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })   // a check in step: the fingerprint of rev 1 is taken
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 10))
