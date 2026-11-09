@@ -26,6 +26,7 @@ const mocks = vi.hoisted(() => {
   state.toast = vi.fn()
   state.readBackupFile = vi.fn()
   state.storeBackupMedia = vi.fn(async () => ({ added: [] }))
+  state.undoBackupMedia = vi.fn(async () => {})
   state.handle = id => {
     const h = { id, close: vi.fn(() => { state.sheets = state.sheets.filter(x => x.id !== id) }) }
     state.sheets.push({ id })
@@ -58,7 +59,7 @@ vi.mock('../lib/backup-media.js', () => ({
   readBackupFile: (...a) => mocks.readBackupFile(...a),
   backupImportError: () => 'error',
   storeBackupMedia: (...a) => mocks.storeBackupMedia(...a),
-  undoBackupMedia: vi.fn(),
+  undoBackupMedia: (...a) => mocks.undoBackupMedia(...a),
 }))
 vi.mock('../lib/media-sync.js', () => ({ syncMedia: vi.fn(), fetchToStore: vi.fn() }))
 vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }))
@@ -92,7 +93,7 @@ beforeEach(() => {
   mocks.sheets = []
   mocks.tokens = []
   mocks.stale = new Set()
-  for (const f of [mocks.importToken, mocks.importConflict, mocks.importIsCurrent, mocks.importBackup, mocks.toast, mocks.menuSheet, mocks.confirmSheet, mocks.readBackupFile, mocks.storeBackupMedia]) f.mockClear()
+  for (const f of [mocks.importToken, mocks.importConflict, mocks.importIsCurrent, mocks.importBackup, mocks.toast, mocks.menuSheet, mocks.confirmSheet, mocks.readBackupFile, mocks.storeBackupMedia, mocks.undoBackupMedia]) f.mockClear()
   mocks.importConflict.mockImplementation(async (b, token) => conflictOf(token))
   host = document.createElement('div')
   document.body.appendChild(host)
@@ -201,6 +202,29 @@ describe('Settings import, a second file chosen while the first is in progress',
     expect(mocks.importBackup).toHaveBeenCalledWith(FILE_2.state, { mergeWith: conflictOf(mocks.tokens[1]), token: mocks.tokens[1] })
     expect(imported()).toBe(1)
   })
+
+  // QA, NATG-562: an answered import still storing its photos when a second one is chosen. The
+  // menu closes on the click, so the page is live again while the photos are written.
+  for (const answer of ['Replace anyway', 'Merge them in']) {
+    it(`a first import answered "${answer}" and still storing its photos imports nothing once superseded, and its photos go`, async () => {
+      let finishMedia
+      mocks.storeBackupMedia.mockImplementationOnce(() => new Promise(r => { finishMedia = r }))
+      await choose({ ...FILE_1, files: [{ name: 'media/a.jpg' }] })
+      let applying
+      await act(async () => { applying = item(0, answer).onClick() })
+      expect(mocks.storeBackupMedia).toHaveBeenCalledTimes(1)
+      await choose(FILE_2)
+      await press(item(1, 'Merge them in').onClick)
+      expect(ids(mocks.S.workouts)).toEqual(['a-only', 'file-2'])
+      const kept = { added: ['a'], marked: [] }
+      await act(async () => { finishMedia(kept); await applying })
+      expect(mocks.importBackup).toHaveBeenCalledTimes(1)
+      expect(mocks.importBackup).toHaveBeenCalledWith(FILE_2.state, { mergeWith: conflictOf(mocks.tokens[1]), token: mocks.tokens[1] })
+      expect(ids(mocks.S.workouts)).toEqual(['a-only', 'file-2'])
+      expect(mocks.undoBackupMedia).toHaveBeenCalledWith(kept, mocks.S)
+      expect(imported()).toBe(1)
+    })
+  }
 
   it('the account check still holds for the import that took over', async () => {
     await choose(FILE_1)

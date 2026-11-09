@@ -362,8 +362,8 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     if (superseded()) return
     if (!importIsCurrent(token)) return
     // Nothing of the backup is kept, its photos included, once the import's account has gone;
-    // importBackup checks again after the photos are written, and when it refuses, the photos
-    // this import wrote are taken back out (NATG-557).
+    // importBackup checks again after the photos are written, and when it refuses, or a newer
+    // import has taken over meanwhile, the photos this import wrote are taken back out (NATG-557).
     const apply = async mergeWith => {
       if (superseded()) return
       if (!importIsCurrent(token)) return
@@ -372,7 +372,9 @@ export default function Settings({ page = null, find = null, via = null, entryKe
         const { storeBackupMedia } = await import('../lib/backup-media.js')
         kept = await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
       }
-      if (!importBackup(read.state, { mergeWith, token })) {
+      // Superseded while its photos were written: the newer import may have gone through already,
+      // and a replace after it would wipe it. Refused like an account change, photos taken back.
+      if (superseded() || !importBackup(read.state, { mergeWith, token })) {
         // Best effort: whatever it cannot take back goes at the next local clean-up.
         if (kept) {
           try {
