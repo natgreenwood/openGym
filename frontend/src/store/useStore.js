@@ -49,6 +49,10 @@ const WID_KEY = 'gym_state_wid'
 // Whose copy that write was: the owner (gym_owner) the writing tab held, '' for a guest's. A tab
 // joins only a copy written under the owner it holds itself (joinSaved, syncFromSaved).
 const WID_OWNER_KEY = 'gym_state_owner'
+// Which sign-in or sign-out this browser is on: a token rewritten with each one, the same account
+// signing in again included, before the owner key it goes with. A same-account round trip (A, out,
+// A) leaves gym_owner where it was; this is what shows it to a boot still waiting (NATG-606).
+const OWNER_GEN_KEY = 'gym_owner_gen'
 const DIRTY_KEY = 'gym_dirty'          // the saved copy owes the server a change
 // An owed copy an older app (v1.3.9) left behind: its first sync stamps what it changed
 // (lib/sync-legacy.js), holding the fingerprint that app last agreed on with the server.
@@ -610,6 +614,10 @@ export const useStore = create((set, get) => {
   const sameCopy = (a, b) => JSON.stringify({ ...a, _ts: 0 }) === JSON.stringify({ ...b, _ts: 0 })
   const readWid = () => { try { return localStorage.getItem(WID_KEY) } catch { return null } }
   const readOwner = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
+  // Only ever compared for equality, so a fresh token rather than a counter two tabs could both
+  // advance to the same value. Storage refusing it leaves the owner check alone, as before.
+  const readOwnerGen = () => { try { return localStorage.getItem(OWNER_GEN_KEY) } catch { return null } }
+  const bumpOwnerGen = () => { try { localStorage.setItem(OWNER_GEN_KEY, Date.now().toString(36) + Math.random().toString(36).slice(2, 8)) } catch { /* the owner check alone, as before */ } }
   // Whether `uid`, the account a sync request is for, is still this tab's: the one signed in here,
   // and the browser's owner too. Asked before each request goes and again when its answer lands.
   // The owner key is what another tab's sign-out or sign-in writes first, so it has moved even
@@ -1130,6 +1138,7 @@ export const useStore = create((set, get) => {
     forgetSync()
     releaseAdopt()   // the copy it was about is gone
     localStorage.removeItem(KEY)
+    bumpOwnerGen()
     localStorage.removeItem('gym_owner_name')
     localStorage.removeItem('gym_owner')
     // The account's share lists go with it: a shared device keeps nothing of whom it shared with.
@@ -1493,7 +1502,7 @@ export const useStore = create((set, get) => {
     let owner = null
     try { owner = localStorage.getItem('gym_owner') } catch { /* evicted along with the copy */ }
     if (!who || of?.owner !== who || (owner && owner !== who) || of.ts !== (saved._ts || 0)) return
-    try { if (!owner) localStorage.setItem('gym_owner', who) } catch { /* setUser writes it again */ }
+    try { if (!owner) { bumpOwnerGen(); localStorage.setItem('gym_owner', who) } } catch { /* setUser writes it again */ }
     seenOwner = readOwner()
     persist(sanitizeAccent(Object.assign(clone(DEF), saved)), false, false)
     dropSync()
@@ -2003,6 +2012,9 @@ export const useStore = create((set, get) => {
         const owner = localStorage.getItem('gym_owner')
         rejoined = owner === u.id
         const other = !!owner && owner !== u.id
+        // A sign-in, or another account: a new token before the owner key is written. Not boot's
+        // own setUser for the owner already here, or its 401 check below would always find it moved.
+        if (adopt || owner !== u.id) bumpOwnerGen()
         // The hold goes on before anything else can run: a poll, a resume, a debounced push.
         // A replace a reset or an import armed for that push goes with it: the adoption decides
         // what this copy is, and pushes it against the server's revision. Left armed, it went out
@@ -2480,9 +2492,11 @@ export const useStore = create((set, get) => {
       // browser holds is not this copy's, and setUser would relabel this copy (and its revision)
       // as the new account's, and sync it into that account. Checked after every wait below; once
       // it has moved, boot ends signed out and this tab follows the other one (the owner event,
-      // takeSaved, followSignIn), as any tab whose owner changed under it does.
+      // takeSaved, followSignIn), as any tab whose owner changed under it does. A sign-out and
+      // sign-in as the same account leaves the owner key where it was: the token shows it (NATG-606).
       const owner0 = seenOwner
-      const moved = () => readOwner() !== owner0
+      const gen0 = readOwnerGen()
+      const moved = () => readOwner() !== owner0 || readOwnerGen() !== gen0
       const linkCode = linkTokenFromSearch(window.location.search)
       if (linkCode) { stripLinkFromUrl(); set({ linkCode }) }
       // Guests never authenticate, so an instance that turned guest mode off has no request to
@@ -2538,7 +2552,8 @@ export const useStore = create((set, get) => {
         // unless whoever is here chose to go on as a guest. A 401 that lands after another tab
         // signed out or in is about the session this copy's owner had, not the browser's now:
         // setUser(null) would remove the new account's gym_user, so this tab only follows the
-        // other one (the owner event), as boot's other waits do (NATG-574).
+        // other one (the owner event), as boot's other waits do (NATG-574). So does one that lands
+        // after the same account signed in again, with or without a sign-out first (NATG-606).
         if (e.status === 401) {
           if (moved()) { finishBoot(); return }
           const kept = !!get().user || (!get().isGuest() && !!localStorage.getItem('gym_owner') && owes())
