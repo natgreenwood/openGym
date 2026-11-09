@@ -403,10 +403,10 @@ export const useStore = create((set, get) => {
   // so a change another device synced while the confirm was open is merged in, not wiped.
   let replaceRev = null
   let importRead = null    // what importConflict last read: { token, state, rev }
-  // Each import is held to the account it began under (importToken). The counter moves with every
-  // owner change, another tab's (each gym_owner event) or this tab's own (setUser, a sign-out),
-  // so an import outlives no switch, back again included; a token once found stale stays stale
-  // (importIsCurrent).
+  // Each import, and each media job, is held to the owner it began under (ownerToken). The counter
+  // moves with every owner change, another tab's (each gym_owner event) or this tab's own
+  // (setUser, a sign-out), so neither outlives a switch, back again included; an import's token
+  // once found stale stays stale (importIsCurrent).
   let ownerEpoch = 0
   const staleImports = new WeakSet()
   let lastCheck = 0
@@ -620,12 +620,13 @@ export const useStore = create((set, get) => {
   // persist() then moved seenOwner, so the owner event, once it ran, found nothing to clear; a
   // request sent for them went out under whichever session the browser holds now (SEC-01).
   const answerIsFor = uid => !!uid && get()?.user?.id === uid && readOwner() === uid
-  // Whether an import's token (importToken) still holds: no owner change since it was taken, and
+  // Whether an owner token (ownerToken) still holds: no owner change since it was taken, and
   // the same account signed in here under its own owner key (answerIsFor), or still nobody under
   // the same owner key. A signed-in token taken while the two disagreed (this tab still names A,
-  // the owner key already says B) never holds. The confirm stays open for as long as the user
-  // takes, and another tab can sign out, switch account or sign in from guest meanwhile (NATG-535).
-  const importHolds = tok => tok.epoch === ownerEpoch && (tok.uid
+  // the owner key already says B) never holds. An import's confirm stays open for as long as the
+  // user takes, and another tab can sign out, switch account or sign in from guest meanwhile
+  // (NATG-535); a media upload, download or clean-up can outlive a switch the same way (NATG-537).
+  const ownerHolds = tok => tok.epoch === ownerEpoch && (tok.uid
     ? tok.owner === tok.uid && answerIsFor(tok.uid)
     : !get().user && readOwner() === tok.owner)
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
@@ -1666,18 +1667,25 @@ export const useStore = create((set, get) => {
       const mine = owes() ? (get().S.workouts || []).filter(w => w && !inBackup.has(key(w)) && !onServer.has(key(w))).length : 0
       return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes(), token } : null
     },
+    // Who this tab is acting for right now: the account signed in here (or nobody, a guest), the
+    // browser's owner key and the owner counter. A job that outlives an await takes one when it
+    // starts and asks ownerHolds before it acts for that owner again: media sync's runs, downloads
+    // and clean-up (lib/media-sync.js), and each import.
+    ownerToken() {
+      return Object.freeze({ uid: get().user?.id || null, owner: readOwner(), epoch: ownerEpoch })
+    },
+    // Whether the owner `token` was taken for is still this tab's (see ownerHolds above).
+    ownerHolds(token) { return !!token && ownerHolds(token) },
     // Whose import this is, taken when the file is chosen, before anything is awaited: Settings
     // hands it to every step after (importConflict, importIsCurrent, importBackup), and each judges
     // that token alone, never what another import last read (NATG-535 SEC-01).
-    importToken() {
-      return Object.freeze({ uid: get().user?.id || null, owner: readOwner(), epoch: ownerEpoch })
-    },
-    // Whether the import `token` belongs to is still this account's (importHolds). Settings closes
+    importToken() { return get().ownerToken() },
+    // Whether the import `token` belongs to is still this account's (ownerHolds). Settings closes
     // the confirm once it is not, and importBackup refuses it. Stale is for good: an account that
     // comes back finds the import gone, as the confirm already is.
     importIsCurrent(token) {
       if (!token || staleImports.has(token)) return false
-      if (importHolds(token)) return true
+      if (ownerHolds(token)) return true
       staleImports.add(token)
       return false
     },
