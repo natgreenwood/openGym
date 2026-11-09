@@ -799,6 +799,10 @@ export const useStore = create((set, get) => {
     if (adoptHold) { if (!adopting && adoptOwed()) get().resumeAdoption(); return }
     if (pulling && pulling.uid === get().user?.id) return pulling.promise
     const { base } = metaOf()
+    // A copy whose base is another account's is not checked at all (NATG-556): a revision that
+    // matched would confirm it, rewriting the synced time and fingerprint for that copy and
+    // clearing the error, which stays until a sign-out, a switch or a reload.
+    if (base && base.uid !== uid) { refuse('check', base.uid, uid); return }
     if (!base || owes()) return get().pullState()
     try {
       if (!answerIsFor(uid)) return
