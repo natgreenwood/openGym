@@ -40,7 +40,7 @@ function dayOf (S, iso, today, shared = null) {
   let routines = []
   // Only a routine whose exercises are a real, non-empty list: a malformed own routine (`ex` an
   // object with a `length`) would otherwise put that `length`, whatever it is, into `count`.
-  try { routines = effectiveRoutines(S, iso, shared).filter(r => Array.isArray(r.ex) && r.ex.length > 0) } catch { routines = [] }
+  try { routines = effectiveRoutines(S, iso, shared, today).filter(r => Array.isArray(r.ex) && r.ex.length > 0) } catch { routines = [] }
   const weekday = new Date(iso + 'T12:00:00').toLocaleDateString(dateLocale(), { weekday: 'long' })
   if (!routines.length) return { iso, weekday, name: null, count: 0 }
   const day = {

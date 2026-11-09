@@ -126,6 +126,62 @@ describe('buildWidgetSnapshot', () => {
     })
   })
 
+  // A coach week (lib/queue.js) floats its next session onto today, and the day list places it on
+  // the `today` the snapshot is pinned to, as the week's fraction does (NATG-546). The machine's
+  // clock is put on the Friday in the list, so a day list that read it would move the session there.
+  describe('a coach queue', () => {
+    const d1 = { id: 'q1', name: 'US W1 D1', ex: [{ id: '0025', sets: 4, reps: 6, weight: 70 }] }
+    const d2 = { id: 'q2', name: 'US W1 D2', ex: [{ id: '0043', sets: 3, reps: 8, weight: 90 }] }
+    // Applied on the Monday of this week.
+    const SINCE = new Date('2026-10-12T08:00:00').getTime()
+    const queue = { ids: ['q1', 'q2'], since: SINCE, startsOn: '2026-10-12', label: 'US W1' }
+    // Wednesday (today) still points at D2 from a week applied before the queue; Push is your own.
+    const coached = (over = {}) => S({ routines: [push, legs, d1, d2], week: { 3: ['q2', 'r1'], 5: ['r2'] }, queue, ...over })
+
+    beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(new Date('2026-10-16T12:00:00')) })
+    afterEach(() => { vi.useRealTimers() })
+
+    it('shows the next session on today only, with the weekday\'s pointer to a queue session hidden', () => {
+      const snap = buildWidgetSnapshot(coached(), { today: TODAY })
+      const [today, , fri] = snap.days
+      expect(today).toMatchObject({ iso: TODAY, name: 'US W1 D1 + Push', count: 3, done: false })
+      expect(today.exercises).toHaveLength(3)
+      expect(today.exercises[0].line).toMatch(/4 × 6 · 70 kg/)
+      expect(snap.days.filter(d => d.name?.includes('US W1 D1')).map(d => d.iso)).toEqual([TODAY])
+      // the machine's date reads as its weekday alone
+      expect(fri).toMatchObject({ iso: '2026-10-16', name: 'Legs', count: 1 })
+    })
+
+    it('never says today is done for a queue session, whatever was logged today', () => {
+      // A workout from today on the session and on Push that the DONE RULE does not count: it
+      // started before a strict pass was applied at noon. D1 is still today's session.
+      const noon = new Date(TODAY + 'T12:00:00').getTime()
+      const early = { id: 'w1', d: TODAY, start: noon - 3600e3, end: noon - 600e3, name: 'US W1 D1 + Push', routineIds: ['q1', 'r1'], entries: [] }
+      const strict = buildWidgetSnapshot(coached({ queue: { ...queue, since: noon, strict: true }, workouts: [early] }), { today: TODAY })
+      expect(strict.days[0]).toMatchObject({ name: 'US W1 D1 + Push', done: false })
+      // One that does count: D1 is done, so today's session is D2, which no workout covers yet.
+      const start = new Date(TODAY + 'T07:00:00').getTime()
+      const logged = { ...early, id: 'w2', start, end: start + 3600e3 }
+      const next = buildWidgetSnapshot(coached({ workouts: [logged] }), { today: TODAY })
+      expect(next.days[0]).toMatchObject({ name: 'US W1 D2 + Push', count: 3, done: false })
+    })
+
+    it('agrees with the week\'s fraction, and keeps the snapshot\'s shape', () => {
+      // One session left: the fraction counts it and your own Friday, the list shows the same two
+      // days. (With more left, the fraction counts sessions the list cannot place yet: they float.)
+      const snap = buildWidgetSnapshot(coached({ queue: { ...queue, ids: ['q1'] }, week: { 3: ['q1'], 5: ['r2'] } }), { today: TODAY })
+      // the weekday's pointer to the session is the session, not a second copy of it
+      expect(snap.days[0]).toMatchObject({ name: 'US W1 D1', count: 1 })
+      expect(snap.week).toEqual({ done: 0, planned: 2 })
+      expect(snap.days.filter(d => d.name && d.iso < snap.weekUntil).length).toBe(snap.week.planned)
+      const plain = buildWidgetSnapshot(S(), { today: TODAY })
+      expect(snap.v).toBe(1)
+      expect(Object.keys(snap)).toEqual(Object.keys(plain))
+      expect(snap.days.map(d => Object.keys(d))).toEqual(plain.days.map(d => Object.keys(d)))
+      expect(JSON.parse(JSON.stringify(snap))).toEqual(snap)
+    })
+  })
+
   // Every text field is cut to MAX_WIDGET_TEXT code points, so a sharer's name can't make the
   // snapshot the widget extension reads into memory as big as they like (SEC-526-01).
   describe('text from routine data is bounded', () => {
