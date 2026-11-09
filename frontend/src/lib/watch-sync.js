@@ -116,9 +116,9 @@ function watchEntry (e, H, S) {
     sets: (e.sets || []).map(watchSet),
     ...(isBw(cfg) ? { bodyweight: true } : {}),
     ...(isPerSide(cfg) ? { perSide: true } : {}),
-    // a superset: the exercises next to each other with the same group, done in turns. A shared
-    // slot's group id is the sharer's text, so it is cut like a name (NATG-553).
-    ...(e.sg ? { group: clipText(e.sg) } : {}),
+    // a superset: the exercises next to each other with the same group, done in turns. The id here
+    // is the routine's own text; buildSnapshot swaps it for a short token (watchGroups).
+    ...(e.sg ? { group: String(e.sg) } : {}),
     ...(best ? { best } : {}),
     ...(mode === 'reps' && isAssisted(e.id) ? { assisted: true } : {}),
     // the step the weight moves in, as on the phone (this exercise's own, else its plates' default)
@@ -156,11 +156,28 @@ export function buildReady (S, today = todayISO()) {
   return { today: planned, others }
 }
 
+/**
+ * One list of exercises with each superset group id swapped for a short token (g1, g2, ... in the
+ * order they first appear). The watch only compares the group of neighbours and never shows it or
+ * sends it back, so a token does the same job as the routine's own text, which a shared routine's
+ * sharer chose and can be 200 emoji long (NATG-613). The same list always gets the same tokens.
+ */
+function watchGroups (entries) {
+  const tokens = new Map()
+  return entries.map(e => {
+    if (e.group == null) return e
+    if (!tokens.has(e.group)) tokens.set(e.group, 'g' + (tokens.size + 1))
+    return { ...e, group: tokens.get(e.group) }
+  })
+}
+const readyGroups = s => (s ? { ...s, entries: watchGroups(s.entries || []) } : s)
+
 /** What the watch needs to run the session: plain data, no media (licence: text only). */
-export function buildSnapshot(S, { timer = null, ready = null } = {}) {
+export function buildSnapshot(S, { timer = null, ready: readyIn = null } = {}) {
   const A = S && S.active
   const unit = S && S.unit === 'lb' ? 'lb' : 'kg'
   const restSec = num(S && S.restSec) || 0
+  const ready = readyIn ? { ...readyIn, today: readyGroups(readyIn.today), others: (readyIn.others || []).map(readyGroups) } : readyIn
   if (!A || !Array.isArray(A.entries)) return { v: SNAPSHOT_VERSION, unit, restSec, active: null, ready }
   let H = null
   try { H = sessionHistory(S) } catch { H = null }
@@ -181,7 +198,7 @@ export function buildSnapshot(S, { timer = null, ready = null } = {}) {
       restSec: num(S.restSec) || 0,
       // a rest running on the phone, so the watch counts down the same one
       rest: timer && !timer.paused && !timer.ready && num(timer.endsAt) ? { endsAt: timer.endsAt } : null,
-      entries: A.entries.filter(e => e && e.id != null).map(e => watchEntry(e, H, S)),
+      entries: watchGroups(A.entries.filter(e => e && e.id != null).map(e => watchEntry(e, H, S))),
       // Apple Health's workout type on the watch: a run is a run (#799)
       ...(healthType ? { healthType } : {}),
     },
@@ -403,17 +420,28 @@ export function shouldOpenOnWatch (prev, next, { prefs = readWatchPrefs(), now =
 export const SNAPSHOT_MAX_BYTES = 48 * 1024
 const bytesOf = v => new TextEncoder().encode(typeof v === 'string' ? v : JSON.stringify(v)).length
 
+// Every key whose value is null, left out: the watch reads a missing optional field and a null one
+// the same way (WatchCore Model.swift, synthesised Decodable), so nothing is lost.
+const dropNulls = v => {
+  if (Array.isArray(v)) { v.forEach(dropNulls); return }
+  if (!v || typeof v !== 'object') return
+  for (const k of Object.keys(v)) { if (v[k] === null) delete v[k]; else dropNulls(v[k]) }
+}
+
 /**
- * The snapshot made small enough to send, dropping first what matters least: the "last time" lines
- * of the routines the watch could start, then those routines but today's, then today's own "last
- * time" lines and records, then the "last time" of the running workout, then what is ready
- * altogether. The running workout's sets are never cut: without them the watch has nothing to do.
+ * The snapshot made small enough to send, or null when it cannot be (NATG-613). First what costs
+ * nothing (the keys that are null), then what matters least: the "last time" lines of the routines
+ * the watch could start, then those routines but today's, then today's own "last time" lines and
+ * records, then the "last time" of the running workout, then what is ready altogether. The running
+ * workout's sets are never cut: without them the watch has nothing to do, and it addresses them by
+ * position. So a workout too big even then is not sent at all (startWatchSync), never sent too big.
  */
 export function fitSnapshot (snap, max = SNAPSHOT_MAX_BYTES) {
   if (bytesOf(snap) <= max) return snap
   const out = JSON.parse(JSON.stringify(snap))
   const strip = (entries, ...keys) => { for (const e of entries || []) for (const k of keys) delete e[k] }
   const steps = [
+    () => dropNulls(out),
     () => { for (const r of out.ready?.others || []) strip(r.entries, 'last', 'best') },
     () => { if (out.ready) out.ready.others = (out.ready.others || []).slice(0, 3) },
     () => { if (out.ready) out.ready.others = [] },
@@ -426,7 +454,7 @@ export function fitSnapshot (snap, max = SNAPSHOT_MAX_BYTES) {
     step()
     if (bytesOf(out) <= max) return out
   }
-  return out
+  return null
 }
 
 // How many deleted workouts the watch is told about at most (the newest deletions).
@@ -494,6 +522,8 @@ export async function startWatchSync ({ useStore, useUI }) {
   if (!p) return () => {}
   getStateRef = () => useStore.getState()
   let lastSent = null, lastClips = null, tm = null
+  // The size of the last snapshot too big to send, so its warning is written once (NATG-613).
+  let lastRefused = null
   // The ready sessions only change with the plan, the log or the day: built again only then.
   let readyKey = null, ready = null
   const readyFor = S => {
@@ -540,10 +570,22 @@ export async function startWatchSync ({ useStore, useUI }) {
       // Discarded here: the watch drops its Apple Health workout instead of saving it (#776).
       const discarded = discardedFor()
       if (discarded.length) snap.discarded = discarded
-      const json = JSON.stringify(fitSnapshot(snap))
-      if (json !== lastSent) {
-        const r = await p.WatchBridge.sendSnapshot({ json })
-        if (r && r.sent) lastSent = json
+      const fitted = fitSnapshot(snap)
+      if (!fitted) {
+        // Too big for the watch even at its smallest: not sent, so the watch keeps the last one
+        // that fitted and the phone's workout goes on as it is. Said once per size, not per tick.
+        const bytes = bytesOf(snap)
+        if (bytes !== lastRefused) {
+          lastRefused = bytes
+          console.warn(`watch-sync: snapshot not sent, ${bytes} bytes is over the ${SNAPSHOT_MAX_BYTES}-byte budget even when fitted (workout ${S.active?.id ?? 'none'}, ${S.active?.entries?.length ?? 0} rows)`)
+        }
+      } else {
+        lastRefused = null
+        const json = JSON.stringify(fitted)
+        if (json !== lastSent) {
+          const r = await p.WatchBridge.sendSnapshot({ json })
+          if (r && r.sent) lastSent = json
+        }
       }
       // The workout's animations, once per workout and exercise (the native side remembers).
       const clips = prefs.enabled ? clipsFor(S) : []

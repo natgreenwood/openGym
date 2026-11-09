@@ -174,6 +174,60 @@ describe('startWatchSync', () => {
     } finally { vi.useRealTimers() }
   })
 
+  // NATG-613: a workout too big for the watch even at its smallest is not sent. The watch keeps the
+  // last snapshot that fitted, the phone's workout is not touched, and the log says so once.
+  it('sends nothing too big for the watch, warns once, and sends again once it fits', async () => {
+    vi.useFakeTimers()
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const b = bridge()
+      _setWatchPluginForTest(b)
+      // custom exercises with 200-emoji names (800 bytes each), four sets each
+      const rows = n => Array.from({ length: n }, (_, i) => ({ id: 'c' + i, target: { name: '💪'.repeat(200) }, sets: Array.from({ length: 4 }, () => ({ w: 60, r: 8, done: false })) }))
+      const small = { ...S0, active: live({ start: 1, entries: rows(2) }) }
+      const big = { ...S0, active: live({ start: 1, entries: rows(500) }) }
+      const bigBefore = JSON.stringify(big)
+      const st = store({ S: small })
+      const stop = await startWatchSync({ useStore: st, useUI: ui })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      const sentSmall = b.sendSnapshot.mock.calls[0][0].json
+
+      // too big: nothing goes to the bridge, one line in the log with the size
+      st.setState({ S: big })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toMatch(/^watch-sync: snapshot not sent, \d+ bytes is over the 49152-byte budget even when fitted \(workout w-9, 500 rows\)$/)
+      // the same state again, tick after tick: still nothing sent, and no second line
+      st.setState({ S: { ...big } })
+      await vi.runAllTimersAsync()
+      st.setState({ S: { ...big } })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(JSON.stringify(st.getState().S)).toBe(bigBefore)
+
+      // back to what the watch already has: the last one sent is still that, so nothing to send
+      st.setState({ S: small })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      // smaller than before: sent as usual
+      st.setState({ S: { ...S0, active: live({ start: 1, entries: rows(1) }) } })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+      const sent = JSON.parse(b.sendSnapshot.mock.calls[1][0].json)
+      expect(sent.active.entries).toHaveLength(1)
+      expect(b.sendSnapshot.mock.calls[1][0].json).not.toBe(sentSmall)
+      // too big again after one that fitted: said again
+      st.setState({ S: big })
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+      expect(warn).toHaveBeenCalledTimes(2)
+      stop()
+    } finally { warn.mockRestore(); vi.useRealTimers() }
+  })
+
   it('tells the watch the phone\'s Apple Health switch, and again when it changes', async () => {
     vi.useFakeTimers()
     try {
