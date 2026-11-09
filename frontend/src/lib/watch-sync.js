@@ -457,6 +457,35 @@ export function fitSnapshot (snap, max = SNAPSHOT_MAX_BYTES) {
   return null
 }
 
+// The last snapshot the watch was sent (its JSON), kept across a reload or a relaunch: what the
+// watch holds, as far as the phone can know. A workout too big to send leans on it (fallbackSnapshot).
+const LAST_SENT_KEY = 'gym_watch_last_sent'
+const readLastSent = () => { try { const v = JSON.parse(localStorage.getItem(LAST_SENT_KEY)); return v && typeof v === 'object' ? v : null } catch { return null } }
+const writeLastSent = json => { try { localStorage.setItem(LAST_SENT_KEY, json) } catch { /* the next send writes it again */ } }
+
+/**
+ * What goes to the watch instead when the running workout `wid` is too big to send (SEC-613-01):
+ * the settings still have to get there (Apple Health off above all) without changing the workout
+ * the watch holds. From the last snapshot sent, `last`:
+ *   the same workout   that workout as it was sent, with today's settings and lists around it, and
+ *                      no rest (an old rest's end would start that rest again on the watch)
+ *   another, or none   no workout: the watch holds nothing of this one, so nothing of it is ended
+ *   no record          nothing: the phone can't rule out the watch holding this very workout, and
+ *                      "no workout" would end it there and save it to Apple Health early
+ * Fitted like any snapshot. Over the budget, the Apple Health ids to delete go first (sent again
+ * on the next change); the discarded ones never, they stop the watch saving a discarded workout.
+ * Returns { snap } or { snap: null, why: 'no-record' | 'over-budget' }.
+ */
+function fallbackSnapshot (snap, last, wid, max = SNAPSHOT_MAX_BYTES) {
+  if (!last || (last.active && last.active.id == null)) return { snap: null, why: 'no-record' }
+  let held = null
+  if (last.active && wid != null && last.active.id === wid) { held = { ...last.active }; delete held.rest }
+  const out = { ...snap, active: held }
+  let fitted = fitSnapshot(out, max)
+  if (!fitted && out.healthGone) { delete out.healthGone; fitted = fitSnapshot(out, max) }
+  return fitted ? { snap: fitted } : { snap: null, why: 'over-budget' }
+}
+
 // How many deleted workouts the watch is told about at most (the newest deletions).
 export const HEALTH_GONE_MAX = 60
 
@@ -522,8 +551,13 @@ export async function startWatchSync ({ useStore, useUI }) {
   if (!p) return () => {}
   getStateRef = () => useStore.getState()
   let lastSent = null, lastClips = null, tm = null
-  // The size of the last snapshot too big to send, so its warning is written once (NATG-613).
-  let lastRefused = null
+  // The warnings written since the last snapshot that went out, by kind and workout: each once.
+  const warned = new Set()
+  const warnOnce = (kind, wid, text) => {
+    if (warned.has(kind + '|' + wid)) return
+    warned.add(kind + '|' + wid)
+    console.warn('watch-sync: ' + text)
+  }
   // The ready sessions only change with the plan, the log or the day: built again only then.
   let readyKey = null, ready = null
   const readyFor = S => {
@@ -570,22 +604,29 @@ export async function startWatchSync ({ useStore, useUI }) {
       // Discarded here: the watch drops its Apple Health workout instead of saving it (#776).
       const discarded = discardedFor()
       if (discarded.length) snap.discarded = discarded
-      const fitted = fitSnapshot(snap)
-      if (!fitted) {
-        // Too big for the watch even at its smallest: not sent, so the watch keeps the last one
-        // that fitted and the phone's workout goes on as it is. Said once per size, not per tick.
-        const bytes = bytesOf(snap)
-        if (bytes !== lastRefused) {
-          lastRefused = bytes
-          console.warn(`watch-sync: snapshot not sent, ${bytes} bytes is over the ${SNAPSHOT_MAX_BYTES}-byte budget even when fitted (workout ${S.active?.id ?? 'none'}, ${S.active?.entries?.length ?? 0} rows)`)
-        }
-      } else {
-        lastRefused = null
-        const json = JSON.stringify(fitted)
+      // Too big for the watch even at its smallest: the workout is not sent and the phone's goes on
+      // as it is, but the settings still go, around what the watch holds (fallbackSnapshot).
+      const wid = S.active?.id ?? null
+      let out = fitSnapshot(snap), refused = 0, fallback = null
+      if (!out) {
+        refused = bytesOf(snap)
+        fallback = fallbackSnapshot(snap, readLastSent(), wid)
+        out = fallback.snap
+      }
+      if (out) {
+        const json = JSON.stringify(out)
         if (json !== lastSent) {
           const r = await p.WatchBridge.sendSnapshot({ json })
-          if (r && r.sent) lastSent = json
+          if (r && r.sent) { lastSent = json; writeLastSent(json); warned.clear() }
         }
+      }
+      if (refused) {
+        // One line per workout and outcome, written after the send so a send that just went out
+        // (which starts the warnings over) doesn't hide it.
+        const what = `workout ${wid ?? 'none'} not sent, its snapshot is ${refused} bytes, over the ${SNAPSHOT_MAX_BYTES}-byte budget even when fitted (${S.active?.entries?.length ?? 0} rows)`
+        if (out) warnOnce('workout', wid, `${what}; the settings are sent ${out.active ? 'with the last workout the watch was sent' : 'with no workout, as the watch was sent none of this one'}`)
+        else if (fallback.why === 'no-record') warnOnce(fallback.why, wid, `${what}; the settings did not go either: no record of what the watch holds, and sending no workout could end it there`)
+        else warnOnce(fallback.why, wid, `${what}; the settings did not go either: with them, the last snapshot sent is over the budget too`)
       }
       // The workout's animations, once per workout and exercise (the native side remembers).
       const clips = prefs.enabled ? clipsFor(S) : []

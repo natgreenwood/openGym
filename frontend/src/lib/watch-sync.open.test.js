@@ -2,7 +2,7 @@
 // The phone's side of "open on the watch": a workout started on the phone opens the watch app
 // (WatchBridge.openOnWatch, HealthKit's startWatchApp), and Apple Health on the watch follows the
 // phone's Apple Health switch.
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const health = vi.hoisted(() => ({ on: false, listeners: new Set() }))
 vi.mock('./health-sync.js', () => ({
@@ -10,7 +10,7 @@ vi.mock('./health-sync.js', () => ({
   onHealthChange: cb => { health.listeners.add(cb); return () => health.listeners.delete(cb) },
 }))
 
-import { shouldOpenOnWatch, startWatchSync, applyEvents, bindWatchAppActions, _setWatchPluginForTest, _resetWatchSync, OPEN_ON_WATCH_WINDOW_MS } from './watch-sync.js'
+import { shouldOpenOnWatch, startWatchSync, applyEvents, bindWatchAppActions, markDiscarded, _setWatchPluginForTest, _resetWatchSync, OPEN_ON_WATCH_WINDOW_MS, SNAPSHOT_MAX_BYTES } from './watch-sync.js'
 import { WATCH_DEFAULTS, writeWatchPrefs } from './watch-settings.js'
 
 const now = 1_800_000_000_000
@@ -174,60 +174,6 @@ describe('startWatchSync', () => {
     } finally { vi.useRealTimers() }
   })
 
-  // NATG-613: a workout too big for the watch even at its smallest is not sent. The watch keeps the
-  // last snapshot that fitted, the phone's workout is not touched, and the log says so once.
-  it('sends nothing too big for the watch, warns once, and sends again once it fits', async () => {
-    vi.useFakeTimers()
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    try {
-      const b = bridge()
-      _setWatchPluginForTest(b)
-      // custom exercises with 200-emoji names (800 bytes each), four sets each
-      const rows = n => Array.from({ length: n }, (_, i) => ({ id: 'c' + i, target: { name: '💪'.repeat(200) }, sets: Array.from({ length: 4 }, () => ({ w: 60, r: 8, done: false })) }))
-      const small = { ...S0, active: live({ start: 1, entries: rows(2) }) }
-      const big = { ...S0, active: live({ start: 1, entries: rows(500) }) }
-      const bigBefore = JSON.stringify(big)
-      const st = store({ S: small })
-      const stop = await startWatchSync({ useStore: st, useUI: ui })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
-      const sentSmall = b.sendSnapshot.mock.calls[0][0].json
-
-      // too big: nothing goes to the bridge, one line in the log with the size
-      st.setState({ S: big })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(warn.mock.calls[0][0]).toMatch(/^watch-sync: snapshot not sent, \d+ bytes is over the 49152-byte budget even when fitted \(workout w-9, 500 rows\)$/)
-      // the same state again, tick after tick: still nothing sent, and no second line
-      st.setState({ S: { ...big } })
-      await vi.runAllTimersAsync()
-      st.setState({ S: { ...big } })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
-      expect(warn).toHaveBeenCalledTimes(1)
-      expect(JSON.stringify(st.getState().S)).toBe(bigBefore)
-
-      // back to what the watch already has: the last one sent is still that, so nothing to send
-      st.setState({ S: small })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
-      // smaller than before: sent as usual
-      st.setState({ S: { ...S0, active: live({ start: 1, entries: rows(1) }) } })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
-      const sent = JSON.parse(b.sendSnapshot.mock.calls[1][0].json)
-      expect(sent.active.entries).toHaveLength(1)
-      expect(b.sendSnapshot.mock.calls[1][0].json).not.toBe(sentSmall)
-      // too big again after one that fitted: said again
-      st.setState({ S: big })
-      await vi.runAllTimersAsync()
-      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
-      expect(warn).toHaveBeenCalledTimes(2)
-      stop()
-    } finally { warn.mockRestore(); vi.useRealTimers() }
-  })
-
   it('tells the watch the phone\'s Apple Health switch, and again when it changes', async () => {
     vi.useFakeTimers()
     try {
@@ -244,5 +190,165 @@ describe('startWatchSync', () => {
       expect(sent().health).toBe(false)
       stop()
     } finally { vi.useRealTimers() }
+  })
+})
+
+// NATG-613, SEC-613-01: a workout too big for the watch even at its smallest is not sent, and the
+// phone's goes on as it is. The settings (Apple Health off above all) still go, around the last
+// workout the watch was sent, never one that would end the workout the watch holds.
+describe('a workout too big for the watch', () => {
+  const S0 = { unit: 'kg', restSec: 90, workouts: [], routines: [], active: null }
+  // custom exercises with 200-emoji names (800 bytes each), four sets each: 500 of them never fit
+  const rows = n => Array.from({ length: n }, (_, i) => ({ id: 'c' + i, target: { name: '💪'.repeat(200) }, sets: Array.from({ length: 4 }, () => ({ w: 60, r: 8, done: false })) }))
+  const running = (n, id = 'w-9') => ({ ...S0, active: live({ id, start: 1, entries: rows(n) }) })
+  const json = (b, i = -1) => b.sendSnapshot.mock.calls.at(i)[0].json
+  const sent = (b, i = -1) => JSON.parse(json(b, i))
+  const bytes = s => new TextEncoder().encode(s).length
+  let warn
+  beforeEach(() => { vi.useFakeTimers(); warn = vi.spyOn(console, 'warn').mockImplementation(() => {}) })
+  afterEach(() => { warn.mockRestore(); vi.useRealTimers() })
+  const start = async (S, { b = bridge(), timer = null } = {}) => {
+    _setWatchPluginForTest(b)
+    const st = store({ S })
+    const stop = await startWatchSync({ useStore: st, useUI: store({ timer }) })
+    await vi.runAllTimersAsync()
+    const set = async S => { st.setState({ S }); await vi.runAllTimersAsync() }
+    return { b, st, stop, set }
+  }
+
+  it('keeps the watch\'s workout, sends it again once with the settings, and warns once', async () => {
+    const { b, st, stop, set } = await start(running(2), { timer: { endsAt: 5_000_000 } })
+    expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+    const first = sent(b)
+    expect(first.active.rest).toEqual({ endsAt: 5_000_000 })
+    const big = running(500)
+    const bigBefore = JSON.stringify(big)
+    await set(big)
+    // what the watch holds, sent again around the settings: the same sets, and no old rest to restart
+    expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+    expect(JSON.stringify(sent(b).active.entries)).toBe(JSON.stringify(first.active.entries))
+    expect(sent(b).active.id).toBe('w-9')
+    expect('rest' in sent(b).active).toBe(false)
+    expect(bytes(json(b))).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatch(/^watch-sync: workout w-9 not sent, its snapshot is \d+ bytes, over the 49152-byte budget even when fitted \(500 rows\); the settings are sent with the last workout the watch was sent$/)
+    // tick after tick of the same: nothing more to the bridge, nothing more in the log
+    await set({ ...big })
+    await set({ ...big })
+    expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(JSON.stringify(st.getState().S)).toBe(bigBefore)
+    // smaller again: the workout itself goes, as usual
+    await set(running(1))
+    expect(b.sendSnapshot).toHaveBeenCalledTimes(3)
+    expect(sent(b).active.entries).toHaveLength(1)
+    // too big again after that: said again
+    await set(big)
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(sent(b).active.entries).toHaveLength(1)
+    stop()
+  })
+
+  it('sends today\'s settings and lists with it: Apple Health\'s deleted ids and the discarded workouts', async () => {
+    health.on = true
+    const { b, stop, set } = await start(running(2))
+    expect(sent(b).settings.health).toBe(true)
+    markDiscarded('w-gone')
+    await set({ ...running(500), deleted: { workouts: { old: 5 } } })
+    expect(sent(b).active.id).toBe('w-9')
+    expect(sent(b).healthGone).toEqual(['opengym-w-old'])
+    expect(sent(b).discarded).toEqual(['w-gone'])
+    health.listeners.forEach(fn => fn({ on: false }))
+    await vi.runAllTimersAsync()
+    expect(sent(b).settings.health).toBe(false)
+    expect(sent(b).healthGone).toBeUndefined()
+    expect(sent(b).active.entries).toHaveLength(2)
+    expect(bytes(json(b))).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+    stop()
+  })
+
+  it('tells the watch there is no workout only when the last one it was sent is another, or none', async () => {
+    health.on = true
+    // the watch was sent workout w-1; the phone now runs w-2, too big from the start
+    const one = await start(running(2, 'w-1'))
+    await one.set(running(500, 'w-2'))
+    expect(sent(one.b).active).toBeNull()
+    expect(warn.mock.calls.at(-1)[0]).toMatch(/workout w-2 not sent.*the settings are sent with no workout, as the watch was sent none of this one$/)
+    health.listeners.forEach(fn => fn({ on: false }))
+    await vi.runAllTimersAsync()
+    expect(sent(one.b)).toMatchObject({ active: null, settings: { health: false } })
+    one.stop()
+    // the watch was sent no workout at all
+    localStorage.clear()
+    const none = await start(S0)
+    expect(sent(none.b).active).toBeNull()
+    await none.set(running(500))
+    expect(sent(none.b).active).toBeNull()
+    health.listeners.forEach(fn => fn({ on: false }))
+    await vi.runAllTimersAsync()
+    expect(sent(none.b)).toMatchObject({ active: null, settings: { health: false } })
+    none.stop()
+  })
+
+  it('sends nothing without a record of what the watch was sent, and warns once a workout', async () => {
+    const { b, stop, set } = await start(running(500))
+    expect(b.sendSnapshot).not.toHaveBeenCalled()
+    await set({ ...running(500) })
+    expect(warn).toHaveBeenCalledTimes(1)
+    expect(warn.mock.calls[0][0]).toMatch(/workout w-9 not sent.*no record of what the watch holds/)
+    await set(running(500, 'w-10'))
+    expect(b.sendSnapshot).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledTimes(2)
+    stop()
+  })
+
+  it('knows what the watch was sent after a reload', async () => {
+    const one = await start(running(2))
+    const first = sent(one.b)
+    await one.set(running(500))
+    one.stop()
+    // the page again: nothing in memory, the record in storage
+    _resetWatchSync()
+    const two = await start(running(500))
+    expect(two.b.sendSnapshot).toHaveBeenCalledTimes(1)
+    expect(sent(two.b).active.id).toBe('w-9')
+    expect(JSON.stringify(sent(two.b).active.entries)).toBe(JSON.stringify(first.active.entries))
+    two.stop()
+  })
+
+  describe('when the workout sent again is over the budget too', () => {
+    // A record of what the watch was sent, `room` bytes under the budget: one long name does it.
+    const record = room => {
+      const r = { v: 1, unit: 'kg', restSec: 90, active: { id: 'w-9', name: 'Big', unit: 'kg', cur: 0, restSec: 90, entries: [{ id: 'c0', name: '', mode: 'reps', sets: [{ w: 60, r: 8, done: false, warmup: false }] }] } }
+      r.active.entries[0].name = 'x'.repeat(SNAPSHOT_MAX_BYTES - room - bytes(JSON.stringify(r)))
+      expect(bytes(JSON.stringify(r))).toBe(SNAPSHOT_MAX_BYTES - room)
+      localStorage.setItem('gym_watch_last_sent', JSON.stringify(r))
+    }
+    // 60 deleted workouts with long ids: about 7 KB of Apple Health ids
+    const deleted = { workouts: Object.fromEntries(Array.from({ length: 60 }, (_, i) => ['d'.repeat(100) + i, i + 1])) }
+
+    it('leaves Apple Health\'s deleted ids out first, never the discarded workouts', async () => {
+      health.on = true
+      record(3000)
+      markDiscarded('w-gone')
+      const { b, stop } = await start({ ...running(500), deleted })
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      expect(sent(b).active.id).toBe('w-9')
+      expect(sent(b).healthGone).toBeUndefined()
+      expect(sent(b).discarded).toEqual(['w-gone'])
+      expect(bytes(json(b))).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+      stop()
+    })
+
+    it('sends nothing when it still does not fit, and warns once', async () => {
+      health.on = true
+      record(20)
+      const { b, stop, set } = await start({ ...running(500), deleted })
+      await set({ ...running(500), deleted })
+      expect(b.sendSnapshot).not.toHaveBeenCalled()
+      expect(warn).toHaveBeenCalledTimes(1)
+      expect(warn.mock.calls[0][0]).toMatch(/workout w-9 not sent.*the last snapshot sent is over the budget too$/)
+      stop()
+    })
   })
 })
