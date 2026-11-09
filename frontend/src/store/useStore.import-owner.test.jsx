@@ -33,7 +33,7 @@ const load = async () => {
   ;({ useStore } = await import('./useStore.js'))
 }
 const signedIn = async (uid, S, rev) => {
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid }))
   localStorage.setItem('gym_owner', uid)   // as setUser signs in
   await load()
   useStore.setState({ S, user: { id: uid }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
