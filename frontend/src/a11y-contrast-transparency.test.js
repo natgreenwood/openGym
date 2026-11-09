@@ -78,3 +78,59 @@ describe('Reduce Transparency (#708)', () => {
     for (const sel of blurred) expect(off, sel).toContain(sel)
   })
 })
+
+describe('Secondary text contrast (NATG-644)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  const dark = rule(css, ':root')
+  const light = rule(css, ':root[data-theme="light"]')
+  // Every rule whose selector list is exactly `sel`, wherever it sits (top level or in an @media).
+  const rules = (src, sel) => [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].trim() === sel).map((m) => m[2])
+  const colour = (decls) => decls.match(/(?:^|;)\s*color:\s*([^;}]+)/)?.[1]?.trim()
+
+  it('light --label-2 is .76; the dark and increased-contrast values are unchanged', () => {
+    expect(token(light, '--label-2')).toBe('rgba(60,60,67,.76)')
+    expect(token(dark, '--label-2')).toBe('rgba(235,235,245,.60)')
+    expect(token(rule(hc, ':root'), '--label-2')).toBe('rgba(235,235,245,.78)')
+    expect(token(rule(hc, ':root[data-theme="light"]'), '--label-2')).toBe('rgba(60,60,67,.82)')
+  })
+
+  it('.dim reads in --label-2', () => {
+    expect(rules(css, '.dim').map(colour)).toEqual(['var(--label-2)'])
+  })
+
+  // The direct --label-3 text rules the Designer moved. Borders, glyphs and disabled rows stay.
+  const moved = {
+    'index.css': [
+      '#tabbar button', '.measure-input i', '.subrow .subn', '.plateline .moves', '.sethead', '.sidetag',
+      '.wday .lbl', '.efftbl .hd .n,.efftbl .hd .f', '.hm-months span', '.hm-legend', '.fends', '.fzones',
+      '.steps-list::marker', '.cal-h', '.cal-legend', '.today-row .lbl2', '.exfix-link',
+      '.field::placeholder,.input::placeholder', '.effpick .effpick-free .stp .num::placeholder',
+    ],
+    'coach.css': ['.ob-hint', '.msg-t', '.pcard-wd', '.composer-cap', '.composer textarea::placeholder'],
+    'admin.css': ['.adm-group-t', '.adm-log-row .when', '.adm-empty'],
+  }
+  it.each(Object.entries(moved).flatMap(([f, sels]) => sels.map((s) => [f, s])))('%s: %s is text in --label-2', (file, sel) => {
+    const found = rules(read(file), sel).map(colour).filter(Boolean)
+    expect(found.length).toBeGreaterThan(0)
+    for (const c of found) expect(c).toBe('var(--label-2)')
+  })
+
+  it.each(['.item.add-blocked .tt', '.lrow.share-off .lrow-t', '.swpane.del.dis button'])('disabled %s stays on --label-3', (sel) => {
+    expect(rules(css, sel).map(colour)).toEqual(['var(--label-3)'])
+  })
+
+  it.each(['--surface', '--bg', '--surface-2', '--surface-3'])('light: --label-2 and .dim read at 4.5:1 on %s', (bg) => {
+    const under = hex(token(light, bg))
+    expect(ratio(over(rgba(token(light, '--label-2')), under), under)).toBeGreaterThanOrEqual(4.5)
+    const dim = colour(rules(css, '.dim')[0]).match(/var\((--[\w-]+)\)/)[1]
+    expect(ratio(over(rgba(token(light, dim)), under), under)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('dark: .dim reads at 4.5:1 on --surface', () => {
+    const card = hex(token(dark, '--surface'))
+    const dim = colour(rules(css, '.dim')[0]).match(/var\((--[\w-]+)\)/)[1]
+    expect(ratio(over(rgba(token(dark, dim)), card), card)).toBeGreaterThanOrEqual(4.5)
+  })
+})
