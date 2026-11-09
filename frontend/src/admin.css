@@ -60,6 +60,9 @@
   background:var(--acc-soft);color:var(--acc-ink)
 }
 .chip.on .adm-chip-key{background:rgba(0,0,0,.18);color:inherit}
+/* In light theme the chip's ink is dark, so a dark layer under the badge took it to 3:1; a faint
+   white one keeps it at 4.6:1 on every accent and surface (a11y-contrast-transparency.test.js). */
+:root[data-theme="light"] .chip.on .adm-chip-key{background:rgba(255,255,255,.04)}
 
 /* label + control pairs inside a step */
 .adm-field{display:flex;flex-direction:column;gap:6px;margin:0 0 10px}

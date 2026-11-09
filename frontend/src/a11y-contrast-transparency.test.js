@@ -247,8 +247,11 @@ describe('Text on accent and status tints (NATG-488)', () => {
     if (m) { const c = paint(m[1], vars); return { rgb: c.rgb, a: c.a * m[2] / 100 } }
     return value.startsWith('rgba') ? rgba(value) : { rgb: hex(value), a: 1 }
   }
-  // Laid over an opaque surface, in 8-bit channels as the browser stores the result.
-  const composite = (c, bg) => over(c, bg).map(Math.round)
+  // `c` laid over each opaque background. A browser stores the result in 8-bit channels and
+  // rounds its own way (Chromium paints some tints a shade darker than rounding to nearest), so
+  // every result is kept three ways, unrounded, rounded down and rounded up, and scored by the worst.
+  const layer = (c, bgs) => bgs.flatMap((bg) => { const r = over(c, bg); return [r, r.map(Math.floor), r.map(Math.ceil)] })
+  const worst = (ink, bgs) => Math.min(...bgs.map((b) => ratio(ink, b)))
   const modes = [['dark', false], ['dark', true], ['light', false], ['light', true]]
   const label = (theme, more) => `${theme}${more ? ' increased contrast' : ''}`
   // The last declaration of `name` in a rule (a plain fallback comes first, color-mix() second).
@@ -278,8 +281,7 @@ describe('Text on accent and status tints (NATG-488)', () => {
     const ink = paint('var(--acc-ink)', vars)
     expect(ink.a).toBe(1)
     for (const s of SURFACES) {
-      const tint = composite(paint('var(--acc-soft)', vars), hex(vars[s]))
-      expect(ratio(ink.rgb, tint), s).toBeGreaterThanOrEqual(4.5)
+      expect(worst(ink.rgb, layer(paint('var(--acc-soft)', vars), [hex(vars[s])])), s).toBeGreaterThanOrEqual(4.5)
     }
   })
 
@@ -289,8 +291,7 @@ describe('Text on accent and status tints (NATG-488)', () => {
     const vars = rootVars(theme, more)
     const ink = paint(last(decl, 'color'), vars)
     for (const s of SURFACES) {
-      const tint = composite(paint(last(decl, 'background'), vars), hex(vars[s]))
-      expect(ratio(ink.rgb, tint), s).toBeGreaterThanOrEqual(4.5)
+      expect(worst(ink.rgb, layer(paint(last(decl, 'background'), vars), [hex(vars[s])])), s).toBeGreaterThanOrEqual(4.5)
     }
   })
 
@@ -318,20 +319,55 @@ describe('Text on accent and status tints (NATG-488)', () => {
     }
   })
 
+  // A background laid over an element that has the tint, with text on it: the text reads at 4.5:1
+  // through both layers. Each such rule names the tinted element it sits in.
+  const CSS_FILES = ['index.css', 'admin.css', 'coach.css', 'views/FocusView.css']
+  const layered = [['admin.css', '.chip.on .adm-chip-key', '.adm-chips .chip.on']]
+  const layeredCases = modes.flatMap(([theme, more]) => layered.flatMap(([file, sel, parent]) =>
+    [undefined, ...ACCENTS].map((k) => [label(theme, more), sel, k || 'no accent', file, parent, theme, more, k])))
+  it.each(layeredCases)('%s: %s reads at 4.5:1 on its layer over the tint, %s', (_l, sel, _k, file, parent, theme, more, k) => {
+    const src = read(file)
+    const own = (theme === 'light' && rule(src, `:root[data-theme="light"] ${sel}`)) || ''
+    const decl = rule(src, sel)
+    const vars = rootVars(theme, more, k)
+    const colour = last(own, 'color') || last(decl, 'color')
+    const ink = paint(colour === 'inherit' ? last(rule(src, parent), 'color') : colour, vars)
+    const tint = paint(last(rule(src, parent), 'background'), vars)
+    const badge = paint(last(own, 'background') || last(decl, 'background'), vars)
+    for (const s of SURFACES) {
+      expect(worst(ink.rgb, layer(badge, layer(tint, [hex(vars[s])]))), s).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('every rule that lays a background inside a tinted element is measured above', () => {
+    const rules = CSS_FILES.flatMap((file) => [...read(file).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ file, sels: m[1].split(',').map((x) => x.trim().replace(/^:root(\[[^\]]*\])*\s+/, '')), decl: m[2] })))
+    const compounds = (sel) => sel.split(/\s*[>+~]\s*|\s+/).filter(Boolean)
+    // the element a tinted rule paints, by its own compound selector (`.chip.on` of `.adm-chips .chip.on`)
+    const tinted = new Set(rules.filter((r) => /background(-color)?:\s*var\(--acc-soft/.test(r.decl))
+      .flatMap((r) => r.sels.map((sel) => compounds(sel).pop())))
+    expect(tinted.size).toBeGreaterThan(0)
+    // A see-through background lets the tint change what the text sits on; an opaque one (the
+    // swipe pane's filled --acc button) hides it, and its text is the filled button's business.
+    const seeThrough = (v) => /rgba\(|transparent|var\(--(acc-soft|acc-line|label-[234]|sep)/.test(v || '')
+    const found = rules.filter((r) => seeThrough(last(r.decl, 'background') || last(r.decl, 'background-color')))
+      .flatMap((r) => r.sels.filter((sel) => compounds(sel).slice(0, -1).some((c) => tinted.has(c))).map((sel) => `${r.file}: ${sel}`))
+    expect(found.length).toBeGreaterThan(0)
+    for (const f of found) expect(layered.map(([file, sel]) => `${file}: ${sel}`), f).toContain(f)
+  })
+
   // AC10: a colour of the user's own gets its ink from lib/accent.js. Its tint does not change in
   // Increase Contrast mode (the colour is set inline), and neither do the surfaces.
   it.each(['dark', 'light'])('%s: a custom accent\'s ink reads at 4.5:1 on its tint, across the sRGB cube', (theme) => {
     const surfaces = [false, true].flatMap((more) => SURFACES.map((s) => hex(rootVars(theme, more)[s])))
     const colour = fc.integer({ min: 0, max: 0xffffff }).map((n) => '#' + n.toString(16).padStart(6, '0'))
-    const corners = ['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff', '#808080']
+    const corners = ['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff', '#808080',
+      // the Tester's: under 4.5:1 in Chromium when the ink only cleared the tint rounded to nearest
+      '#42fc96', '#9ed64b', '#d2013d']
     const check = (c) => {
       const vars = customAccentVars(c, theme)
-      const ink = hex(vars['--acc-ink'])
-      for (const bg of surfaces) {
-        const tint = composite(paint(rule(css, ':root').match(/--acc-soft:\s*([^;}]+)/)[1], vars), bg)
-        if (ratio(ink, tint) < 4.5) return false
-      }
-      return true
+      const tint = paint(rule(css, ':root').match(/--acc-soft:\s*([^;}]+)/)[1], vars)
+      return worst(hex(vars['--acc-ink']), layer(tint, surfaces)) >= 4.5
     }
     for (const c of corners) expect(check(c), c).toBe(true)
     fc.assert(fc.property(colour, check), { numRuns: 4000 })
