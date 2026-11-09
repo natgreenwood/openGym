@@ -62,6 +62,48 @@ describe('Increase Contrast (#707)', () => {
   })
 })
 
+// NATG-592: the import sheets' warnings sit in .shared-notice, whose body text was --label-2
+// (3.4:1 in light theme). Both lines of the notice have to read at 4.5:1 on the notice's own
+// fill and on the sheet behind it, in every theme the notice is drawn in.
+describe('Shared notice text (NATG-592)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  // Every --token the rules declare, later rules winning, as the cascade does for :root.
+  const tokens = (...rules) => Object.fromEntries(rules.flatMap((r) => [...r.matchAll(/(--[\w-]+):\s*([^;}]+)/g)].map((m) => [m[1], m[2].trim()])))
+  const themes = [
+    ['dark', tokens(rule(css, ':root')), false],
+    ['light', tokens(rule(css, ':root'), rule(css, ':root[data-theme="light"]')), true],
+    ['increased-contrast light', tokens(rule(css, ':root'), rule(css, ':root[data-theme="light"]'), rule(hc, ':root'), rule(hc, ':root[data-theme="light"]')), true],
+  ]
+  const prop = (decls, name) => decls.match(new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;}]+)`))?.[1]?.trim()
+  // A colour as the theme paints it: var() resolved, rgba() kept with its alpha.
+  const paint = (value, vars) => {
+    while (/^var\(/.test(value)) value = vars[value.match(/^var\((--[\w-]+)\)/)[1]]
+    return value.startsWith('rgba') ? rgba(value) : { rgb: hex(value), a: 1 }
+  }
+  // The first rule that sets the property wins; the title has no colour of its own and inherits.
+  const first = (name, ...sels) => sels.map((s) => prop(rule(css, s), name)).find(Boolean)
+
+  it.each(themes)('%s: title and body read at 4.5:1 on the notice and on the sheet', (_t, vars, light) => {
+    const sheet = paint((light && prop(rule(css, ':root[data-theme="light"] .sheet'), 'background')) || prop(rule(css, '.sheet'), 'background'), vars)
+    expect(sheet.a).toBe(1)
+    const fill = over(paint(prop(rule(css, '.shared-notice'), 'background'), vars), sheet.rgb)
+    for (const v of ['', '.warn']) {
+      const lines = {
+        title: first('color', `.shared-notice${v} b`, '.shared-notice b', '.shared-notice', 'body'),
+        body: first('color', `.shared-notice${v} span`, '.shared-notice span', '.shared-notice', 'body'),
+      }
+      for (const [line, colour] of Object.entries(lines)) {
+        expect(colour, `${line}${v}`).toBeTruthy()
+        const ink = paint(colour, vars)
+        for (const [where, bg] of [['notice', fill], ['sheet', sheet.rgb]]) {
+          expect(ratio(over(ink, bg), bg), `${line}${v} on the ${where}`).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    }
+  })
+})
+
 describe('Reduce Transparency (#708)', () => {
   // Every blurred surface in a sheet has to be listed in that sheet's own
   // prefers-reduced-transparency block, with the blur off. A new frosted bar that forgets it
@@ -76,5 +118,92 @@ describe('Reduce Transparency (#708)', () => {
       .filter((s) => !s.startsWith('@'))
     expect(blurred.length).toBeGreaterThan(0)
     for (const sel of blurred) expect(off, sel).toContain(sel)
+  })
+})
+
+describe('Secondary text contrast (NATG-644)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  const dark = rule(css, ':root')
+  const light = rule(css, ':root[data-theme="light"]')
+  // Every rule whose selector list is exactly `sel`, wherever it sits (top level or in an @media).
+  const rules = (src, sel) => [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+    .filter((m) => m[1].trim() === sel).map((m) => m[2])
+  const colour = (decls) => decls.match(/(?:^|;)\s*color:\s*([^;}]+)/)?.[1]?.trim()
+
+  it('light --label-2 is .76; the dark and increased-contrast values are unchanged', () => {
+    expect(token(light, '--label-2')).toBe('rgba(60,60,67,.76)')
+    expect(token(dark, '--label-2')).toBe('rgba(235,235,245,.60)')
+    expect(token(rule(hc, ':root'), '--label-2')).toBe('rgba(235,235,245,.78)')
+    expect(token(rule(hc, ':root[data-theme="light"]'), '--label-2')).toBe('rgba(60,60,67,.82)')
+  })
+
+  it('.dim reads in --label-2', () => {
+    expect(rules(css, '.dim').map(colour)).toEqual(['var(--label-2)'])
+  })
+
+  // The direct --label-3 text rules the Designer moved. Borders, glyphs and disabled rows stay.
+  const moved = {
+    'index.css': [
+      '#tabbar button', '.measure-input i', '.subrow .subn', '.plateline .moves', '.sethead', '.sidetag',
+      '.wday .lbl', '.efftbl .hd .n,.efftbl .hd .f', '.hm-months span', '.hm-legend', '.fends', '.fzones',
+      '.steps-list::marker', '.cal-h', '.cal-legend', '.today-row .lbl2', '.exfix-link',
+      '.field::placeholder,.input::placeholder', '.effpick .effpick-free .stp .num::placeholder',
+    ],
+    'coach.css': ['.ob-hint', '.msg-t', '.pcard-wd', '.composer-cap', '.composer textarea::placeholder'],
+    'admin.css': ['.adm-group-t', '.adm-log-row .when', '.adm-empty'],
+  }
+  it.each(Object.entries(moved).flatMap(([f, sels]) => sels.map((s) => [f, s])))('%s: %s is text in --label-2', (file, sel) => {
+    const found = rules(read(file), sel).map(colour).filter(Boolean)
+    expect(found.length).toBeGreaterThan(0)
+    for (const c of found) expect(c).toBe('var(--label-2)')
+  })
+
+  it.each(['.item.add-blocked .tt', '.lrow.share-off .lrow-t', '.swpane.del.dis button'])('disabled %s stays on --label-3', (sel) => {
+    expect(rules(css, sel).map(colour)).toEqual(['var(--label-3)'])
+  })
+
+  it.each(['--surface', '--bg', '--surface-2', '--surface-3'])('light: --label-2 and .dim read at 4.5:1 on %s', (bg) => {
+    const under = hex(token(light, bg))
+    expect(ratio(over(rgba(token(light, '--label-2')), under), under)).toBeGreaterThanOrEqual(4.5)
+    const dim = colour(rules(css, '.dim')[0]).match(/var\((--[\w-]+)\)/)[1]
+    expect(ratio(over(rgba(token(light, dim)), under), under)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it('dark: .dim reads at 4.5:1 on --surface', () => {
+    const card = hex(token(dark, '--surface'))
+    const dim = colour(rules(css, '.dim')[0]).match(/var\((--[\w-]+)\)/)[1]
+    expect(ratio(over(rgba(token(dark, dim)), card), card)).toBeGreaterThanOrEqual(4.5)
+  })
+})
+
+describe('Icon-only controls (WCAG 1.4.11)', () => {
+  // A control that is only a glyph (or a disc) needs 3:1 against whatever it sits on, so its ink
+  // is --label-2. --label-3 is for decorative and disabled marks, and is under 3:1 in both themes.
+  const css = read('index.css')
+  const themes = [['dark', rule(css, ':root')], ['light', rule(css, ':root[data-theme="light"]')]]
+
+  it.each(themes)('%s: --label-2 reads at 3:1 on every background', (_t, base) => {
+    const ink = rgba(token(base, '--label-2'))
+    for (const k of ['--bg', '--surface', '--surface-2', '--surface-3']) {
+      const bg = hex(token(base, k))
+      expect(ratio(over(ink, bg), bg), k).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it.each([
+    ['index.css', '.helpbtn'],
+    ['index.css', '.conn-x'],
+    ['index.css', '.share-check'],
+    ['index.css', '.routine-grip'],
+    ['index.css', '.plan-handle'],
+    ['index.css', '.searchf .clear'],
+    ['index.css', '.search .clear'],
+    ['views/FocusView.css', '.focus-side-check'],
+    ['views/FocusView.css', '.focus-dots button::after'],
+  ])('%s: %s paints with --label-2', (file, sel) => {
+    const decls = rule(read(file), sel)
+    expect(decls).toContain('var(--label-2)')
+    expect(decls).not.toContain('--label-3')
   })
 })

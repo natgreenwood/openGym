@@ -77,7 +77,7 @@
   --surface-3: #e3e3e8;
 
   --label:     #000000;
-  --label-2:   rgba(60,60,67,.60);
+  --label-2:   rgba(60,60,67,.76);
   --label-3:   rgba(60,60,67,.30);
   --label-4:   rgba(60,60,67,.16);
 
@@ -176,7 +176,7 @@ button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp butto
    2026-09-22 rather than adopted, because adopting a scale means changing what four screens
    render, which is a design call and not a cleanup. `git log -- src/index.css` has them. */
 
-.muted{color:var(--label-2)} .dim{color:var(--label-3)}
+.muted{color:var(--label-2)} .dim{color:var(--label-2)}
 .small{font-size:13px;line-height:1.38}
 .accent{color:var(--acc)}
 .capitalize{text-transform:capitalize}
@@ -256,7 +256,7 @@ button.conn:active{filter:brightness(1.12)}
 .conn-bar.quiet .conn-a{padding:2px 9px;font-size:12px;color:var(--acc);background:var(--acc-soft)}
 /* its × (#454): beside the line, not inside its button, so hiding it never also connects */
 .conn-bar.quiet .conn-row{display:flex;align-items:center;gap:2px}
-.conn-x{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:99px;color:var(--label-3);font-size:12px}
+.conn-x{flex:none;display:grid;place-items:center;width:26px;height:26px;border-radius:99px;color:var(--label-2);font-size:12px}
 .conn-x:active{background:var(--surface-2)}
 :root[data-theme="light"] .conn-bar:not(.quiet) .conn-a{background:var(--surface)}
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
@@ -414,7 +414,7 @@ h4.sec{
 .share-nm b{font-size:17px;font-weight:400;letter-spacing:-.012em;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .share-nm span{font-size:13px;color:var(--label-2);line-height:1.38}
 .share-check{width:24px;height:24px;border-radius:50%;flex:none;display:grid;place-items:center;
-  border:1.5px solid var(--label-3);color:transparent;font-size:16px;--icon-stroke:2.6}
+  border:1.5px solid var(--label-2);color:transparent;font-size:16px;--icon-stroke:2.6}
 .share-check.on{background:var(--acc);border-color:var(--acc);color:var(--on-acc)}
 .share-check.locked{background:var(--surface-3);border-color:var(--surface-3);color:var(--label-2)}
 .share-skel{margin-top:14px}
@@ -456,7 +456,7 @@ h4.sec{
 .shared-notice>.icn{font-size:20px;color:var(--label-2);flex:none}
 .shared-notice.warn>.icn{color:var(--orange)}
 .shared-notice b{display:block;font-size:16px;font-weight:600;line-height:1.25;letter-spacing:-.012em}
-.shared-notice span{display:block;font-size:13px;color:var(--label-2);line-height:1.38;margin-top:2px}
+.shared-notice span{display:block;font-size:13px;color:var(--label);line-height:1.38;margin-top:2px}
 .shared-list .item:focus-visible{outline:2.5px solid var(--acc);outline-offset:2px}
 .shared-ro-title{flex:1;min-width:0;margin:0 12px;font-size:20px;font-weight:600;letter-spacing:-.021em;line-height:1.25;overflow-wrap:anywhere}
 .shared-glyph{width:36px;height:36px;border-radius:9px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;
@@ -482,7 +482,7 @@ h4.sec{
    vertical negative margin keeps it from making the row taller. The horizontal ones pull the
    hit area back under the row's own 12px gap instead of adding to it. */
 .helpbtn{
-  color:var(--label-3);font-size:16px;background:none;line-height:0;flex:none;
+  color:var(--label-2);font-size:16px;background:none;line-height:0;flex:none;
   margin-block:-11px;margin-inline:-4px -2px;padding:11px 4px;
 }
 .helpbtn:active{color:var(--label)}
@@ -528,7 +528,7 @@ h4.sec{
 :root[data-theme="light"] #tabbar{background:rgba(249,249,251,.94)}
 #tabbar button{
   flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
-  color:var(--label-3);font-size:10px;font-weight:500;letter-spacing:.005em;padding-top:3px;
+  color:var(--label-2);font-size:10px;font-weight:500;letter-spacing:.005em;padding-top:3px;
   transition:color var(--fast);
 }
 /* The inactive tint is semi-transparent, so wherever two strokes cross inside an
@@ -607,7 +607,7 @@ h4.sec{
   flex:1;text-align:center;padding:8px 2px 9px;border-radius:10px;
   background:none;border:none;transition:background var(--fast);
 }
-.wday .lbl{font-size:11px;color:var(--label-3);font-weight:500;text-transform:uppercase;letter-spacing:.03em}
+.wday .lbl{font-size:11px;color:var(--label-2);font-weight:500;text-transform:uppercase;letter-spacing:.03em}
 .wday .num{font-size:17px;font-weight:400;margin:4px 0;letter-spacing:-.012em}
 .wday .dot{width:5px;height:5px;border-radius:50%;background:transparent;margin:0 auto}
 .wday .dot.plan{background:var(--label-3)}
@@ -652,11 +652,11 @@ h4.sec{
    once (RoutineEdit.jsx). A touch screen keeps the long press and the row's full width. */
 .routine-grip{
   display:none;flex:none;align-self:stretch;align-items:center;margin:-10px -6px -10px -4px;padding:0 4px;
-  color:var(--label-3);font-size:16px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+  color:var(--label-2);font-size:16px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
 }
 @media (hover:hover) and (pointer:fine){
   .routine-grip{display:flex}
-  .routine-grip:hover{color:var(--label-2)}
+  .routine-grip:hover{color:var(--label)}
 }
 .routine-list.is-reordering,.routine-list.is-reordering *{cursor:grabbing}
 .thumb{width:50px;height:50px;border-radius:9px;object-fit:cover;background:#fff;flex:none}
@@ -775,7 +775,7 @@ body.chips-dragging *{cursor:inherit}
   padding:13px 15px;font-size:17px;letter-spacing:-.012em;outline:none;
   transition:box-shadow var(--fast);
 }
-.field::placeholder,.input::placeholder{color:var(--label-3)}
+.field::placeholder,.input::placeholder{color:var(--label-2)}
 .field:focus,.input:focus{box-shadow:inset 0 0 0 2px var(--acc)}
 .field.area,textarea.input{min-height:92px;resize:vertical;line-height:1.42}
 .measure-date{display:block;margin-bottom:14px}
@@ -785,7 +785,7 @@ body.chips-dragging *{cursor:inherit}
 .measure-field{min-width:0}
 .measure-input{height:47px;background:var(--surface-2);border-radius:var(--r);display:flex;align-items:center;padding:0 12px;gap:6px}
 .measure-input .num{width:100%;min-width:0;background:transparent;border:0;outline:none;font-size:18px;font-weight:500;color:var(--label);padding:0}
-.measure-input i{font-style:normal;color:var(--label-3);font-size:13px}
+.measure-input i{font-style:normal;color:var(--label-2);font-size:13px}
 .measure-options{margin:12px 0 16px}
 .measure-select{margin-bottom:10px;background:var(--surface-2)}
 .measure-preview{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:11px;padding-top:10px;border-top:1px solid var(--sep);font-size:12px;color:var(--label-2)}
@@ -798,14 +798,14 @@ body.chips-dragging *{cursor:inherit}
 /* --- search field --- */
 .searchf{position:relative;display:flex;align-items:center}
 .searchf .lead{
-  position:absolute;inset-inline-start:11px;font-size:16px;color:var(--label-3);
+  position:absolute;inset-inline-start:11px;font-size:16px;color:var(--label-2);
   pointer-events:none;--icon-stroke:2.1;z-index:1;
 }
 .searchf .field{padding-inline-start:35px;padding-inline-end:36px;background:var(--surface-2);border-radius:10px}
 :root[data-theme="light"] .searchf .field{background:rgba(118,118,128,.12)}
 .searchf .clear{
   position:absolute;inset-inline-end:8px;width:22px;height:22px;border-radius:50%;
-  background:var(--label-3);color:var(--bg);display:flex;align-items:center;
+  background:var(--label-2);color:var(--bg);display:flex;align-items:center;
   justify-content:center;font-size:11px;--icon-stroke:3;
 }
 /* legacy .search wrapper */
@@ -814,7 +814,7 @@ body.chips-dragging *{cursor:inherit}
 :root[data-theme="light"] .search .input{background:rgba(118,118,128,.12)}
 .search>svg{
   position:absolute;inset-inline-start:11px;top:50%;transform:translateY(-50%);z-index:1;
-  width:16px;height:16px;stroke:var(--label-3);fill:none;stroke-width:2.1;stroke-linecap:round;
+  width:16px;height:16px;stroke:var(--label-2);fill:none;stroke-width:2.1;stroke-linecap:round;
 }
 /* The live result count (Library and the exercise picker, from GitLab !31): a pill at the end
    of the field while a search or filter narrows the list. The field makes room for it only while
@@ -831,7 +831,7 @@ body.chips-dragging *{cursor:inherit}
 .search .clear{
   position:absolute;inset-inline-end:8px;top:50%;transform:translateY(-50%);z-index:1;
   width:22px;height:22px;border-radius:50%;
-  background:var(--label-3);color:var(--bg);display:flex;align-items:center;
+  background:var(--label-2);color:var(--bg);display:flex;align-items:center;
   justify-content:center;font-size:11px;--icon-stroke:3;
 }
 .search.has-clear .input{padding-inline-end:36px}
@@ -1168,7 +1168,7 @@ body.chips-dragging *{cursor:inherit}
 
 .sethead{
   display:flex;align-items:center;gap:8px;padding:0 0 6px;
-  font-size:11px;color:var(--label-3);font-weight:500;text-transform:uppercase;letter-spacing:.045em;
+  font-size:11px;color:var(--label-2);font-weight:500;text-transform:uppercase;letter-spacing:.045em;
 }
 .sethead .n-sp{width:24px;flex:none}
 .sethead .w-sp{flex:1.4;text-align:center}
@@ -1289,7 +1289,7 @@ body.chips-dragging *{cursor:inherit}
 .effpick .effpick-free{padding-inline-end:8px}
 .effpick .effpick-free .stp{flex:none;width:148px}
 .effpick .effpick-free .stp .num{font-size:17px;font-weight:600}
-.effpick .effpick-free .stp .num::placeholder{color:var(--label-3);font-weight:500}
+.effpick .effpick-free .stp .num::placeholder{color:var(--label-2);font-weight:500}
 .setrow.done .n{background:var(--acc);color:var(--on-acc)}
 .setrow.done{opacity:.45}
 
@@ -1346,7 +1346,7 @@ body.chips-dragging *{cursor:inherit}
 .setrow-side .setrow.side{padding:4px 0}
 .setrow-side .setrow.side+.setrow.side::before{display:none}
 .sidetag{
-  width:24px;height:24px;border-radius:8px;background:var(--surface-2);color:var(--label-3);
+  width:24px;height:24px;border-radius:8px;background:var(--surface-2);color:var(--label-2);
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;flex:none;
 }
 /* A one-sided row with an effort column is the tightest line in the app: set number, L/R badge,
@@ -1453,7 +1453,7 @@ body.chips-dragging *{cursor:inherit}
    tucks a straight row's drops under its number would be paid twice — at 320 px both number
    fields of a per-side drop collapsed to 0 px (QA C3). The label starts under the badge instead. */
 .setrow-side .side-rows .subrow{padding-inline-start:0}
-.subrow .subn{font-size:11px;color:var(--label-3);flex:none;width:46px}
+.subrow .subn{font-size:11px;color:var(--label-2);flex:none;width:46px}
 /* the number outranks the buttons here as in the row above: room for "227.5" (a drop's weight)
    or "100" (the second mini is always reps) at 13 px, and the buttons shrink to 16 px first */
 .subrow .stp.mini{flex:1;--num:38px;min-width:calc(var(--num) + 32px)}
@@ -1472,7 +1472,7 @@ body.chips-dragging *{cursor:inherit}
 .plateline{display:flex;align-items:center;gap:6px;padding-block:0 5px;padding-inline:32px 0;font-size:12px;color:var(--dim);line-height:1.3}
 .plateline .icn{font-size:12px;flex:none;opacity:.8}
 .plateline .short{color:var(--orange)}
-.plateline .moves{margin-inline-start:auto;color:var(--label-3);font-variant-numeric:tabular-nums;white-space:nowrap}
+.plateline .moves{margin-inline-start:auto;color:var(--label-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 /* The number is the set's menu (drop / burst / remove); a 24px circle needs a finger-sized hit area. */
 .setrow .n::before{content:'';position:absolute;inset:-10px}
 /* A set taken to failure: a small "F" on the number's corner, in the colour the effort scale
@@ -1717,7 +1717,7 @@ body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 .efftbl .hd{background:var(--surface-2);padding-top:8px;padding-bottom:8px}
 .efftbl .hd .n,.efftbl .hd .f{
   font-size:11px;font-weight:600;letter-spacing:.05em;text-transform:uppercase;
-  color:var(--label-3);
+  color:var(--label-2);
 }
 /* the row a working set usually lands on — the anchor the others are read against */
 .efftbl .r.on{background:var(--acc-soft)}
@@ -1771,7 +1771,7 @@ body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 .hm-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;padding-bottom:2px}
 .hm-wrap::-webkit-scrollbar{display:none}
 .hm-months{display:flex;margin-inline-start:28px;margin-bottom:5px}
-.hm-months span{flex:none;width:14px;font-size:11px;color:var(--label-3);white-space:nowrap;overflow:visible}
+.hm-months span{flex:none;width:14px;font-size:11px;color:var(--label-2);white-space:nowrap;overflow:visible}
 .hm-body{display:flex}
 .hm-days{display:flex;flex-direction:column;gap:3px;flex:none;width:28px}
 .hm-days span{height:11px;font-size:10px;color:var(--label-2);line-height:11px}
@@ -1787,7 +1787,7 @@ body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 .hm-c.noted{box-shadow:inset 0 0 0 1.5px var(--indigo)}
 .hm-legend{
   display:flex;align-items:center;gap:4px;justify-content:flex-end;margin-top:9px;
-  font-size:11px;color:var(--label-3);
+  font-size:11px;color:var(--label-2);
 }
 .hm-legend .hm-c{width:10px;height:10px}
 
@@ -1893,8 +1893,8 @@ body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 .fbarwrap .knob{position:absolute;top:-3px;bottom:-3px;width:3px;border-radius:2px;background:var(--label);box-shadow:0 0 0 1.5px var(--surface);pointer-events:none}
 .fbarwrap .fval{position:absolute;bottom:100%;margin-bottom:3px;transform:translateX(-50%);font-size:11px;font-weight:600;color:var(--label);white-space:nowrap;pointer-events:none}
 [dir="rtl"] .fbarwrap .fval{transform:translateX(50%)}
-.fends{display:flex;justify-content:space-between;font-size:10px;color:var(--label-3);margin-top:3px}
-.fzones{display:flex;font-size:10px;color:var(--label-3);line-height:1.2}
+.fends{display:flex;justify-content:space-between;font-size:10px;color:var(--label-2);margin-top:3px}
+.fzones{display:flex;font-size:10px;color:var(--label-2);line-height:1.2}
 /* A zone is a quarter of the bar, 64px on a 320px phone: "Восстанавливается" or "En
    recuperación" don't fit and were cut to "Восстанав…". A name may spill past its zone instead,
    centred on it, and Ready starts at the bar's start so the middle one has room on both sides. */
@@ -1981,11 +1981,11 @@ body.no-tabbar.resting #toast{bottom:calc(100px + var(--sab))}
   padding-inline-start:18px;color:var(--label-2);font-size:15px;line-height:1.5;
   display:flex;flex-direction:column;gap:9px;
 }
-.steps-list::marker{color:var(--label-3)}
+.steps-list::marker{color:var(--label-2)}
 
 /* --- month calendar --- */
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-top:10px}
-.cal-h{text-align:center;font-size:11px;color:var(--label-3);font-weight:500;text-transform:uppercase;padding:2px 0}
+.cal-h{text-align:center;font-size:11px;color:var(--label-2);font-weight:500;text-transform:uppercase;padding:2px 0}
 .cal-d{
   aspect-ratio:1;border-radius:10px;background:var(--surface);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
@@ -1999,7 +1999,7 @@ body.no-tabbar.resting #toast{bottom:calc(100px + var(--sab))}
 .cal-d i.plan{background:var(--label-3)}
 .cal-d i.ovr{background:var(--orange)}
 .cal-d i.noted{background:var(--indigo)}
-.cal-legend{display:flex;gap:14px;justify-content:center;margin-top:12px;font-size:12px;color:var(--label-3)}
+.cal-legend{display:flex;gap:14px;justify-content:center;margin-top:12px;font-size:12px;color:var(--label-2)}
 .cal-legend i{display:inline-block;width:6px;height:6px;border-radius:50%;margin-inline-end:5px}
 
 /* --- accent swatches --- */
@@ -2141,7 +2141,7 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
   transition:background var(--fast);width:100%;text-align: start;cursor:pointer;
 }
 .today-row:active{background:var(--surface-3)}
-.today-row .lbl2{font-size:11px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--label-3)}
+.today-row .lbl2{font-size:11px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;color:var(--label-2)}
 .today-row .ttl{
   font-weight:500;font-size:17px;line-height:1.25;text-transform:capitalize;
   letter-spacing:-.012em;margin-top:2px;
@@ -2290,9 +2290,9 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .plan-minus::before{content:'';position:absolute;inset:-10px}
 .plan-handle{
   flex:none;align-self:stretch;display:flex;align-items:center;padding:0 6px;margin:-10px -6px -10px 0;
-  color:var(--label-3);font-size:18px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
+  color:var(--label-2);font-size:18px;cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none;
 }
-.plan-handle:active{cursor:grabbing;color:var(--label-2)}
+.plan-handle:active{cursor:grabbing;color:var(--label)}
 .plan [data-reorder-row]{transition:transform var(--fast) var(--ease)}
 .plan-link{margin-top:24px}
 .plan-empty{padding:28px 20px}
@@ -2394,7 +2394,7 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 [dir="rtl"] .hm-wrap,[dir="rtl"] .cal-grid{direction:ltr}
 /* Tight tracking is tuned for Latin; Arabic is a connected script and gets none. */
 [dir="rtl"] *{letter-spacing:0}
-.exfix-link{display:inline-flex;align-items:center;gap:5px;margin:14px 0 4px;color:var(--label-3);text-decoration:none}
+.exfix-link{display:inline-flex;align-items:center;gap:5px;margin:14px 0 4px;color:var(--label-2);text-decoration:none}
 .list .similar-label{margin:16px 2px 6px;grid-column:1/-1}
 
 /* The edge swipe back (lib/edge-swipe-back.js): the page follows the finger, the one it goes

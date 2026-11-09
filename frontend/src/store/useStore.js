@@ -403,10 +403,10 @@ export const useStore = create((set, get) => {
   // so a change another device synced while the confirm was open is merged in, not wiped.
   let replaceRev = null
   let importRead = null    // what importConflict last read: { token, state, rev }
-  // Each import is held to the account it began under (importToken). The counter moves with every
-  // owner change, another tab's (each gym_owner event) or this tab's own (setUser, a sign-out),
-  // so an import outlives no switch, back again included; a token once found stale stays stale
-  // (importIsCurrent).
+  // Each import, and each media job, is held to the owner it began under (ownerToken). The counter
+  // moves with every owner change, another tab's (each gym_owner event) or this tab's own
+  // (setUser, a sign-out), so neither outlives a switch, back again included; an import's token
+  // once found stale stays stale (importIsCurrent).
   let ownerEpoch = 0
   const staleImports = new WeakSet()
   let lastCheck = 0
@@ -620,12 +620,13 @@ export const useStore = create((set, get) => {
   // persist() then moved seenOwner, so the owner event, once it ran, found nothing to clear; a
   // request sent for them went out under whichever session the browser holds now (SEC-01).
   const answerIsFor = uid => !!uid && get()?.user?.id === uid && readOwner() === uid
-  // Whether an import's token (importToken) still holds: no owner change since it was taken, and
+  // Whether an owner token (ownerToken) still holds: no owner change since it was taken, and
   // the same account signed in here under its own owner key (answerIsFor), or still nobody under
   // the same owner key. A signed-in token taken while the two disagreed (this tab still names A,
-  // the owner key already says B) never holds. The confirm stays open for as long as the user
-  // takes, and another tab can sign out, switch account or sign in from guest meanwhile (NATG-535).
-  const importHolds = tok => tok.epoch === ownerEpoch && (tok.uid
+  // the owner key already says B) never holds. An import's confirm stays open for as long as the
+  // user takes, and another tab can sign out, switch account or sign in from guest meanwhile
+  // (NATG-535); a media upload, download or clean-up can outlive a switch the same way (NATG-537).
+  const ownerHolds = tok => tok.epoch === ownerEpoch && (tok.uid
     ? tok.owner === tok.uid && answerIsFor(tok.uid)
     : !get().user && readOwner() === tok.owner)
   // The owner the saved copy was written under; null for a copy saved before this was recorded.
@@ -1095,17 +1096,34 @@ export const useStore = create((set, get) => {
     syncFromSaved()
   })
 
-  // Before a sign-out decides anything: the pull on its way has landed, and every push asked
-  // for — including one queued behind the push in flight — has run. Then the photos and videos
-  // still waiting get one more try (lib/media-owed.js, at most a minute): they are owed exactly
-  // like a change is. A copy that owes nothing is not pushed: the server would take it as a new
-  // revision, and every other device of the account would pull it once for nothing (NATG-573).
+  // Before a sign-out decides anything: the pull on its way has landed, and the push in flight,
+  // with any queued behind it, has landed too. Only then is the copy asked whether it still owes
+  // the server something, so a push that is already carrying it is not sent a second time
+  // (NATG-643). A change made after that push left, or a push that failed, is still owed and is
+  // pushed once more. Then the photos and videos still waiting get one more try
+  // (lib/media-owed.js, at most a minute): they are owed exactly like a change is. A copy that
+  // owes nothing is not pushed: the server would take it as a new revision, and every other
+  // device of the account would pull it once for nothing (NATG-573).
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
     if (pulling) await pulling.promise
+    while (pushing) await pushing
     if (owes()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
     await settleMedia(get().S)
+  }
+  // Whether a sign-out asked for under `owner` (the browser's owner at the click) was overtaken by
+  // another tab signing a different account in while it waited. Its logout would end that
+  // account's session in this browser, and "everywhere" its sessions on every device, so it stops
+  // and changes nothing (NATG-581). An owner gone to nobody is not another account: another tab
+  // signed the same account out, and the sign-out goes on as before. This tab hands over to the
+  // new owner first, as a save does (refuseStale): the handover closes the sheets and the toast
+  // (useUI), so whatever the caller then says about the cancelled sign-out stays on screen.
+  const overtaken = owner => {
+    const now = readOwner()
+    if (!now || now === owner) return false
+    if (now !== seenOwner) handOver(now)
+    return true
   }
 
   // Forget where this device stood with the server — a different account, a sign-out. The copy
@@ -1663,18 +1681,25 @@ export const useStore = create((set, get) => {
       const mine = owes() ? (get().S.workouts || []).filter(w => w && !inBackup.has(key(w)) && !onServer.has(key(w))).length : 0
       return workouts + mine ? { workouts: workouts + mine, state, rev: res.rev, local: mine > 0 || owes(), token } : null
     },
+    // Who this tab is acting for right now: the account signed in here (or nobody, a guest), the
+    // browser's owner key and the owner counter. A job that outlives an await takes one when it
+    // starts and asks ownerHolds before it acts for that owner again: media sync's runs, downloads
+    // and clean-up (lib/media-sync.js), and each import.
+    ownerToken() {
+      return Object.freeze({ uid: get().user?.id || null, owner: readOwner(), epoch: ownerEpoch })
+    },
+    // Whether the owner `token` was taken for is still this tab's (see ownerHolds above).
+    ownerHolds(token) { return !!token && ownerHolds(token) },
     // Whose import this is, taken when the file is chosen, before anything is awaited: Settings
     // hands it to every step after (importConflict, importIsCurrent, importBackup), and each judges
     // that token alone, never what another import last read (NATG-535 SEC-01).
-    importToken() {
-      return Object.freeze({ uid: get().user?.id || null, owner: readOwner(), epoch: ownerEpoch })
-    },
-    // Whether the import `token` belongs to is still this account's (importHolds). Settings closes
+    importToken() { return get().ownerToken() },
+    // Whether the import `token` belongs to is still this account's (ownerHolds). Settings closes
     // the confirm once it is not, and importBackup refuses it. Stale is for good: an account that
     // comes back finds the import gone, as the confirm already is.
     importIsCurrent(token) {
       if (!token || staleImports.has(token)) return false
-      if (importHolds(token)) return true
+      if (ownerHolds(token)) return true
       staleImports.add(token)
       return false
     },
@@ -2260,14 +2285,21 @@ export const useStore = create((set, get) => {
        device (stashOwed) and comes back when it next reaches this server as this account. If
        even that cannot be written, nothing is wiped ({ owed, count, stashed: false }).
        Otherwise { owed: false } or { owed: true, count, stashed: true }, signed out. A workout
-       running here is kept aside either way (stashActive), and the rest and hold timers stop. */
-    async signOut({ force = false } = {}) {
+       running here is kept aside either way (stashActive), and the rest and hold timers stop.
+       Another tab signing a different account in before the logout is sent cancels it: nothing
+       is sent or wiped, and the result is { cancelled: true } (overtaken). `owner`: the account
+       the sign-out was asked for under, when that was before this call (a "Try again" or "Sign
+       out anyway" from the owed sheet, leaveServer); by default the browser's owner now. */
+    async signOut({ force = false, owner = readOwner() } = {}) {
       await settle()
+      if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()
       if (left.owed && !force) return owedResult(left)
       await stopTimers()
       if (left.owed && !(await stashOwed())) return owedResult(left, { stashed: false })
       if (!left.owed && !(await stashActive())) return { owed: true, count: 0, stashed: false }
+      // Checked again right before the request: the stash and the timers wait too.
+      if (overtaken(owner)) return { cancelled: true }
       // The device is signed out either way. A request that did not get through leaves the cookie
       // behind, still valid, so the logout is owed until the server answers it (see boot).
       try { await api('/api/logout', { method: 'POST', body: '{}' }) } catch (e) { if (!MOBILE) logoutOwed(true) }
@@ -2302,10 +2334,10 @@ export const useStore = create((set, get) => {
     },
     // Leaves remote mode and drops back to local-only, the way signOut does: never with changes
     // the server has not seen, unless `force` keeps them aside first. Same result as signOut;
-    // the phone stays paired when that comes back owed and not stashed.
+    // the phone stays paired when that comes back owed and not stashed, or cancelled.
     async disconnectServer(opts) {
       const r = await get().signOut(opts)
-      if (r.owed && !r.stashed) return r
+      if (r.cancelled || (r.owed && !r.stashed)) return r
       await forgetRemote()
       pairedBase = null
       setSync({ server: null })
@@ -2319,12 +2351,15 @@ export const useStore = create((set, get) => {
     // where a normal signOut leaves it, under the same rule about changes still owed. Unlike
     // signOut the request is NOT swallowed: if it fails the sessions elsewhere are all still
     // valid, and wiping this device's copy of the data would sign the user out of the one place
-    // the bump didn't reach. Caller reports the error.
-    async signOutAll({ force = false } = {}) {
+    // the bump didn't reach. Caller reports the error. Cancelled like signOut ({ cancelled: true }),
+    // against the same `owner`.
+    async signOutAll({ force = false, owner = readOwner() } = {}) {
       await settle()
+      if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()
       if (left.owed && !force) return owedResult(left)
       await stopTimers()
+      if (overtaken(owner)) return { cancelled: true }
       await api('/api/logout/all', { method: 'POST', body: '{}' })
       if (left.owed && !(await stashOwed())) return owedResult(left, { stashed: false })
       if (!left.owed && !(await stashActive())) return { owed: true, count: 0, stashed: false }

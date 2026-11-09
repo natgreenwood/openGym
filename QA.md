@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-07 (frontend); 2026-11-06 (API)_
+_Last verified by QA agent: 2026-11-09 (frontend); 2026-11-06 (API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -35,6 +35,23 @@ npx vitest run --sequence.shuffle --sequence.seed=7
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
 Known gaps for the plates property test.
 
+## Swipe-back preview tests
+
+From `frontend/`, on Linux with CPU 0 available:
+
+```sh
+./node_modules/.bin/vitest --clearCache
+taskset -c 0 ./node_modules/.bin/vitest run src/App.swipe-preview.test.jsx --reporter=verbose --maxWorkers=1
+```
+
+For the contention reproduction, run eight competing processes with
+`taskset -c 0 python3 -c 'while True: pass'`, sharing that CPU with Vitest.
+Clear the cache before each run and stop the competing processes afterward. Vitest's persistent
+transform cache can make the original lazy-import timeout disappear, so warm
+runs cannot establish that the preload fixes it. The four cases cover preview
+route, scroll position, inert/hidden attributes, element identity, cancellation
+and a back navigation that lands elsewhere. No account or server is needed.
+
 ## Cross-tab account ownership
 
 From `frontend/`:
@@ -49,10 +66,18 @@ or resumed sends, including same-account sign-in. It does not exercise real brow
 session cookies or storage-event scheduling. No credentials or running server are
 needed.
 
-- `accounts()` / `hold()` control late responses, including a boot 401 after
-  another tab changes accounts and a 401 with the owner unchanged.
+- `accounts()` supplies the fake server; the file-level `hold(method, path)`
+  controls late responses, including boot 401s. The server has no `hold` method.
+  Await `held.asked` before changing the session: the helper captures the response
+  or error on arrival, then `held.release()` delivers that same result. A late
+  401 must preserve a new owner's sign-in; an unchanged owner must still sign out.
 - `act()` identifies the writing tab; a tab's `busy` counter delays its storage
   callbacks until `pump()` can deliver them.
+
+Owner-sensitive fixtures must write their storage before loading a fresh store
+with `vi.resetModules()` and dynamic import. In media tests, re-import
+`media-store.js` and `media-owed.js` with the store so the fixture and application
+use the same instances.
 
 For mutation checks that transform guards in memory, disable `fsModuleCache`:
 changing only a plugin's environment options can reuse a previous transformed module.
@@ -74,7 +99,7 @@ npx vitest run src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-s
 Then the store with the adjacent leave-server UI:
 
 ```sh
-npx vitest run src/store/ src/components/ServerSync.leave.test.jsx src/components/ServerSync.media.test.jsx src/views/Settings.server-sync.test.jsx --reporter=dot
+npx vitest run src/store/ src/components/ServerSync.leave.test.jsx src/components/ServerSync.media.test.jsx src/components/ServerSync.retry-owner.test.jsx src/views/Settings.server-sync.test.jsx --reporter=dot
 ```
 
 These tests use synthetic localStorage profiles and mocked API responses. The
@@ -88,6 +113,9 @@ authentication or browser storage-event scheduling.
   saved-tab changes and account switches.
 - `useStore.hold-signout.test.jsx` and `useStore.media.test.jsx` cover adoption
   holds and pending media.
+- `ServerSync.retry-owner.test.jsx` checks the initiating account through a retry
+  after its sheet unmounts and a forced attempt before the owner event arrives,
+  using real stores and the UI account-change subscriber.
 
 In a browser with a synthetic profile, use Settings → Account → Sign out and
 Sign out everywhere. A clean copy sends only the corresponding logout POST;
@@ -95,6 +123,12 @@ an edited copy sends `PUT /api/data` before logout. Both clear memory and the
 saved workout list. A failed PUT keeps the account and workouts locally and
 sends no logout. Browser checks with intercepted API responses cannot establish
 server revision changes or delivery to other devices.
+
+For cancellation, hold the sign-out's pull or the owed sheet's retry GET, sign
+another synthetic account into a second tab, then release the response. Check
+that no logout is sent, the new owner stays signed in, the sheet closes, and the
+cancellation toast names that account without leaving Settings. Also test a new,
+deliberate sign-out after the tab follows the new account.
 
 ## Shared routines
 
@@ -123,6 +157,28 @@ weekday assignments in its `week` block to show the schedule switch. Check Cance
 Add, malformed JSON, unchanged scheduling with the switch off, replacement
 assignments with it on, and persistence after reload. Unknown slot fields must
 not survive import.
+
+## Import notice contrast
+
+From `frontend/`, run the notice, contrast and adjacent plan/sharing checks:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/sheets.import-notices.test.jsx src/views/SharedRoutineView.test.jsx src/views/Plan.shared-tab.test.jsx src/lib/plan-share.test.js --maxWorkers=2
+```
+
+The contrast test resolves CSS tokens; also measure computed text colours against
+the notice's rendered background in a browser. Check light, dark and light with
+`prefers-contrast: more`, including 320px width. Both title and body must reach
+4.5:1. Notice body text uses `--label`.
+
+Upload synthetic plan JSON through Plan's file input with zero, one and two unknown
+exercise IDs alongside a valid exercise. Only the latter two show a titled warning;
+Add retains existing routines and excludes unknown exercises. For workout CSV,
+check converted, mixed and matching units: conversion notices have an info icon
+and body only. Check Hevy with intercepted HTTP and synthetic responses, in kg
+and lb; no live account or real API key is needed. Include the Shared tab's offline
+notice and an unavailable shared routine when changing the shared CSS. Wait for
+the boot overlay and sheet animations to finish before taking screenshots.
 
 ## Count limits and sharing notices
 
