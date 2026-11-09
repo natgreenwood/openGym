@@ -215,6 +215,14 @@ references, editor holds, removal during import and continuation after per-file
 storage errors. The Settings test uses real media helpers and a memory backend,
 with the file read and account store mocked.
 
+The ZIP entry-limit case exports and reads 1,998 media files, then rejects 1,999
+with `too-many`. Its fixture uses real SHA-256 hashes via `sha256HexJs` and
+concurrent memory-store writes. It has its own 15-second timeout; the global
+Vitest default is unchanged. To verify contention, repeat the command above
+alongside the full frontend suite, optionally with bounded CPU workers. Use the
+named test's duration from Vitest's JSON reporter rather than whole-command
+timing, which includes startup and unrelated tests.
+
 For browser verification, use synthetic photos in a real ZIP through Settings
 → Data & backup → Import backup. Seed one synced and one pending photo already
 on the device, plus a new photo in the backup. Schedule an account change after
@@ -312,11 +320,6 @@ icons as part of unrelated frontend changes.
 `src/lib/plates.property.test.js` can independently fail its fewest-plates
 property: `plateStack` sometimes chooses more plates than necessary. Inspect
 the failing test rather than treating every shuffled-run failure as an order leak.
-
-`backup-media.test.js` builds 1,999 media entries in its ZIP entry-limit test.
-It can exceed Vitest's default five-second timeout during concurrent heavy
-suites. The focused backup-media command passed on rerun after the frontend
-suite finished; record any timeout separately from rollback assertion failures.
 
 The MCP rate-limit test in `mcp/test/write-tools.test.js` generates local dates
 by subtracting elapsed 24-hour periods. Late in the day after the autumn DST
