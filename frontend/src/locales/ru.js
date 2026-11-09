@@ -1356,6 +1356,8 @@ export default {
   'Offline. The server can’t be reached': 'Офлайн. Сервер недоступен',
   'Not an openGym answer (HTTP {0})': 'Это не ответ openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'Адрес вашего сервера ответил не как openGym (HTTP {0}). Ваши изменения остаются здесь.',
+  'This copy belongs to a different account': 'Эта копия принадлежит другому аккаунту',
+  'This copy belongs to a different account. Sign in again or reload.': 'Эта копия принадлежит другому аккаунту. Войдите снова или перезагрузите страницу.',
   'Server error (HTTP {0})': 'Ошибка сервера (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'Ваш сервер ответил ошибкой (HTTP {0}). Ваши изменения остаются здесь.',
   'The server refuses this browser': 'Сервер отклоняет этот браузер',

@@ -169,6 +169,16 @@ describe('not connected — it says so, and what to do', () => {
     expect(text()).toBe('Your server’s address answered with something other than openGym (HTTP 200). Your changes are kept here.')
   })
 
+  // The store refused to merge or push a copy whose base is another account's (NATG-556): no HTTP
+  // answer behind it, so no "HTTP 0" sending someone to debug a server that is fine, and no uid.
+  it('a copy held to another account says so in plain words, with no status code', () => {
+    mocks.sync = sync('error', { lastError: { status: 0, code: 'account-mismatch' } })
+    render()
+    expect(text()).toBe('This copy belongs to a different account. Sign in again or reload.')
+    expect(bar().className).toContain('bad')
+    expect(connectionView(mocks.sync).line).toBe('This copy belongs to a different account')
+  })
+
   it('phone refused by its server: "Pair again" opens the connect sheet with the address it had', () => {
     mocks.MOBILE = true
     mocks.sync = sync('auth', { auth: true, pending: true, lastError: { status: 401, code: 'auth' } })

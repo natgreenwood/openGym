@@ -1396,6 +1396,8 @@ export default {
   'Offline. The server can’t be reached': 'ออฟไลน์อยู่ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้',
   'Not an openGym answer (HTTP {0})': 'ไม่ใช่การตอบกลับของ openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'ที่อยู่เซิร์ฟเวอร์ของคุณตอบกลับด้วยสิ่งที่ไม่ใช่ openGym (HTTP {0}) การเปลี่ยนแปลงของคุณยังเก็บไว้ที่นี่',
+  'This copy belongs to a different account': 'สำเนานี้เป็นของบัญชีอื่น',
+  'This copy belongs to a different account. Sign in again or reload.': 'สำเนานี้เป็นของบัญชีอื่น ลงชื่อเข้าใช้อีกครั้งหรือโหลดหน้าใหม่',
   'Server error (HTTP {0})': 'เซิร์ฟเวอร์ผิดพลาด (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'เซิร์ฟเวอร์ของคุณตอบกลับด้วยข้อผิดพลาด (HTTP {0}) การเปลี่ยนแปลงของคุณยังเก็บไว้ที่นี่',
   'The server refuses this browser': 'เซิร์ฟเวอร์ปฏิเสธเบราว์เซอร์นี้',

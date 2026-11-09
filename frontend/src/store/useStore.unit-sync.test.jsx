@@ -20,7 +20,7 @@ const workout = (id, w) => ({ id, d: '2026-09-20', start: 1, end: 2, entries: [{
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([, o]) => JSON.parse(o.body))
 const conflict = (state, rev) => Object.assign(new Error('conflict'), { status: 409, data: { state, rev } })
 const signedIn = (S, rev) => {
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: 'u1' }))
   localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
   useStore.setState({ S, user: { id: 'u1' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }

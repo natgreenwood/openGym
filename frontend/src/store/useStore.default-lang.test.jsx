@@ -78,7 +78,7 @@ describe('instance default language', () => {
     nav(['en-US'])
     const server = { ...clone(DEF), _ts: 100, lang: 'de', langAuto: true, workouts: [{ id: 'w1', d: '2026-09-01', start: 1, entries: [] }] }
     useStore.setState({ S: clone(server), user: { id: 'u1' }, ready: true, config: { invite_only: false } })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 100, uid: 'u1' }))
     expect(shown()).toBe('en')
     expect(useStore.getState().S.lang).toBe('de')
 

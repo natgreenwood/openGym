@@ -815,6 +815,8 @@ export const PT_BR_OVERRIDES = {
   'Waiting to sync': 'Aguardando sincronização',
   'Offline. The server can’t be reached': 'Offline. Não é possível acessar o servidor',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'O endereço do seu servidor respondeu com algo que não é o openGym (HTTP {0}). Suas alterações ficam aqui.',
+  'This copy belongs to a different account': 'Esta cópia pertence a outra conta',
+  'This copy belongs to a different account. Sign in again or reload.': 'Esta cópia pertence a outra conta. Entre novamente ou recarregue a página.',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'Seu servidor respondeu com um erro (HTTP {0}). Suas alterações ficam aqui.',
   'Your server no longer accepts this browser. Your changes are kept here.': 'Seu servidor não aceita mais este navegador. Suas alterações ficam aqui.',
   'This phone is no longer paired with your server. Your changes are kept here.': 'Este celular não está mais pareado com seu servidor. Suas alterações ficam aqui.',

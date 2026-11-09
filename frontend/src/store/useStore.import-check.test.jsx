@@ -19,7 +19,7 @@ const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([,
 // The account's copy, as a page loaded on a browser signed in to it sees it: the store is loaded
 // after the owner is written, so it holds that owner as its own.
 const signedIn = async (S, rev) => {
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: 'u1' }))
   localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
   vi.resetModules()
   ;({ useStore } = await import('./useStore.js'))

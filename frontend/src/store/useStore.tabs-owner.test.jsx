@@ -109,7 +109,8 @@ const account = () => ({
 const savedCopy = (doc, rev) => {
   const S = clone(doc); delete S._rev
   localStorage.setItem('gym_state_v1', JSON.stringify(S))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  // The marker as the owner's tab left it, naming that account (NATG-556).
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: localStorage.getItem('gym_owner') }))
 }
 // Every PUT /api/data the server receives from here on, from either tab, with the revision it was
 // sent against.

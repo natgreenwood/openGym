@@ -45,7 +45,7 @@ beforeEach(() => {
 // rather than pushing first.
 const signedIn = async (S = clone(DEF)) => {
   useStore.setState({ S, user: USER, ready: true, sync: { ...fresh }, config: { shares: true } })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: S._ts || 0, uid: USER.id }))
   await useStore.getState().pushState()
 }
 // A revision poll, as coming back online starts one.
@@ -475,7 +475,7 @@ const removeThenSwitch = async () => {
   net.incoming = [{ ...share('s2'), routine: PUSH }]; net.etag = 'b1'
   const SB = { ...clone(DEF), _ts: 1000, week: { 2: ['shared:s2'] } }
   useStore.setState({ S: SB, user: B, ready: true, sync: { ...fresh }, config: { shares: true }, shares: null })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: SB._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: SB._ts, uid: B.id }))
   await useStore.getState().pushState()
   await useStore.getState().loadShares()
   await tick()

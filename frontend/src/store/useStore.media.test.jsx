@@ -54,7 +54,7 @@ async function signedInWithPendingPhoto() {
   await media.put(A, new Blob(['abc']), { mime: 'image/webp', pending: true })
   await media.put(P, new Blob(['abc']), { mime: 'image/webp', pending: false })
   useStore.setState({ S: withPhoto(), user: USER, ready: true, sync: { ...fresh } })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
   api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 2 } : { ok: true }))
 }
 
@@ -97,7 +97,7 @@ describe('owed photos and videos', () => {
     await media.put(A, new Blob(['abc']), { mime: 'image/webp', pending: false })
     await new Promise(r => setTimeout(r, 5))   // put before the sign-out, not during it
     useStore.setState({ S: { ...clone(DEF), _ts: 100 }, user: USER, ready: true, sync: { ...fresh } })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 2 } : { ok: true }))
     expect(await useStore.getState().signOut()).toEqual({ owed: false })
     await vi.waitFor(async () => expect(await media.has(A)).toBe(false), { timeout: 3000 })   // the purge runs after the wiped copy is written
@@ -153,7 +153,7 @@ describe('owed photos and videos of a logged workout', () => {
     await media.put(V, new Blob(['abc']), { mime: 'video/mp4', pending: true })
     await media.put(VP, new Blob(['abc']), { mime: 'image/webp', pending: true })
     useStore.setState({ S: withWorkoutMedia(), user: USER, ready: true, sync: { ...fresh } })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 2 } : { ok: true }))
   }
 

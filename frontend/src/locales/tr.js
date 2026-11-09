@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': 'Çevrimdışı. Sunucuya ulaşılamıyor',
   'Not an openGym answer (HTTP {0})': 'openGym yanıtı değil (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'Sunucunun adresi openGym dışında bir şeyle yanıt verdi (HTTP {0}). Değişikliklerin burada kalıyor.',
+  'This copy belongs to a different account': 'Bu kopya başka bir hesaba ait',
+  'This copy belongs to a different account. Sign in again or reload.': 'Bu kopya başka bir hesaba ait. Yeniden giriş yap ya da sayfayı yenile.',
   'Server error (HTTP {0})': 'Sunucu hatası (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'Sunucun bir hatayla yanıt verdi (HTTP {0}). Değişikliklerin burada kalıyor.',
   'The server refuses this browser': 'Sunucu bu tarayıcıyı reddediyor',

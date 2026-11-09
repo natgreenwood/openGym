@@ -1311,6 +1311,8 @@ export default {
   'Offline. The server can’t be reached': 'غير متصل. تعذّر الوصول إلى الخادم',
   'Not an openGym answer (HTTP {0})': 'ليس ردًّا من openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'ردّ عنوان خادمك بشيء غير openGym (HTTP {0}). تغييراتك محفوظة هنا.',
+  'This copy belongs to a different account': 'هذه النسخة تخص حسابًا آخر',
+  'This copy belongs to a different account. Sign in again or reload.': 'هذه النسخة تخص حسابًا آخر. سجّل الدخول من جديد أو أعد تحميل الصفحة.',
   'Server error (HTTP {0})': 'خطأ في الخادم (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'ردّ خادمك بخطأ (HTTP {0}). تغييراتك محفوظة هنا.',
   'The server refuses this browser': 'الخادم يرفض هذا المتصفح',

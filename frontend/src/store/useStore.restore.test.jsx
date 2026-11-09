@@ -100,7 +100,7 @@ describe('saved workout state sync and restore', () => {
     expect(put.state.routines.map(r => r.id).sort()).toEqual(['local', 'remote'])
     expect(useStore.getState().S.routines.map(r => r.id).sort()).toEqual(['local', 'remote'])
     expect(localStorage.getItem('gym_dirty')).toBeNull()
-    expect(JSON.parse(localStorage.getItem('gym_sync'))).toEqual({ rev: 4, ts: useStore.getState().S._ts })
+    expect(JSON.parse(localStorage.getItem('gym_sync'))).toEqual({ rev: 4, ts: useStore.getState().S._ts, uid: 'user-1' })
   })
 
   // A server from before revisions answers without one; then the old rule holds and the dirty
@@ -335,19 +335,25 @@ describe('signing in as a different profile', () => {
 
     useStore.getState().update(s => { s.routines.push(routine('guest')) }, false)
     api.mockClear()
+    // The new profile as the server has it: no copy yet, revision 0.
+    api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 1 } : path === '/api/data' ? { state: null, rev: 0 } : {}))
     useStore.getState().setUser({ id: 'B', name: 'B' })
     expect(hasData(useStore.getState().S)).toBe(true)   // what the register sheet checks before pushing
     await useStore.getState().pushState()
 
-    expect(api).toHaveBeenCalledTimes(1)
-    expect(api.mock.calls[0][1].method).toBe('PUT')
-    expect(JSON.parse(api.mock.calls[0][1].body).state.routines.map(r => r.id)).toEqual(['guest'])
+    // The guest's copy has no base of B's: it asks for the profile's revision first, then pushes
+    // against it (NATG-556).
+    await vi.waitFor(() => expect(api.mock.calls.map(([p, o]) => (o?.method || 'GET') + ' ' + p)).toEqual(['GET /api/data', 'PUT /api/data']))
+    const put = JSON.parse(api.mock.calls[1][1].body)
+    expect(put.baseRev).toBe(0)
+    expect(put.state.routines.map(r => r.id)).toEqual(['guest'])
   })
 })
 
 describe('push failures', () => {
   it('says once that the server refused the upload as too large, and keeps the copy dirty', async () => {
     localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 0, uid: 'user-1' }))   // a push needs a base (NATG-556)
     useStore.setState({ S: { ...clone(DEF), routines: [routine('local')] }, user: { id: 'user-1' }, ready: true })
 
     api.mockRejectedValueOnce(httpError(401))

@@ -34,7 +34,7 @@ beforeEach(async () => {
   net = { incoming: [clone(accepted)], etag: 'e1', rev: 1, puts: [] }
   useStore.setState({ S, user: ME, ready: true, config: { shares: true }, shares: null, sharesError: false, sync: { ...fresh } })
   useUI.setState({ sheets: [] })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0, uid: ME.id }))
   api.mockReset()
   api.mockImplementation(async (path, o = {}) => {
     if (path === '/api/shares') return { incoming: clone(net.incoming), outgoing: [], etag: net.etag }
