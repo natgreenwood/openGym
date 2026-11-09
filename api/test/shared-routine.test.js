@@ -88,3 +88,82 @@ test('the name is bounded at 80 characters, the same in the routine, the preview
   assert.equal(sharedRoutine(long).name, 'L'.repeat(80));
   assert.equal(sharedPreview(long).name, 'L'.repeat(80));
 });
+
+/* Tester's finding on PR #87: the count stopped at the cap, but the projection it counted was
+   built first, over every slot. What is read of an over-cap routine has to be bounded by the cap,
+   not by the number of slots, so these count the reads themselves. */
+
+// `r` with its `ex` behind a Proxy that counts the slots read, and a getter on every slot's note
+// that records which slots had it read (pick reads a field twice, so slots, not reads).
+function counted(r) {
+  const noted = new Set();
+  const seen = { slots: 0, get notes() { return noted.size; } };
+  for (const e of r.ex) {
+    if (!e || typeof e !== 'object' || !('note' in e)) continue;
+    const note = e.note;
+    Object.defineProperty(e, 'note', { enumerable: true, get() { noted.add(e); return note; } });
+  }
+  r.ex = new Proxy(r.ex, { get(a, k, rx) { if (typeof k === 'string' && /^\d+$/.test(k)) seen.slots++; return Reflect.get(a, k, rx); } });
+  return { r, seen };
+}
+
+test('an over-cap routine is read only as far as the cap: slots past it are never filtered, picked or serialised', () => {
+  const r = routine(20000);
+  const slotBytes = Buffer.byteLength(JSON.stringify(sharedRoutine(routine(1)).ex[0]));
+  const fit = Math.ceil(MAX_SHARED_BYTES / slotBytes);   // slots the cap can hold, near enough
+  const { r: probe, seen } = counted(r);
+  assert.equal(sharedOverCap(probe), true);
+  assert.ok(seen.slots <= fit + 1, `${seen.slots} slots read, the cap holds about ${fit}`);
+  assert.ok(seen.notes <= fit + 1, `${seen.notes} slots' notes read, the cap holds about ${fit}`);
+  // The same bound with dropped slots in among the kept ones: they cost a read each, no more.
+  const mixed = routine(20000);
+  mixed.ex = mixed.ex.flatMap((e, i) => [e, null, { id: i }, 'x']);
+  const { r: probe2, seen: seen2 } = counted(mixed);
+  assert.equal(sharedOverCap(probe2), true);
+  assert.ok(seen2.slots <= 4 * (fit + 1), `${seen2.slots} slots read`);
+  assert.ok(seen2.notes <= fit + 1, `${seen2.notes} slots' notes read`);
+  // One slot over the cap on its own ends the walk there.
+  const one = routine(20000);
+  one.ex[0].note = 'x'.repeat(MAX_SHARED_BYTES);
+  const { r: probe3, seen: seen3 } = counted(one);
+  assert.equal(sharedOverCap(probe3), true);
+  assert.equal(seen3.slots, 1);
+});
+
+test('property: the measure is exact up to the cap and over it past the cap, on random routines with every kind of slot', () => {
+  // Deterministic, so a failure names a case that can be rerun.
+  let seed = 494;
+  const rnd = () => {   // mulberry32
+    let x = (seed = (seed + 0x6d2b79f5) | 0);
+    x = Math.imul(x ^ (x >>> 15), x | 1);
+    x ^= x + Math.imul(x ^ (x >>> 7), x | 61);
+    return ((x ^ (x >>> 14)) >>> 0) / 2 ** 32;
+  };
+  const pickOf = xs => xs[Math.floor(rnd() * xs.length)];
+  const chars = ['a', 'é', '✓', '日', '💪', '"', '\\', '\n', ' ', ' '];
+  const str = max => Array.from({ length: Math.floor(rnd() * max) }, () => pickOf(chars)).join('');
+  const value = () => pickOf([() => Math.floor(rnd() * 200), () => rnd() * 100, () => str(20), () => true, () => null, () => [1, 'two', { three: 3 }], () => ({ kind: str(5) })])();
+  const slot = () => pickOf([
+    // Kept: an entry with a string id, listed fields, unlisted ones, an undefined one, a long note.
+    () => ({ id: str(6) || '0001', sets: value(), reps: value(), weight: value(), note: str(rnd() < 0.1 ? 4000 : 40), subs: [str(4)], _f: { a: 1 }, extra: value(), restSec: undefined }),
+    () => ({ id: '0002', intensifier: { type: 'dropset', count: 2 }, pyramid: [{ w: 1, r: 2 }] }),
+    // Dropped: not an entry, or an id that is not a string.
+    () => null, () => undefined, () => 7, () => 'slot', () => [1, 2], () => true,
+    () => ({ id: 12, note: str(40) }), () => ({ note: 'no id' }), () => ({ id: null })
+  ])();
+  let under = 0, over = 0;
+  for (let k = 0; k < 400; k++) {
+    const n = Math.floor(rnd() * (rnd() < 0.2 ? 3000 : 60));
+    const r = {
+      id: str(8), name: pickOf([str(120), 12, { toString: 1 }, undefined]), emoji: pickOf([str(3), 3, undefined, {}]),
+      prog: pickOf([{ kind: 'linear' }, 'double', undefined]), excludeFromProgression: pickOf([true, undefined]), notes: str(50),
+      ex: pickOf([Array.from({ length: n }, slot), Array.from({ length: n }, slot), 'not a list', undefined])
+    };
+    const whole = full(r);
+    assert.equal(sharedBytes(r, Infinity), whole, `case ${k}: uncapped`);
+    if (whole <= MAX_SHARED_BYTES) { under++; assert.equal(sharedBytes(r), whole, `case ${k}: under the cap`); }
+    else { over++; assert.ok(sharedBytes(r) > MAX_SHARED_BYTES, `case ${k}: over the cap`); }
+    assert.equal(sharedOverCap(r), whole > MAX_SHARED_BYTES, `case ${k}: verdict`);
+  }
+  assert.ok(under > 50 && over > 10, `both sides covered (${under} under, ${over} over)`);
+});

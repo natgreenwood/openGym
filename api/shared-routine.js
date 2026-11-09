@@ -38,8 +38,9 @@ const isEntry = x => x && typeof x === 'object' && !Array.isArray(x);
 // `{"code":{"toString":1}}` is valid JSON and String() throws on it. A string stays, a number
 // becomes one, anything else is empty. server.js uses this one for its own callers too.
 export const text = v => (typeof v === 'string' ? v : typeof v === 'number' ? String(v) : '');
+const isSharedSlot = e => isEntry(e) && typeof e.id === 'string';
 /** The slots of `r` a recipient gets, before their fields are picked: entries with a string id. */
-export const sharedSlots = r => (Array.isArray(r.ex) ? r.ex : []).filter(e => isEntry(e) && typeof e.id === 'string');
+export const sharedSlots = r => (Array.isArray(r.ex) ? r.ex : []).filter(isSharedSlot);
 const pick = (o, keys) => {
   const out = {};
   for (const k of keys) if (Object.hasOwn(o, k) && o[k] !== undefined) out[k] = o[k];
@@ -63,11 +64,17 @@ export function sharedName(r) {
   return Array.from(s.slice(0, MAX_SHARED_NAME * 2)).slice(0, MAX_SHARED_NAME).join('');
 }
 
-/** The routine as a recipient gets it: the listed fields only, on the routine and on each slot. */
-export function sharedRoutine(r) {
+// The routine's own fields as a recipient gets them, `ex` aside.
+function sharedHead(r) {
   const out = pick(r, ROUTINE_FIELDS);
   out.name = sharedName(r);
   if (text(r.emoji)) out.emoji = text(r.emoji); else delete out.emoji;
+  return out;
+}
+
+/** The routine as a recipient gets it: the listed fields only, on the routine and on each slot. */
+export function sharedRoutine(r) {
+  const out = sharedHead(r);
   out.ex = sharedSlots(r).map(e => pick(e, SLOT_FIELDS));
   return out;
 }
@@ -77,17 +84,24 @@ export const sharedPreview = r => ({ name: sharedName(r), exercises: sharedSlots
 
 /**
  * The UTF-8 length of JSON.stringify(sharedRoutine(r)), exactly while it is at most `cap`; past
- * `cap` it stops counting and answers some number over it. The routine without its slots is
- * serialised once, then each slot on its own, so a routine of thousands of slots costs the slots
- * up to the cap, not all of them. Throws what JSON.stringify throws (a RangeError on a value
- * nested too deep): a caller decides what an unmeasurable routine means.
+ * `cap` it stops counting and answers some number over it. Nothing is projected ahead of the
+ * count: the routine without its slots is serialised once, then `r.ex` is walked one slot at a
+ * time, each filtered and picked as sharedRoutine would and serialised on its own, and the walk
+ * ends as soon as the total passes the cap. So the slots read on an over-cap routine are the ones
+ * that fit in the cap plus one, however many it has. A slot sharedRoutine leaves out adds nothing
+ * and is passed over with a type check. Throws what the projection or JSON.stringify throws (a
+ * RangeError on a value nested too deep): a caller decides what an unmeasurable routine means.
  */
 export function sharedBytes(r, cap = MAX_SHARED_BYTES) {
-  const out = sharedRoutine(r);
   // `ex` stays where it is in the key order, empty: the whole is this with the slots, comma
   // separated, between its brackets.
-  let n = Buffer.byteLength(JSON.stringify({ ...out, ex: [] }));
-  for (let i = 0; i < out.ex.length && n <= cap; i++) n += Buffer.byteLength(JSON.stringify(out.ex[i])) + (i ? 1 : 0);
+  let n = Buffer.byteLength(JSON.stringify({ ...sharedHead(r), ex: [] }));
+  const ex = Array.isArray(r.ex) ? r.ex : [];
+  for (let i = 0, kept = 0; i < ex.length && n <= cap; i++) {
+    const e = ex[i];
+    if (!isSharedSlot(e)) continue;
+    n += Buffer.byteLength(JSON.stringify(pick(e, SLOT_FIELDS))) + (kept++ ? 1 : 0);
+  }
   return n;
 }
 
