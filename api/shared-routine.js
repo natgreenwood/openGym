@@ -12,6 +12,11 @@
 // server does check is type, where a value is the sharer's word and another user's screen or
 // push text depends on it (SEC-01): the routine's `name` and `emoji` are text or empty, and a
 // slot whose `id` is not a string is left out, since nothing can resolve it.
+//
+// And size (NATG-494): the server builds, hashes and sends this projection for other people, so
+// what one sharer can make it cost them is capped. The name is bounded wherever it leaves the
+// server (sharedName), and a routine whose projection is over MAX_SHARED_BYTES is not shared at
+// all: POST /api/shares refuses it and every read shows it as `unavailable: 'too-large'`.
 import crypto from 'node:crypto';
 
 export const ROUTINE_FIELDS = ['id', 'name', 'emoji', 'prog', 'excludeFromProgression'];
@@ -41,17 +46,53 @@ const pick = (o, keys) => {
   return out;
 };
 
+// The most a shared routine's projection may weigh: the UTF-8 bytes of
+// JSON.stringify(sharedRoutine(r)). A routine with every field set and a note on each slot is a
+// few hundred bytes per slot, so this is some hundreds of slots, far past any real routine and
+// past the app's own MAX_ROUTINE_ROWS (frontend/src/lib/limits.js).
+export const MAX_SHARED_BYTES = 65536;
+// A routine name another user is shown, in characters (code points, so an emoji is never cut in
+// half). The app's exercise-name field has the same bound.
+export const MAX_SHARED_NAME = 80;
+
+/** The routine's name as it leaves the server: text, at most MAX_SHARED_NAME characters. */
+export function sharedName(r) {
+  const s = text(r.name);
+  if (s.length <= MAX_SHARED_NAME) return s;
+  // Twice as many UTF-16 units always hold the first MAX_SHARED_NAME code points.
+  return Array.from(s.slice(0, MAX_SHARED_NAME * 2)).slice(0, MAX_SHARED_NAME).join('');
+}
+
 /** The routine as a recipient gets it: the listed fields only, on the routine and on each slot. */
 export function sharedRoutine(r) {
   const out = pick(r, ROUTINE_FIELDS);
-  out.name = text(r.name);
+  out.name = sharedName(r);
   if (text(r.emoji)) out.emoji = text(r.emoji); else delete out.emoji;
   out.ex = sharedSlots(r).map(e => pick(e, SLOT_FIELDS));
   return out;
 }
 
 /** The pending preview: the routine's name and how many slots the recipient would get. */
-export const sharedPreview = r => ({ name: text(r.name), exercises: sharedSlots(r).length });
+export const sharedPreview = r => ({ name: sharedName(r), exercises: sharedSlots(r).length });
+
+/**
+ * The UTF-8 length of JSON.stringify(sharedRoutine(r)), exactly while it is at most `cap`; past
+ * `cap` it stops counting and answers some number over it. The routine without its slots is
+ * serialised once, then each slot on its own, so a routine of thousands of slots costs the slots
+ * up to the cap, not all of them. Throws what JSON.stringify throws (a RangeError on a value
+ * nested too deep): a caller decides what an unmeasurable routine means.
+ */
+export function sharedBytes(r, cap = MAX_SHARED_BYTES) {
+  const out = sharedRoutine(r);
+  // `ex` stays where it is in the key order, empty: the whole is this with the slots, comma
+  // separated, between its brackets.
+  let n = Buffer.byteLength(JSON.stringify({ ...out, ex: [] }));
+  for (let i = 0; i < out.ex.length && n <= cap; i++) n += Buffer.byteLength(JSON.stringify(out.ex[i])) + (i ? 1 : 0);
+  return n;
+}
+
+/** Whether `r` is too large to share: its projection is over MAX_SHARED_BYTES. Throws as sharedBytes does. */
+export const sharedOverCap = r => sharedBytes(r) > MAX_SHARED_BYTES;
 
 // JSON with every object's keys sorted, all the way down, so two copies of the same content hash
 // the same whatever order a client wrote the keys in.
