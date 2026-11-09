@@ -259,7 +259,9 @@ describe('signing in as a different profile', () => {
       await useStore.getState().pushState()
 
       expect(api).not.toHaveBeenCalled()
-      expect(JSON.parse(localStorage.getItem('gym_state_v1')).routines.map(r => r.id)).toEqual(['typed-after'])
+      // B's sign-in has not settled here (no session or revision of B's in storage): the tab's
+      // handover is still provisional, so what it typed meanwhile stays out of B's copy (NATG-564).
+      expect(JSON.parse(localStorage.getItem('gym_state_v1')).routines.map(r => r.id)).toEqual([])
     } finally { vi.useRealTimers() }
   })
 

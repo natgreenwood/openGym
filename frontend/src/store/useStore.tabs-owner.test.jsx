@@ -1476,6 +1476,95 @@ describe('a reset or import followed, before its push, by this tab signing in to
   })
 })
 
+// NATG-564 (NATG-532's real password UI, 3 trials in 20): tab 2 signs in as Yan while tab 1, which
+// it signs out, is still busy. The browser told tab 1 of Yan's final save only once tab 2 had also
+// written its marker. Tab 1 had already taken tab 2's provisional copy, in step with no revision,
+// as Yan's and stopped waiting: it then joined that copy's fresh-profile settings into Yan's final
+// save, and saving the join dropped Yan's marker. Tab 1 stayed signed out over Yan's data, and tab
+// 2 took the join back with no base and pushed it unconditionally.
+describe('a signed-out tab while the other tab finishes signing in to another account', () => {
+  const orders = {
+    // The browser's order: tab 1 hears of the final save and the marker only after tab 2 is done.
+    'tab 1 still busy while tab 2 answers the question': async (A, answer) => {
+      const tabA = tabs.find(x => x.store === A)
+      tabA.busy++
+      try { await answer() } finally { tabA.busy-- }
+      pump()
+    },
+    // Each write told to tab 1 the moment it is made.
+    'tab 1 hearing of each write as it is made': async (A, answer) => { await answer() },
+  }
+  for (const [order, deliver] of Object.entries(orders)) {
+    it(`${order}: tab 1 ends signed in as Yan, and Yan's marker, settings and base revision stay`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const srv = server({ ...account(), _rev: 1 })
+      localStorage.setItem('gym_owner', OWNER)
+      savedCopy(srv.doc, 1)
+      const A = await openTab({ id: OWNER, name: 'Xavi' })
+      const B = await openTab({ id: OWNER, name: 'Xavi' })
+      const yanId = 'Y-' + OWNER
+      srv.doc = { ...clone(DEF), _ts: 50, lang: 'de', gifSize: 'full', weighIn: true, workouts: [w('yW1', '2026-09-05')], _rev: 4 }
+      const yanSettings = { lang: 'de', gifSize: 'full', weighIn: true }
+      const puts = []
+      recordPuts(puts)
+
+      await act(B, () => B.getState().setUser({ id: yanId, name: 'Yan' }, { adopt: true }))
+      expect(A.getState().user).toBeNull()
+      await deliver(A, () => act(B, () => B.getState().adoptProfile(async () => false)))   // "Keep profile as is"
+
+      // Tab 1 follows the sign-in and shows Yan's copy.
+      expect(A.getState().user?.id).toBe(yanId)
+      expect(ids(A.getState().S)).toEqual(['yW1'])
+      // Yan's marker is still where tab 2 wrote it.
+      expect(JSON.parse(localStorage.getItem('gym_sync'))?.rev).toBe(srv.doc._rev)
+      // Yan's settings, on the server and in the saved copy, are Yan's.
+      for (const [k, v] of Object.entries(yanSettings)) {
+        expect(srv.doc[k]).toBe(v)
+        expect(saved()[k]).toBe(v)
+      }
+      // Every push in the sequence is conditional, a later one from either tab included.
+      await act(B, () => B.getState().update(s => { s.restSec = 75 }))
+      await act(B, () => B.getState().pushState())
+      await act(A, () => A.getState().update(s => { s.restPauseSec = 20 }))
+      await act(A, () => A.getState().pushState())
+      expect(puts.length).toBeGreaterThan(0)
+      expect(puts.filter(p => p.baseRev == null)).toEqual([])
+      expect(srv.doc.restSec).toBe(75)
+      expect(srv.doc.restPauseSec).toBe(20)
+      expect(ids(srv.doc)).toEqual(['yW1'])
+    })
+  }
+})
+
+// The handover above ends once the tab follows the sign-in. A tab already signed in as the account
+// the owner moved to has nothing to follow (followSignIn wants a tab with no user): its handover
+// ends as it takes that account's copy, or it went on refusing every save it was asked for.
+describe('a tab already signed in as the account the other tab makes the owner', () => {
+  it('takes the account\'s copy and goes on saving and pushing its own changes', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server(null)
+    const xavi = { id: OWNER, name: 'Xavi' }
+    // Loaded with the account's user but no owner recorded beside the copy (a guest's copy).
+    localStorage.setItem('gym_state_v1', JSON.stringify({ ...clone(DEF), _ts: Date.now(), workouts: [w('gW1', '2026-09-04')] }))
+    localStorage.setItem('gym_user', JSON.stringify(xavi))
+    const A = await openTab(xavi)
+    const B = await openTab(null)
+
+    // Register in tab 2 (views/Login.jsx): the copy becomes Xavi's, saved under him, then pushed.
+    await act(B, () => B.getState().setUser(xavi))
+    await act(B, () => B.getState().pushState())
+    expect(A.getState().user?.id).toBe(OWNER)
+    expect(ids(A.getState().S)).toEqual(['gW1'])
+
+    await act(A, () => A.getState().update(s => { s.restSec = 45 }))
+    expect(saved().restSec).toBe(45)
+    expect(JSON.parse(localStorage.getItem('gym_stash') || '{}')).toEqual({})
+    await act(A, () => A.getState().pushState())
+    expect(srv.doc.restSec).toBe(45)
+    expect(ids(srv.doc)).toEqual(['gW1'])
+  })
+})
+
 /* NATG-581. Tab A signs out as Xavi, or signs out everywhere, and waits (here on a pull still on
    its way); meanwhile tab B signs in as Yan. The logout A then sent went out under Yan's session
    and took Yan's owner key with it: Yan was signed out without a word, and by "everywhere" on

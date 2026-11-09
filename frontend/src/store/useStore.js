@@ -1067,7 +1067,8 @@ export const useStore = create((set, get) => {
   // guards the push either way: a copy this tab has not refreshed gets a 409 and a merge.
   window.addEventListener('storage', e => {
     if (e.key !== SYNC_KEY || !e.newValue) return
-    if (!get().user && !followSignIn()) return
+    // A handover still provisional settles here when the sign-in's marker lands after its save.
+    if (!get().user && !(handedOver ? takeSaved() : followSignIn())) return
     const user = get().user
     if (!user || localStorage.getItem('gym_owner') !== user.id) return
     let theirs = null
@@ -1083,6 +1084,13 @@ export const useStore = create((set, get) => {
   // A tab the owner changed under takes the new owner's saved copy as it is, with where it stands
   // with the server: it has no changes of its own to join, only the previous owner's copy, or a
   // guest's, which must not go into it.
+  // The handover stays provisional until the sign-in has settled: this tab signed in as the new
+  // owner (followSignIn), or nobody owns the copy (a sign-out). Until then it still writes nothing
+  // (refuseStale) and takes each save of the owner's copy as it is. A copy taken while the sign-in
+  // was still saving (its provisional copy, in step with no revision) and then joined into the
+  // account's final save wrote that save over with this tab's fresh-profile settings, and dropped
+  // the account's marker, so the other tab pushed without a base revision and this one stayed
+  // signed out over the account's data (NATG-564).
   const takeSaved = () => {
     if (!handedOver) return false
     // Only a copy known to be written under the new owner: one saved before the owner was
@@ -1092,18 +1100,20 @@ export const useStore = create((set, get) => {
     if (!theirs) return false
     const S = sanitizeAccent(theirs)
     seenWid = readWid()
-    handedOver = false
     meta.set(S, { base: readStoredSync(), owed: storedOwed() })
     registerCustom(S.customEx)
     registerExerciseAliases(S.exAliases)
     set({ S })
-    followSignIn()
+    handedOver = false
+    // Already signed in as the new owner, this tab has nothing left to follow.
+    if (seenOwner && get().user?.id !== seenOwner && !followSignIn()) handedOver = true
     return true
   }
   // A tab signed out, or a guest's, whose browser another tab signed in: once that sign-in is
   // settled (its question answered, its copy saved under the account and in step with a revision),
   // this tab is signed in too, as a tab opened now would be. The session cookie is the browser's.
-  // A guest's workout carried into the account shows here again.
+  // A guest's workout carried into the account shows here again. A tab the owner changed under
+  // gets here through takeSaved, which keeps its handover provisional until this succeeds.
   const followSignIn = () => {
     if (get()?.user || handedOver) return false
     const owner = readOwner()
