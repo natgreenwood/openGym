@@ -66,8 +66,11 @@ or resumed sends, including same-account sign-in. It does not exercise real brow
 session cookies or storage-event scheduling. No credentials or running server are
 needed.
 
-- `accounts()` / `hold()` control late responses, including a boot 401 after
-  another tab changes accounts and a 401 with the owner unchanged.
+- `accounts()` supplies the fake server; the file-level `hold(method, path)`
+  controls late responses, including boot 401s. The server has no `hold` method.
+  Await `held.asked` before changing the session: the helper captures the response
+  or error on arrival, then `held.release()` delivers that same result. A late
+  401 must preserve a new owner's sign-in; an unchanged owner must still sign out.
 - `act()` identifies the writing tab; a tab's `busy` counter delays its storage
   callbacks until `pump()` can deliver them.
 
