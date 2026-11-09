@@ -671,6 +671,87 @@ describe('when the owner changes under a job', () => {
     })
   })
 
+  // Found in Testing (NATG-537): the waits on the media store count too, not only the network's.
+  describe('a refusal written while the owner changed (AC2)', () => {
+    const rejecting = store => ({ ...media, markRejected: async h => { const r = await media.markRejected(h); store.switchTo({ id: 'u2' }); return r } })
+
+    it('a file over the cap is not said to the next account', async () => {
+      await put(hex('a'), 3 * MB, 'image/jpeg')
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a'), null, { mime: 'image/jpeg', size: 3 * MB }) }] } })
+      const before = getMediaStatus()
+      await make(store, { media: rejecting(store) }).syncMedia()
+      expect(apiUpload).not.toHaveBeenCalled()
+      expect(toast).not.toHaveBeenCalled()
+      expect(getMediaStatus()).toBe(before)
+    })
+
+    it('a type the server refused (415) is not said to the next account', async () => {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      const before = getMediaStatus()
+      apiUpload.mockRejectedValueOnce(Object.assign(new Error('type'), { status: 415, code: 'media-type' }))
+      await make(store, { media: rejecting(store) }).syncMedia()
+      expect(apiUpload).toHaveBeenCalledTimes(1)
+      expect(toast).not.toHaveBeenCalled()
+      expect(getMediaStatus()).toBe(before)
+    })
+  })
+
+  describe('a prefetch pass (AC4)', () => {
+    it('begun for an account that signs out while it looks in the store downloads nothing', async () => {
+      const file = jpeg()
+      const h = await sha256Hex(file)
+      apiBlob.mockResolvedValue(blobOf(file))
+      const S = { routines: [{ id: 'r', ex: [{ id: 'c1' }] }], customEx: [{ id: 'c1', custom: true, media: refOf(h, null, { mime: 'image/jpeg', size: file.length }) }] }
+      const store = appStore({ S })
+      let looking, resume
+      const looked = new Promise(r => { looking = r })
+      const pausing = { ...media, has: hash => { looking(); return new Promise(r => { resume = () => r(media.has(hash)) }) } }
+      const stop = make(store, { media: pausing }).startCustomMediaPrefetch({ delay: 0 })
+      try {
+        await looked
+        store.switchTo(null)                            // signed out, and nobody signed in
+        resume()
+        await new Promise(r => setTimeout(r, 20))
+        expect(apiBlob).not.toHaveBeenCalled()
+        expect(await media.list()).toEqual([])
+      } finally { stop() }
+    })
+
+    it('a download that is part of a job judges by that job\'s token, not a new one', async () => {
+      const file = jpeg()
+      const h = await sha256Hex(file)
+      apiBlob.mockResolvedValue(blobOf(file))
+      const store = appStore({})
+      const sync = make(store)
+      const token = store.getState().ownerToken()
+      store.switchTo(null)                              // a guest's token would hold now
+      await expect(sync.fetchToStore(h, { mime: 'image/jpeg' }, { token })).rejects.toMatchObject({ code: 'unavailable' })
+      expect(apiBlob).not.toHaveBeenCalled()
+      expect(await media.list()).toEqual([])
+    })
+  })
+
+  it('an account change clears the status Settings shows until the next account\'s run', async () => {
+    vi.useFakeTimers()
+    const idle = globalThis.requestIdleCallback
+    globalThis.requestIdleCallback = cb => setTimeout(cb, 1)
+    try {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      api.mockResolvedValueOnce({ missing: [hex('a')], usage: { bytes: 5 * MB, count: 1, quotaBytes: 200 * MB } })
+      const stop = make(store).start(store)
+      await vi.advanceTimersByTimeAsync(3000)
+      expect(getMediaStatus().usage).toMatchObject({ count: 1 })
+      store.switchTo({ id: 'u2' })
+      expect(getMediaStatus()).toMatchObject({ usage: null, deferred: 0, rejected: 0, unavailable: 0 })
+      stop()
+    } finally {
+      globalThis.requestIdleCallback = idle
+      vi.useRealTimers()
+    }
+  })
+
   describe('the local clean-up (AC8)', () => {
     it('deletes nothing once the owner changed after it worked out what is live', async () => {
       for (const c of 'abcdef') await put(hex(c))

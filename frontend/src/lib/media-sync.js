@@ -110,8 +110,9 @@ export function createMediaSync(deps = {}) {
     missBackoff.clear()
   }
   const withLock = (name, fn) => (d.locks && typeof d.locks.request === 'function' ? d.locks.request(name, fn) : fn())
-  // The owner a job starts for, and a check that is true once that owner has gone.
-  const ownerOfJob = () => { const tok = d.ownerToken(); return () => !d.ownerHolds(tok) }
+  // The owner a job starts for (or the token of the job it is part of), and a check that is true
+  // once that owner has gone.
+  const ownerOfJob = (tok = d.ownerToken()) => () => !d.ownerHolds(tok)
   const unavailableError = () => Object.assign(new Error('unavailable'), { code: 'unavailable' })
 
   const publishPending = async extra => {
@@ -171,10 +172,13 @@ export function createMediaSync(deps = {}) {
       const kind = MEDIA_MIMES[mime]?.kind
       return Math.round((kind === 'video' ? lim.videoMB : kind === 'gif' ? lim.gifMB : lim.imageMB) * MB)
     }
+    // Resolves false when the owner went while the refusal was being written: then nothing more.
     const refuse = async h => {
       await d.media.markRejected(h)
+      if (gone()) return false   // the toast would be said to the next owner
       rejected++
       if (!rejectTold.has(h)) { rejectTold.add(h); d.toast(t('The server refused the file as too large.')) }
+      return true
     }
     for (const h of missing) {
       if (gone()) return
@@ -186,7 +190,7 @@ export function createMediaSync(deps = {}) {
       // came down since): refused here, as the server would. Sent, a body more than twice the cap
       // can end in a reset rather than the 413, which reads as no network — backed off and
       // tried again for ever, and a forced run would stop at it every time.
-      if (rec.size > capOf(rec.mime)) { await refuse(h); continue }
+      if (rec.size > capOf(rec.mime)) { if (!await refuse(h)) return; continue }
       if (!force && rec.size > BG_UPLOAD_METERED_MAX_MB * MB && !d.allowed()) { deferred++; continue }   // big files wait for Wi-Fi
       if (!force && active(upBackoff, h)) { skipped++; continue }
       if (gone()) return
@@ -215,6 +219,7 @@ export function createMediaSync(deps = {}) {
         }
         if (REJECTED.has(code) || e?.status === 413 || e?.status === 415) {
           await d.media.markRejected(h)
+          if (gone()) return   // the toast would be said to the next owner
           rejected++
           if (!rejectTold.has(h)) {
             rejectTold.add(h)
@@ -272,12 +277,15 @@ export function createMediaSync(deps = {}) {
    * asking every render), 'offline', 'integrity' or 'unavailable' (no server to ask). `force`
    * asks past that backoff — a tap on a tile that failed. A download whose owner has gone (see
    * the header) rejects 'unavailable' and keeps nothing: the next owner's tap or prefetch asks
-   * again for itself.
+   * again for itself. It takes its own token when it starts, unless it is part of a job that
+   * already holds one (`token`, a prefetch pass), which it then judges by instead: a pass begun
+   * for an account that has since signed out must not download under the guest's token. With no
+   * store started there is no token, so every call rejects 'unavailable'.
    */
-  function fetchToStore(hash, expect = {}, { force = false } = {}) {
+  function fetchToStore(hash, expect = {}, { force = false, token } = {}) {
     if (fetching.has(hash)) return fetching.get(hash)
     const job = (async () => {
-      const gone = ownerOfJob()
+      const gone = ownerOfJob(token)
       if (!force && active(missBackoff, hash)) throw Object.assign(new Error('missing'), { code: 'missing' })
       if (gone()) throw unavailableError()
       let blob
@@ -407,13 +415,16 @@ export function createMediaSync(deps = {}) {
       timer = null
       const st = store.getState()
       if (busy || !st.user || !st.config?.media || !d.allowed()) return
-      const gone = ownerOfJob()
+      const token = d.ownerToken()
+      const gone = ownerOfJob(token)
       busy = true
       try {
         for (const f of want()) {
           if (gone() || !d.allowed()) break
-          if (await d.media.has(f.hash) || !mayFetch(f.hash)) continue
-          try { await fetchToStore(f.hash, f) } catch (e) { if (e?.code === 'offline' || e?.code === 'unavailable') break }
+          const have = await d.media.has(f.hash)
+          if (gone()) break
+          if (have || !mayFetch(f.hash)) continue
+          try { await fetchToStore(f.hash, f, { token }) } catch (e) { if (e?.code === 'offline' || e?.code === 'unavailable') break }
         }
       } finally { busy = false }
     }
@@ -457,7 +468,9 @@ export function createMediaSync(deps = {}) {
       // Another account, or none: what the runs learned was the previous one's. The dedupe
       // compares the references only, so the next account's first run over the same files would
       // be skipped as a repeat of the last one's; its quota and refusals are its own to be told.
-      if (s.user?.id !== prev.user?.id) forget()
+      // Nor is the status Settings shows (the server's usage, what waits): it is cleared until
+      // the next account's own first run publishes its own.
+      if (s.user?.id !== prev.user?.id) { forget(); publishPending({ usage: null, deferred: 0, rejected: 0, unavailable: 0 }) }
       const refs = s.S === prev.S ? prevRefs : refsKey(s.S)
       const moved = refs !== prevRefs
       if (moved || s.sync?.lastSynced !== prev.sync?.lastSynced || s.user?.id !== prev.user?.id) schedule(2000)
