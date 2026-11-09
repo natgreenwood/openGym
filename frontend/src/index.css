@@ -47,6 +47,9 @@
   --on-acc:#000000;
   --acc-soft: color-mix(in srgb, var(--acc) 16%, transparent);
   --acc-line: color-mix(in srgb, var(--acc) 38%, transparent);
+  /* focus indicators: the accent where it clears 3:1 (dark), its darker --acc-2 where the
+     lighter presets do not (light; WCAG 1.4.11) */
+  --focus-ring: var(--acc);
 
   /* geometry */
   --r-sm:8px; --r:12px; --r-lg:16px; --r-xl:22px; --r-card:14px;
@@ -89,6 +92,7 @@
   --purple:#af52de; --mint:#00c7be; --brown:#a2845e; --grey:#8e8e93;
   --acc-2:#248a3d;
   --on-acc:#ffffff;
+  --focus-ring: var(--acc-2);
 }
 
 /* accents — Apple's system colours, so a recolour never looks off-system */
@@ -157,7 +161,7 @@ input,select,textarea{font:inherit;color:var(--label);letter-spacing:inherit}
 img{max-width:100%}
 a{color:var(--acc);text-decoration:none}
 :focus{outline:none}
-:focus-visible{outline:2.5px solid var(--acc);outline-offset:2px;border-radius:6px}
+:focus-visible{outline:2.5px solid var(--focus-ring);outline-offset:2px;border-radius:6px}
 button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp button,.sld
 {-webkit-user-select:none;user-select:none}
 
@@ -409,7 +413,7 @@ h4.sec{
 .share-person+.share-person::before{content:'';position:absolute;inset-inline-start:58px;inset-inline-end:0;top:0;height:var(--hair);background:var(--sep)}
 .share-person:active:not([aria-disabled]){background:var(--surface-2)}
 .share-person[aria-disabled]{cursor:default}
-.share-person:focus-visible{outline:2.5px solid var(--acc);outline-offset:-2.5px;border-radius:var(--r-card)}
+.share-person:focus-visible{outline:2.5px solid var(--focus-ring);outline-offset:-2.5px;border-radius:var(--r-card)}
 .share-nm{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
 .share-nm b{font-size:17px;font-weight:400;letter-spacing:-.012em;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .share-nm span{font-size:13px;color:var(--label-2);line-height:1.38}
@@ -457,7 +461,7 @@ h4.sec{
 .shared-notice.warn>.icn{color:var(--orange)}
 .shared-notice b{display:block;font-size:16px;font-weight:600;line-height:1.25;letter-spacing:-.012em}
 .shared-notice span{display:block;font-size:13px;color:var(--label);line-height:1.38;margin-top:2px}
-.shared-list .item:focus-visible{outline:2.5px solid var(--acc);outline-offset:2px}
+.shared-list .item:focus-visible{outline:2.5px solid var(--focus-ring);outline-offset:2px}
 .shared-ro-title{flex:1;min-width:0;margin:0 12px;font-size:20px;font-weight:600;letter-spacing:-.021em;line-height:1.25;overflow-wrap:anywhere}
 .shared-glyph{width:36px;height:36px;border-radius:9px;background:var(--acc);color:var(--on-acc);display:grid;place-items:center;
   font-size:20px;flex:none}
@@ -776,7 +780,7 @@ body.chips-dragging *{cursor:inherit}
   transition:box-shadow var(--fast);
 }
 .field::placeholder,.input::placeholder{color:var(--label-2)}
-.field:focus,.input:focus{box-shadow:inset 0 0 0 2px var(--acc)}
+.field:focus,.input:focus{box-shadow:inset 0 0 0 2px var(--focus-ring)}
 .field.area,textarea.input{min-height:92px;resize:vertical;line-height:1.42}
 .measure-date{display:block;margin-bottom:14px}
 .measure-date>span,.measure-field>span:first-child{display:block;color:var(--label-2);font-size:13px;margin:0 2px 6px}
@@ -2309,7 +2313,7 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
   background:var(--label-4);background:color-mix(in srgb,var(--label) 10%,transparent);pointer-events:none}
 .dw-col{position:relative;flex:1;min-width:0;outline:none;border-radius:10px}
 .dw-col:focus-visible::after{content:'';position:absolute;inset-inline:8px;top:calc(var(--dw-item) * 2);height:var(--dw-item);
-  border-radius:10px;box-shadow:0 0 0 2px var(--acc);pointer-events:none}
+  border-radius:10px;box-shadow:0 0 0 2px var(--label);pointer-events:none}
 .dw-scroll{height:100%;overflow-y:scroll;overflow-x:hidden;scroll-snap-type:y mandatory;overscroll-behavior:contain;
   -webkit-overflow-scrolling:touch;scrollbar-width:none;perspective:420px;
   -webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 34%,#000 66%,transparent 100%);
