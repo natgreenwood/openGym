@@ -184,7 +184,7 @@ describe('leaving the server', () => {
     expect(confirm().message).not.toMatch(/synced to your server first/)
     expect(confirm().message).toContain('checks that your server has every change')
     await act(async () => { await confirm().onConfirm() })
-    expect(mocks.disconnectServer).toHaveBeenCalledWith(undefined)
+    expect(mocks.disconnectServer).toHaveBeenCalledWith({ owner: null })   // no owner key in this test's storage
     expect(mocks.sheets).toHaveLength(0)
     expect(mocks.navs).toEqual(['/home'])
     expect(mocks.toast).toHaveBeenCalledWith('Disconnected. Back to local-only')
@@ -207,7 +207,7 @@ describe('leaving the server', () => {
 
     mocks.disconnectServer.mockResolvedValueOnce({ owed: true, count: 2, stashed: true })
     await act(async () => { buttonByText(sheet, 'Disconnect anyway').click() })
-    expect(mocks.disconnectServer).toHaveBeenLastCalledWith({ force: true })
+    expect(mocks.disconnectServer).toHaveBeenLastCalledWith({ force: true, owner: null })
     expect(mocks.navs).toEqual(['/home'])
     expect(mocks.toast).toHaveBeenLastCalledWith('The changes your server has not seen are kept on this device, and added back when it connects as this account again.')
   })
@@ -293,7 +293,7 @@ describe('leaving the server', () => {
     expect(sheet.textContent).toContain('Not on your server yet: 4 changes')
     mocks.signOut.mockResolvedValueOnce({ owed: true, count: 4, stashed: true })
     await act(async () => { buttonByText(sheet, 'Sign out anyway').click() })
-    expect(mocks.signOut).toHaveBeenLastCalledWith({ force: true })
+    expect(mocks.signOut).toHaveBeenLastCalledWith({ force: true, owner: null })
     expect(mocks.navs).toEqual(['/home'])
 
     act(() => rowByTitle(page, 'Sign out everywhere').click())
@@ -348,6 +348,26 @@ describe('a sign-out another tab overtook', () => {
     expect(closed).toBe(1)
     expect(mocks.navs).toEqual([])
     expect(mocks.toast).toHaveBeenLastCalledWith('You weren’t signed out. This browser is now signed in as Yan.', { ms: 5000 })
+  })
+
+  // SEC-581-01: "Try again" waited on its sync while the other tab signed Yan in. It is held to
+  // the account that clicked, and its cancelled result reaches the toast though the sheet is gone.
+  it('"Try again" is held to the account that clicked, and its cancellation stays on Settings', async () => {
+    localStorage.setItem('gym_owner', 'u1')
+    mocks.signOut.mockResolvedValueOnce({ owed: true, count: 1 })
+    const page = mount(<Settings page="account" />)
+    act(() => rowByTitle(page, 'Sign out').click())
+    await act(async () => { await confirm().onConfirm() })
+    expect(mocks.signOut).toHaveBeenLastCalledWith({ owner: 'u1' })
+    const sheet = openSheet()
+    localStorage.setItem('gym_owner', 'y1')   // the other tab's sign-in, while the retry waits
+    localStorage.setItem('gym_owner_name', 'Yan')
+    mocks.signOut.mockResolvedValueOnce({ cancelled: true })
+    await act(async () => { buttonByText(sheet, 'Try again').click() })
+    expect(mocks.signOut).toHaveBeenLastCalledWith({ owner: 'u1' })
+    expect(mocks.navs).toEqual([])
+    expect(mocks.toast).toHaveBeenCalledTimes(1)
+    expect(mocks.toast).toHaveBeenCalledWith('You weren’t signed out. This browser is now signed in as Yan.', { ms: 5000 })
   })
 
   it('Disconnect on the phone: stays connected and says so, not "Disconnected"', async () => {

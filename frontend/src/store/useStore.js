@@ -2265,9 +2265,10 @@ export const useStore = create((set, get) => {
        Otherwise { owed: false } or { owed: true, count, stashed: true }, signed out. A workout
        running here is kept aside either way (stashActive), and the rest and hold timers stop.
        Another tab signing a different account in before the logout is sent cancels it: nothing
-       is sent or wiped, and the result is { cancelled: true } (overtaken). */
-    async signOut({ force = false } = {}) {
-      const owner = readOwner()
+       is sent or wiped, and the result is { cancelled: true } (overtaken). `owner`: the account
+       the sign-out was asked for under, when that was before this call (a "Try again" or "Sign
+       out anyway" from the owed sheet, leaveServer); by default the browser's owner now. */
+    async signOut({ force = false, owner = readOwner() } = {}) {
       await settle()
       if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()
@@ -2328,9 +2329,9 @@ export const useStore = create((set, get) => {
     // where a normal signOut leaves it, under the same rule about changes still owed. Unlike
     // signOut the request is NOT swallowed: if it fails the sessions elsewhere are all still
     // valid, and wiping this device's copy of the data would sign the user out of the one place
-    // the bump didn't reach. Caller reports the error. Cancelled like signOut ({ cancelled: true }).
-    async signOutAll({ force = false } = {}) {
-      const owner = readOwner()
+    // the bump didn't reach. Caller reports the error. Cancelled like signOut ({ cancelled: true }),
+    // against the same `owner`.
+    async signOutAll({ force = false, owner = readOwner() } = {}) {
       await settle()
       if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()

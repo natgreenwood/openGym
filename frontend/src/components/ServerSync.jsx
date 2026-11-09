@@ -148,12 +148,15 @@ export async function passkeySignIn() {
    asks what to do: try again, export a backup, or go ahead anyway — which keeps the changes on
    the device until it reaches this server as this account again. `done(result)` runs once the
    device has actually left, or with { cancelled: true } when another tab signed a different
-   account in first and nothing happened (useStore overtaken). */
+   account in first and nothing happened (useStore overtaken). The account is the one signed in
+   at the click, held for the whole of it: a "Try again" that waited on a sync while another tab
+   signed someone else in must not go on as that account's own sign-out (NATG-581 SEC-581-01). */
 const LEAVE = {
   disconnect: { run: (st, o) => st.disconnectServer(o), anyway: () => t('Disconnect anyway'), failed: () => t('Couldn’t disconnect. You’re still connected.') },
   signout: { run: (st, o) => st.signOut(o), anyway: () => t('Sign out anyway'), failed: () => t('Couldn’t sign out. You’re still signed in.') },
   everywhere: { run: (st, o) => st.signOutAll(o), anyway: () => t('Sign out anyway'), failed: () => t('Couldn’t sign out everywhere. You’re still signed in.') },
 }
+const ownerNow = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
 async function attempt(kind, opts) {
   try { return await LEAVE[kind].run(useStore.getState(), opts) }
   catch (e) {   // only a local failure lands here (signOut swallows a failed logout request); each says which action it was
@@ -162,10 +165,11 @@ async function attempt(kind, opts) {
   }
 }
 export async function leaveServer(kind, { exportBackup, exportBackupZip, done }) {
-  const r = await attempt(kind)
+  const owner = ownerNow()
+  const r = await attempt(kind, { owner })
   if (!r) return
   if (r.owed && !r.stashed) {
-    ui().openSheet(close => <OwedSheet kind={kind} count={r.count} media={r.media || 0} exportBackup={exportBackup} exportBackupZip={exportBackupZip} done={done} close={close} />, { kind: 'center', locked: true })
+    ui().openSheet(close => <OwedSheet kind={kind} owner={owner} count={r.count} media={r.media || 0} exportBackup={exportBackup} exportBackupZip={exportBackupZip} done={done} close={close} />, { kind: 'center', locked: true })
     return
   }
   done(r)
@@ -174,7 +178,8 @@ export async function leaveServer(kind, { exportBackup, exportBackupZip, done })
 // `media`: photos or videos of custom exercises the server has not confirmed (useStore
 // unsyncedChanges). They are owed like any change, so the sheet names them; while there are any,
 // its export writes the backup with them (the plain JSON would leave exactly those out).
-export function OwedSheet({ kind, count: count0, media: media0 = 0, exportBackup, exportBackupZip, done, close }) {
+// `owner`: the account the sign-out began under (leaveServer); each attempt from here is held to it.
+export function OwedSheet({ kind, owner, count: count0, media: media0 = 0, exportBackup, exportBackupZip, done, close }) {
   const sync = useStore(s => s.sync)
   const [count, setCount] = useState(count0)
   const [media, setMedia] = useState(media0)
@@ -192,7 +197,7 @@ export function OwedSheet({ kind, count: count0, media: media0 = 0, exportBackup
     // have been fixed since, and a file refused for good would otherwise hold this sheet open on
     // every try.
     await syncMedia({ force: true, retryRejected: true })
-    const r = await attempt(kind)
+    const r = await attempt(kind, { owner })
     setBusy(false)
     if (!r) return
     if (!r.owed || r.stashed) return finish(r)
@@ -200,7 +205,7 @@ export function OwedSheet({ kind, count: count0, media: media0 = 0, exportBackup
   }
   const anyway = async () => {
     setBusy(true)
-    const r = await attempt(kind, { force: true })
+    const r = await attempt(kind, { force: true, owner })
     setBusy(false)
     if (!r) return
     if (r.owed && !r.stashed) { toast(t('Couldn’t keep a copy of the changes on this device. Nothing was removed.')); return }
