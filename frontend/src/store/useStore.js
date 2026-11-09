@@ -2171,6 +2171,12 @@ export const useStore = create((set, get) => {
           if (!answerIsFor(uid)) return
           const res = await api('/api/data')
           if (!answerIsFor(uid)) return
+          // A copy whose base is another account's is settled no way at all: every branch below
+          // would drop or restamp that base on its way to a push or an adopt, and the push check
+          // would then find this account's base on the other account's copy. Only a sign-out or a
+          // switch (forgetSync) clears it; until then nothing is written and the error stays.
+          const held = metaOf().base
+          if (held && held.uid !== uid) { refuse('pull', held.uid, uid); return }
           lastCheck = Date.now()
           reached()
           const { state, rev } = res
