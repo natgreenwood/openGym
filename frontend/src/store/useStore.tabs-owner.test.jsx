@@ -844,7 +844,7 @@ describe('a request sent after its account has left the browser', () => {
     const B = await openTab({ id: aId, name: 'Xavi' })
     A.setState({ ready: false })
 
-    const held = srv.hold('GET', '/api/me')
+    const held = hold('GET', '/api/me')
     const booting = A.getState().boot()
     await held.asked
     const tabA = tabs.find(x => x.store === A)
