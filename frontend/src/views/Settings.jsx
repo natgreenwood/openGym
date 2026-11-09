@@ -102,6 +102,11 @@ const standalone = () => {
 // rather than from lib/api.js, whose test mocks across the Settings suites only carry IS_ANDROID.
 const APPLE_UA = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)
 
+// The backup import this tab started last, and its confirm once open (doImport). Kept for the
+// tab, not one mount: the page is keyed by its path (App.jsx), so leaving Settings and coming
+// back mounts a new one while the first import is still reading or checking.
+const lastImport = { n: 0, sheet: null }
+
 export default function Settings({ page = null, find = null, via = null, entryKey = null }) {
   const nav = useNavigate()
   const S = useStore(s => s.S)
@@ -337,26 +342,39 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // signing out, switching account or signing in from guest at any point ends it, and nothing
     // is imported (NATG-535).
     const token = importToken()
+    // A second file chosen while this import is still reading, checking or waiting on its confirm
+    // takes over: this one does nothing more, and its confirm, if open, closes without a word. Its
+    // check read the server before the second import, and answering it after would merge or
+    // replace with that older read (NATG-562). Checked beside the account's token, not instead.
+    const run = ++lastImport.n
+    lastImport.sheet?.close()
+    lastImport.sheet = null
+    const superseded = () => lastImport.n !== run
     let read
     try {
       const { readBackupFile } = await import('../lib/backup-media.js')
       read = await readBackupFile(f)
     } catch (e) {
+      if (superseded()) return
       const { backupImportError } = await import('../lib/backup-media.js')
       toast(backupImportError(e)); return
     }
+    if (superseded()) return
     if (!importIsCurrent(token)) return
     // Nothing of the backup is kept, its photos included, once the import's account has gone;
-    // importBackup checks again after the photos are written, and when it refuses, the photos
-    // this import wrote are taken back out (NATG-557).
+    // importBackup checks again after the photos are written, and when it refuses, or a newer
+    // import has taken over meanwhile, the photos this import wrote are taken back out (NATG-557).
     const apply = async mergeWith => {
+      if (superseded()) return
       if (!importIsCurrent(token)) return
       let kept = null
       if (read.files.length) {
         const { storeBackupMedia } = await import('../lib/backup-media.js')
         kept = await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
       }
-      if (!importBackup(read.state, { mergeWith, token })) {
+      // Superseded while its photos were written: the newer import may have gone through already,
+      // and a replace after it would wipe it. Refused like an account change, photos taken back.
+      if (superseded() || !importBackup(read.state, { mergeWith, token })) {
         // Best effort: whatever it cannot take back goes at the next local clean-up.
         if (kept) {
           try {
@@ -375,11 +393,13 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // another device meanwhile, would be deleted from the profile by the replace — said, with the
     // choice to merge those in instead (useStore importConflict / importBackup).
     const conflict = await importConflict(read.state, token)
+    if (superseded()) return
     // No confirm for an import whose account went during the check, and the open one closes when
     // it goes, whichever choice it offered. The sign-in from guest is the switch the sheets' own
     // close on an account change leaves open (useUI).
     if (conflict?.stale || !importIsCurrent(token)) return
     const whileCurrent = sheet => {
+      lastImport.sheet = sheet
       const off = useStore.subscribe(() => {
         if (!importIsCurrent(token)) { off(); sheet.close() }
         else if (!useUI.getState().sheets.some(x => x.id === sheet.id)) off()
