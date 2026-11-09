@@ -141,6 +141,28 @@ Add, malformed JSON, unchanged scheduling with the switch off, replacement
 assignments with it on, and persistence after reload. Unknown slot fields must
 not survive import.
 
+## Import notice contrast
+
+From `frontend/`, run the notice, contrast and adjacent plan/sharing checks:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/sheets.import-notices.test.jsx src/views/SharedRoutineView.test.jsx src/views/Plan.shared-tab.test.jsx src/lib/plan-share.test.js --maxWorkers=2
+```
+
+The contrast test resolves CSS tokens; also measure computed text colours against
+the notice's rendered background in a browser. Check light, dark and light with
+`prefers-contrast: more`, including 320px width. Both title and body must reach
+4.5:1. Notice body text uses `--label`.
+
+Upload synthetic plan JSON through Plan's file input with zero, one and two unknown
+exercise IDs alongside a valid exercise. Only the latter two show a titled warning;
+Add retains existing routines and excludes unknown exercises. For workout CSV,
+check converted, mixed and matching units: conversion notices have an info icon
+and body only. Check Hevy with intercepted HTTP and synthetic responses, in kg
+and lb; no live account or real API key is needed. Include the Shared tab's offline
+notice and an unavailable shared routine when changing the shared CSS. Wait for
+the boot overlay and sheet animations to finish before taking screenshots.
+
 ## Count limits and sharing notices
 
 From `frontend/`, run the count caps and adjacent import/share/watch boundaries:
