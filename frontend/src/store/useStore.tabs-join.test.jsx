@@ -69,7 +69,7 @@ function server(doc) {
 const savedCopy = (doc, rev) => {
   const S = clone(doc); delete S._rev
   localStorage.setItem('gym_state_v1', JSON.stringify(S))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: OWNER }))
 }
 
 beforeEach(async () => {
