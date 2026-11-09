@@ -43,9 +43,34 @@ describe('freshStore', () => {
 
   it('puts addEventListener back as it found it', async () => {
     const add = window.addEventListener
-    const own = Object.hasOwn(window, 'addEventListener')
+    const before = Object.getOwnPropertyDescriptor(window, 'addEventListener')
     await freshStore()
     expect(window.addEventListener).toBe(add)
-    expect(Object.hasOwn(window, 'addEventListener')).toBe(own)
+    expect(Object.getOwnPropertyDescriptor(window, 'addEventListener')).toEqual(before)
+  })
+
+  // A test that has spied on window.addEventListener (NATG-615, found in testing): happy-dom's
+  // window has it as a getter and setter, a spy made the helper's assignment miss, and the store's
+  // listeners outlived the test. The spy still sees the store's calls, wherever it was made.
+  const spiedBefore = async () => { const spy = vi.spyOn(window, 'addEventListener'); return [spy, await freshStore()] }
+  const spiedWhileLoading = async () => { const loading = freshStore(); const spy = vi.spyOn(window, 'addEventListener'); return [spy, await loading] }
+  it.each([
+    ['before freshStore(), restored before the clean-up', spiedBefore, true],
+    ['before freshStore(), still on at the clean-up', spiedBefore, false],
+    ['while the store loads, restored before the clean-up', spiedWhileLoading, true],
+  ])('takes the listeners off with addEventListener spied on %s', async (_, load, restoreFirst) => {
+    localStorage.setItem('gym_owner', 'u1')
+    const [spy, { useStore }] = await load()
+    expect(spy.mock.calls.map(([type]) => type)).toContain('storage')
+    if (restoreFirst) spy.mockRestore()
+    releaseStores()
+    spy.mockRestore()
+
+    const heard = vi.fn()
+    const unsubscribe = useStore.subscribe(heard)
+    ownerMoves('u2')
+    unsubscribe()
+    expect(heard).not.toHaveBeenCalled()
+    localStorage.clear()
   })
 })

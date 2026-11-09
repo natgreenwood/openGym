@@ -19,6 +19,12 @@
    A test file imports freshStore and writes no sign-out or listener clean-up of its own. Its own
    afterEach hooks run before this one (vitest runs afterEach hooks last-registered first), so a
    file that sends pagehide to flush what its stores owe still reaches them.
+   This relies on vitest's per-file isolation (the default, which vite.config.js keeps): each test
+   file loads this module, and so registers the afterEach, afresh. Turning isolation off would leave
+   every file after the first without clean-up.
+   The listeners are recorded however the test has instrumented addEventListener: a vi.spyOn on it
+   made before freshStore(), or while the store loads, still sees every call, and every listener
+   is still taken off.
 
    Use it for a store per test, from a test or a beforeEach. A store loaded in beforeAll for a whole
    file would be signed out after its first test.
@@ -32,14 +38,27 @@ import { afterEach, vi } from 'vitest'
 let loaded = []
 
 // Records what is added to `target` until the returned function puts addEventListener back.
+// Defined, not assigned: in the happy-dom environment window.addEventListener is a getter and
+// setter, and once a test has spied on it an assignment no longer changes what the getter returns,
+// so the store's listeners went past the recording and outlived the test. What was there before
+// (a spy included) is what the wrapper calls, and its descriptor is what goes back.
 function recordListeners(target, into) {
-  const own = Object.hasOwn(target, 'addEventListener')
+  const before = Object.getOwnPropertyDescriptor(target, 'addEventListener')
   const add = target.addEventListener
-  target.addEventListener = function (type, listener, options) {
-    into.push({ target, type, listener, options })
+  let recording = true
+  function addEventListener(type, listener, options) {
+    if (recording) into.push({ target, type, listener, options })
     return add.call(this, type, listener, options)
   }
-  return () => { if (own) target.addEventListener = add; else delete target.addEventListener }
+  Object.defineProperty(target, 'addEventListener', { value: addEventListener, writable: true, configurable: true, enumerable: before?.enumerable ?? false })
+  return () => {
+    recording = false
+    // A spy made while the store loaded wraps this one and is the test's to restore; restored, it
+    // puts back this wrapper, which from now on only passes calls on.
+    if (Object.getOwnPropertyDescriptor(target, 'addEventListener')?.value !== addEventListener) return
+    if (before) Object.defineProperty(target, 'addEventListener', before)
+    else delete target.addEventListener
+  }
 }
 
 export async function freshStore() {
