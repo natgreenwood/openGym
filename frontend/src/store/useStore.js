@@ -1085,14 +1085,18 @@ export const useStore = create((set, get) => {
     syncFromSaved()
   })
 
-  // Before a sign-out decides anything: the pull on its way has landed, and every push asked
-  // for — including one queued behind the push in flight — has run. Then the photos and videos
-  // still waiting get one more try (lib/media-owed.js, at most a minute): they are owed exactly
-  // like a change is. A copy that owes nothing is not pushed: the server would take it as a new
-  // revision, and every other device of the account would pull it once for nothing (NATG-573).
+  // Before a sign-out decides anything: the pull on its way has landed, and the push in flight,
+  // with any queued behind it, has landed too. Only then is the copy asked whether it still owes
+  // the server something, so a push that is already carrying it is not sent a second time
+  // (NATG-643). A change made after that push left, or a push that failed, is still owed and is
+  // pushed once more. Then the photos and videos still waiting get one more try
+  // (lib/media-owed.js, at most a minute): they are owed exactly like a change is. A copy that
+  // owes nothing is not pushed: the server would take it as a new revision, and every other
+  // device of the account would pull it once for nothing (NATG-573).
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
     if (pulling) await pulling.promise
+    while (pushing) await pushing
     if (owes()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
     await settleMedia(get().S)

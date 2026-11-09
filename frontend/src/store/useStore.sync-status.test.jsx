@@ -359,21 +359,57 @@ describe('a sign-out sends the copy only when it owes the server something', () 
     expect(ids(puts()[0].state.workouts)).toEqual(['w1', 'w2'])
   })
 
-  it('a push in flight is waited for, and the logout goes after it has landed', async () => {
-    await inStep()
+  // NATG-643: the push already in flight carries the copy. The sign-out waits for it to land and
+  // only then asks what is still owed, so the same copy is not sent a second time.
+  const signOuts = [['signOut', '/api/logout'], ['signOutAll', '/api/logout/all']]
+  // A change pushed and still in flight when the sign-out starts. `land` answers it.
+  const inFlight = () => {
     useStore.getState().update(s => { s.restSec = 45 })
-    let land
-    api.mockImplementationOnce(() => new Promise(r => { land = () => r({ ok: true, rev: 2 }) }))
+    const flight = {}
+    api.mockImplementationOnce(() => new Promise((resolve, reject) => {
+      flight.land = () => resolve({ ok: true, rev: 2 })
+      flight.fail = () => reject(netError())
+    }))
     api.mockResolvedValue({ ok: true, rev: 3 })
-    const pushing = useStore.getState().pushState()
-    const signingOut = useStore.getState().signOut()
+    flight.pushing = useStore.getState().pushState()
+    return flight
+  }
+
+  it.each(signOuts)('%s: a push in flight is waited for, sent once, and the logout goes after it has landed', async (signOut, logout) => {
+    await inStep()
+    const flight = inFlight()
+    const signingOut = useStore.getState()[signOut]()
     await new Promise(r => setTimeout(r, 10))
     expect(paths()).toEqual(['PUT /api/data'])   // nothing else until it lands
-    land()
-    await pushing
+    flight.land()
+    await flight.pushing
     expect(await signingOut).toEqual({ owed: false })
-    expect(paths().at(-1)).toBe('POST /api/logout')
-    expect(puts().every(p => p.state.restSec === 45)).toBe(true)
+    expect(paths()).toEqual(['PUT /api/data', 'POST ' + logout])
+    expect(puts()[0].state.restSec).toBe(45)
+  })
+
+  it.each(signOuts)('%s: a change made while the push is in flight is pushed once more before the logout', async (signOut, logout) => {
+    await inStep()
+    const flight = inFlight()
+    const signingOut = useStore.getState()[signOut]()
+    await new Promise(r => setTimeout(r, 10))
+    useStore.getState().update(s => { s.restSec = 60 })   // after the push left
+    flight.land()
+    expect(await signingOut).toEqual({ owed: false })
+    expect(paths()).toEqual(['PUT /api/data', 'PUT /api/data', 'POST ' + logout])
+    expect(puts().map(p => p.state.restSec)).toEqual([45, 60])
+  })
+
+  it.each(signOuts)('%s: a push in flight that fails is sent again before the logout', async (signOut, logout) => {
+    await inStep()
+    const flight = inFlight()
+    const signingOut = useStore.getState()[signOut]()
+    await new Promise(r => setTimeout(r, 10))
+    flight.fail()
+    expect(await signingOut).toEqual({ owed: false })
+    expect(paths()).toEqual(['PUT /api/data', 'PUT /api/data', 'POST ' + logout])
+    expect(puts().map(p => p.state.restSec)).toEqual([45, 45])
+    expect(localStorage.getItem('gym_dirty')).not.toBe('1')
   })
 })
 
