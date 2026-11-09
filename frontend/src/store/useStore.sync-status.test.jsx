@@ -307,6 +307,76 @@ describe('signing out never loses a change silently', () => {
   })
 })
 
+// NATG-573: a sign-out pushes only what is owed. A copy in step with the server is not sent
+// again: the server would take it as a new revision, and every other device of the account would
+// pull it once for nothing.
+describe('a sign-out sends the copy only when it owes the server something', () => {
+  const inStep = async () => {
+    signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    api.mockResolvedValueOnce({ rev: 1 })   // a check in step: the fingerprint of rev 1 is taken
+    window.dispatchEvent(new Event('online'))
+    await new Promise(r => setTimeout(r, 10))
+    api.mockReset()
+  }
+
+  it('in step with the server: signOut sends no copy, and still logs out and wipes this device', async () => {
+    await inStep()
+    api.mockResolvedValue({ ok: true })
+    expect(await useStore.getState().signOut()).toEqual({ owed: false })
+    expect(paths()).toEqual(['POST /api/logout'])
+    expect(useStore.getState().user).toBeNull()
+    expect(useStore.getState().S.workouts).toEqual([])
+    expect(JSON.parse(localStorage.getItem('gym_state_v1')).workouts).toEqual([])
+  })
+
+  it('in step with the server: signOutAll sends no copy either', async () => {
+    await inStep()
+    api.mockResolvedValue({ ok: true })
+    expect(await useStore.getState().signOutAll()).toEqual({ owed: false })
+    expect(paths()).toEqual(['POST /api/logout/all'])
+    expect(useStore.getState().user).toBeNull()
+    expect(useStore.getState().S.workouts).toEqual([])
+  })
+
+  it('a push that failed earlier is owed: the sign-out sends it first', async () => {
+    await inStep()
+    api.mockRejectedValueOnce(netError())
+    await useStore.getState().pushState()   // fails: the copy is marked owed, its stamp unchanged
+    expect(localStorage.getItem('gym_dirty')).toBe('1')
+    api.mockReset()
+    api.mockResolvedValue({ ok: true, rev: 2 })
+    expect(await useStore.getState().signOut()).toEqual({ owed: false })
+    expect(paths()).toEqual(['PUT /api/data', 'POST /api/logout'])
+  })
+
+  it('a change made since the revision it descends from is owed, with no push waiting for it', async () => {
+    signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('w2', '2026-09-02')] })
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    api.mockResolvedValue({ ok: true, rev: 2 })
+    expect(await useStore.getState().signOutAll()).toEqual({ owed: false })
+    expect(paths()).toEqual(['PUT /api/data', 'POST /api/logout/all'])
+    expect(ids(puts()[0].state.workouts)).toEqual(['w1', 'w2'])
+  })
+
+  it('a push in flight is waited for, and the logout goes after it has landed', async () => {
+    await inStep()
+    useStore.getState().update(s => { s.restSec = 45 })
+    let land
+    api.mockImplementationOnce(() => new Promise(r => { land = () => r({ ok: true, rev: 2 }) }))
+    api.mockResolvedValue({ ok: true, rev: 3 })
+    const pushing = useStore.getState().pushState()
+    const signingOut = useStore.getState().signOut()
+    await new Promise(r => setTimeout(r, 10))
+    expect(paths()).toEqual(['PUT /api/data'])   // nothing else until it lands
+    land()
+    await pushing
+    expect(await signingOut).toEqual({ owed: false })
+    expect(paths().at(-1)).toBe('POST /api/logout')
+    expect(puts().every(p => p.state.restSec === 45)).toBe(true)
+  })
+})
+
 describe('a sign-out the server did not answer', () => {
   // A copy in step with the server: nothing owed, so the sign-out goes ahead at once.
   const inStep = async () => {

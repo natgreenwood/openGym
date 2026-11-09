@@ -1235,9 +1235,10 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       expect(A.getState().S.routines).toEqual([])
     })
 
-    // A signs out itself while its pull is on its way. The sign-out waits for the pull (settle),
-    // then pushes. The other tab moves the owner before the pull's answer lands: that push is for
-    // Xavi, and does not go.
+    // A signs out itself while its pull is on its way, with a change made after the pull left.
+    // The sign-out waits for the pull (settle), then pushes the change it owes. The other tab moves
+    // the owner before the pull's answer lands: that push is for Xavi, and does not go. Without the
+    // change the sign-out owes nothing and has no push to drop (NATG-573).
     it(`A's own sign-out waiting on a pull sends nothing after ${move} in the other tab`, async () => {
       DEF = (await import('./useStore.js')).DEF
       const srv = server({ ...account(), _rev: 1 })
@@ -1249,6 +1250,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       try {
         const pull = A.getState().pullState()
         await held.asked
+        await act(A, () => A.getState().update(s => { s.restSec = 45 }))   // owed: the pull has left without it
         let signingOut
         await thenResume(tabA, async () => {
           // Only signOut()'s synchronous start is A's (settle() can write before it awaits the pull); the rest runs in `resume`, as A.

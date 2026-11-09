@@ -1088,11 +1088,12 @@ export const useStore = create((set, get) => {
   // Before a sign-out decides anything: the pull on its way has landed, and every push asked
   // for — including one queued behind the push in flight — has run. Then the photos and videos
   // still waiting get one more try (lib/media-owed.js, at most a minute): they are owed exactly
-  // like a change is.
+  // like a change is. A copy that owes nothing is not pushed: the server would take it as a new
+  // revision, and every other device of the account would pull it once for nothing (NATG-573).
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
     if (pulling) await pulling.promise
-    await get().pushState()   // never throws — an owed copy stays owed when it does not land
+    if (owes()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
     await settleMedia(get().S)
   }
