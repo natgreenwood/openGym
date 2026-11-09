@@ -48,7 +48,7 @@ describe('adoptProfile — sign-in takes the server profile', () => {
     expect(S.routines.map(x => x.id)).toEqual(['r1'])
     expect(S.active).toMatchObject({ id: 'running' })   // the in-progress session stays with the device
     expect(puts()).toHaveLength(0)
-    expect(sync()).toEqual({ rev: 4, ts: 100 })
+    expect(sync()).toEqual({ rev: 4, ts: 100, uid: 'user-1' })
     expect(r).toEqual({ adopted: true, added: false })
   })
 
@@ -162,7 +162,7 @@ describe('adoptProfile — sign-in takes the server profile', () => {
 describe('offline and unsynced flags', () => {
   it('a push that cannot reach the server marks offline + pending and keeps the change owed', async () => {
     signedIn({ ...clone(DEF), _ts: 500, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(netErr())
     await useStore.getState().pushState()
     expect(useStore.getState().sync).toMatchObject({ offline: true, pending: true })
@@ -181,6 +181,7 @@ describe('offline and unsynced flags', () => {
 
   it('a push the server refused is pending but not offline', async () => {
     signedIn({ ...clone(DEF), _ts: 500, workouts: [workout('w1')] })
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(Object.assign(new Error('HTTP 500'), { status: 500, data: {} }))
     await useStore.getState().pushState()
     expect(useStore.getState().sync).toMatchObject({ offline: false, pending: true })
@@ -191,7 +192,7 @@ describe('offline and unsynced flags', () => {
 describe('revision check on resume', () => {
   it('asks only for the revision and pulls the document when it moved', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ rev: 1 })
     window.dispatchEvent(new Event('online'))   // forced: no throttle
     await new Promise(r => setTimeout(r, 0))
@@ -208,7 +209,7 @@ describe('revision check on resume', () => {
 
   it('a revision check that cannot reach the server only flags offline', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(netErr())
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 0))
