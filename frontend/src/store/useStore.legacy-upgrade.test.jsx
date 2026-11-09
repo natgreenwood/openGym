@@ -52,7 +52,7 @@ function leaveOldCopy(base, mut) {
   localStorage.setItem('gym_owner', OWNER)
   localStorage.setItem('gym_user', JSON.stringify({ id: OWNER, name: 'Ana' }))
   localStorage.setItem('gym_state_v1', JSON.stringify(old))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: base._rev, ts: base._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: base._rev, ts: base._ts, uid: OWNER }))
   localStorage.setItem('gym_synced_fp', JSON.stringify(fp))
   localStorage.setItem('gym_dirty', '1')
 }
