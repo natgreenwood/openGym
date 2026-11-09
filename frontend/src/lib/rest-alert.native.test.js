@@ -9,10 +9,12 @@ import { readFileSync } from 'node:fs'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')   // lib/mobile.js: MOBILE = import.meta.env.VITE_MOBILE === '1'
-  const store = new Map()
-  vi.stubGlobal('localStorage', { getItem: k => (store.has(k) ? store.get(k) : null), setItem: (k, v) => store.set(k, String(v)), clear: () => store.clear() })
   return { platform: 'android', calls: [], registerPlugin: null, perm: 'granted', request: null }
 })
+// The node environment has no localStorage of its own. Stubbed in beforeEach, not once for the
+// file: unstubGlobals (vite.config.js) takes every stub off before each test.
+const stored = new Map()
+const fakeStorage = { getItem: k => (stored.has(k) ? stored.get(k) : null), setItem: (k, v) => stored.set(k, String(v)), clear: () => stored.clear() }
 
 // Shaped like the proxy registerPlugin() returns: every property is a native method, `then`
 // included, and that one never calls back. Off the phone every method rejects, as Capacitor's do
@@ -56,6 +58,7 @@ beforeEach(() => {
   h.registerPlugin = vi.fn(() => pluginProxy())
   h.perm = 'granted'
   h.request = null
+  vi.stubGlobal('localStorage', fakeStorage)
   localStorage.clear()
   unhandled.length = 0
   process.on('unhandledRejection', onUnhandled)

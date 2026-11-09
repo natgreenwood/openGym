@@ -41,12 +41,13 @@ async function openApp() {
 
 let full = false
 const realSet = Storage.prototype.setItem
-// (spied before the first write: happy-dom keeps the method a storage first used)
-vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
-  if (full && k === 'gym_state_v1') throw new DOMException('quota', 'QuotaExceededError')
-  return realSet.call(this, k, v)
-})
 beforeEach(() => {
+  // Spied per test, not once for the file: restoreMocks (vite.config.js) undoes every spy before
+  // each test. And before this test's first write: happy-dom keeps the method a storage first used.
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
+    if (full && k === 'gym_state_v1') throw new DOMException('quota', 'QuotaExceededError')
+    return realSet.call(this, k, v)
+  })
   localStorage.clear(); full = false
   localStorage.setItem('gym_owner', 'u1')
 })
