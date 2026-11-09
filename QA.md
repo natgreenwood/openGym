@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-09 (frontend); 2026-11-06 (API)_
+_Last verified by QA agent: 2026-11-09 (frontend and API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -463,6 +463,25 @@ fallbacks. `server-bad-input.test.js` exercises malformed stored language on
 an actual rest-timer callback; `server-push-status.test.js` covers timer
 routing, cancellation and throttling. These tests establish send attempts,
 not delivery to a device.
+
+### Routine-sharing API tests
+
+From `api/`:
+
+```sh
+node --test test/server-shares.test.js test/server-shares-projection.test.js
+```
+
+These suites start the real HTTP server with synthetic users and an isolated
+temporary `DATA_DIR`. The projection suite covers outgoing availability flags,
+list/poll etag parity, recipient-state privacy and transitions across the 64 KiB
+cap through both saves and direct file writes. Its `alexSized` helper sizes the
+projected routine exactly; 65,536 bytes is within the cap. Tests marked `spy`
+use `test/spy-shared.mjs` to count measurements, projections and content hashes.
+
+The document cache follows file mtime and size, not `_rev`. For direct-write
+tests, use the suite's `tick()` helper before rewriting a cached file; writes
+through `PUT /api/data` evict the cache themselves.
 
 ### Origin-hint tests
 
