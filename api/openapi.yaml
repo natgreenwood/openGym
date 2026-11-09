@@ -1650,6 +1650,9 @@ paths:
         `week`, `dayPlan` and the queue are kept. After the write, every share you made of a
         routine that is no longer in `routines` is deleted, whatever its state, and recorded in
         the activity log as `share.revoke` (`act` `routine-gone`). Neither changes the answer.
+        A shared routine over the 64 KiB sharing cap (see `POST /api/shares`) is stored as sent,
+        never refused or cut: its recipients see it as `unavailable: too-large` until it is
+        back under the cap.
       requestBody:
         required: true
         content:
@@ -2812,8 +2815,10 @@ paths:
         number of exercises, and a `hash` of the preview. An accepted share whose routine now
         holds a custom exercise comes back as `unavailable: custom-exercise`, and one whose
         sharer's document cannot be read, or holds a value the server cannot project, as
-        `unavailable: unreadable`; neither carries a
-        routine, and both come back as usable on their own once the cause is gone. A share
+        `unavailable: unreadable`. A share whose routine is over the 64 KiB sharing cap (see
+        `POST /api/shares`), pending or accepted, comes back as `unavailable: too-large`, and
+        a pending one can then only be declined. None of these carries a routine or a
+        preview, and each comes back as usable on its own once the cause is gone. A share
         whose routine was deleted is not listed, and is deleted here (`share.revoke`, `act`
         `routine-gone`).
 
@@ -2848,7 +2853,10 @@ paths:
         One pending share per recipient, all or nothing: every recipient is checked before
         any record is written. The routine has to be in your own document, so a routine
         shared with you cannot be passed on. A routine with a custom exercise cannot be
-        shared.
+        shared, and neither can one over the sharing cap: 64 KiB, measured as the UTF-8 bytes of
+        the JSON a recipient would get as `routine` (`ShareIncoming`), so fields that never
+        leave your document do not count. A routine that grows past the cap after it was shared
+        stays shared, and shows as `unavailable: too-large` until it is back under it.
 
         Your answers never depend on what a recipient did with a share. Asking again for a
         recipient who already has a share of this routine returns it as it is, with the same
@@ -2895,8 +2903,9 @@ paths:
           description: >-
             `bad-request` (the shape, more than 20 recipients, a recipient id longer than 64
             characters, or one listed twice),
-            `custom-exercise` (the routine holds a custom exercise) or `self` (you are one of
-            the recipients).
+            `custom-exercise` (the routine holds a custom exercise), `too-large` (the routine is
+            over the 64 KiB sharing cap; `maxKB` says the cap) or `self` (you are one of the
+            recipients).
           content:
             application/json:
               schema: { $ref: '#/components/schemas/Error' }
@@ -3765,7 +3774,7 @@ components:
             A stable reason on the password, throttle and media routes, for a client to word
             in its own language (`bad-credentials`, `locked`, `too-short`, `media-quota`, …).
             Media refusals add the numbers to word it with (`maxMB`, `maxSec`, `usedMB`,
-            `quotaMB`).
+            `quotaMB`), and a `too-large` share refusal adds `maxKB`.
         retryAfter:
           type: integer
           description: 429 only. The same number of seconds as the Retry-After header.
@@ -4315,8 +4324,10 @@ components:
             `excludeFromProgression` and `ex`. Each exercise carries only the fields the plan
             export keeps (api/shared-routine.js), less the planned backups (`subs`). `name` and
             `emoji` are the stored value when it is a string, or a number rendered as a string;
-            anything else becomes `""` for `name` and is left out for `emoji`. An exercise whose
-            `id` is not a string is left out.
+            anything else becomes `""` for `name` and is left out for `emoji`. `name` is cut to
+            its first 80 characters. An exercise whose `id` is not a string is left out. The
+            whole object is at most 64 KiB as UTF-8 JSON; a routine over that is
+            `unavailable: too-large` instead.
           properties:
             id: { type: string }
             name: { type: string }
@@ -4330,17 +4341,18 @@ components:
             Pending only. `exercises` counts the exercises `routine.ex` would carry once
             accepted (those with a string `id`), and `name` follows the same rule as
             `routine.name`: a string, or a number rendered as a string; anything else becomes
-            `""`.
+            `""`; at most 80 characters.
           properties:
             name: { type: string }
             exercises: { type: integer }
         unavailable:
           type: string
-          enum: [custom-exercise, unreadable]
+          enum: [custom-exercise, unreadable, too-large]
           description: >-
             Why the share cannot be used right now: the routine holds a custom exercise
-            (accepted only), or the sharer's document cannot be read or holds a value the
-            server cannot project.
+            (accepted only), the sharer's document cannot be read or holds a value the server
+            cannot project, or the routine is over the 64 KiB sharing cap (pending or accepted;
+            a pending one can only be declined).
     ShareOutgoing:
       type: object
       description: A share you made. No state, by design.
