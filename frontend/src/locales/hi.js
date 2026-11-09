@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': 'ऑफ़लाइन। सर्वर तक नहीं पहुँचा जा सकता',
   'Not an openGym answer (HTTP {0})': 'openGym का जवाब नहीं (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'आपके सर्वर के पते ने openGym के बजाय कुछ और जवाब दिया (HTTP {0})। आपके बदलाव यहीं रखे हैं।',
+  'This copy belongs to a different account': 'यह कॉपी किसी दूसरे खाते की है',
+  'This copy belongs to a different account. Sign in again or reload.': 'यह कॉपी किसी दूसरे खाते की है। फिर से साइन इन करें या पेज रीलोड करें।',
   'Server error (HTTP {0})': 'सर्वर त्रुटि (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'आपके सर्वर ने त्रुटि के साथ जवाब दिया (HTTP {0})। आपके बदलाव यहीं रखे हैं।',
   'The server refuses this browser': 'सर्वर इस ब्राउज़र को अस्वीकार कर रहा है',

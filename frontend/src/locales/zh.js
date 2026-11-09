@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': '离线。无法连接服务器',
   'Not an openGym answer (HTTP {0})': '不是 openGym 的响应（HTTP {0}）',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': '你的服务器地址返回了不属于 openGym 的内容（HTTP {0}）。你的更改保留在这里。',
+  'This copy belongs to a different account': '此副本属于另一个账户',
+  'This copy belongs to a different account. Sign in again or reload.': '此副本属于另一个账户。请重新登录或刷新页面。',
   'Server error (HTTP {0})': '服务器错误（HTTP {0}）',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': '你的服务器返回了错误（HTTP {0}）。你的更改保留在这里。',
   'The server refuses this browser': '服务器拒绝了此浏览器',

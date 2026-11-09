@@ -1369,6 +1369,8 @@ export default {
   'Offline. The server can’t be reached': '離線中。無法連線至伺服器',
   'Not an openGym answer (HTTP {0})': '非 openGym 系統回應 (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': '伺服器位址回傳了異常回應 (HTTP {0})。你所作的修改將妥善保存在本機。',
+  'This copy belongs to a different account': '此副本屬於另一個帳號',
+  'This copy belongs to a different account. Sign in again or reload.': '此副本屬於另一個帳號。請重新登入或重新載入頁面。',
   'Server error (HTTP {0})': '伺服器發生錯誤 (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': '伺服器傳回錯誤代碼 (HTTP {0})。你的修改目前保留在裝置端。',
   'The server refuses this browser': '伺服器拒絕了此瀏覽器的連線請求',

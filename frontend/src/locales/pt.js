@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': 'Offline. Não é possível chegar ao servidor',
   'Not an openGym answer (HTTP {0})': 'Não é uma resposta do openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'O endereço do teu servidor respondeu com algo que não é o openGym (HTTP {0}). As tuas alterações ficam aqui.',
+  'This copy belongs to a different account': 'Esta cópia pertence a outra conta',
+  'This copy belongs to a different account. Sign in again or reload.': 'Esta cópia pertence a outra conta. Inicia sessão novamente ou recarrega a página.',
   'Server error (HTTP {0})': 'Erro do servidor (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'O teu servidor respondeu com um erro (HTTP {0}). As tuas alterações ficam aqui.',
   'The server refuses this browser': 'O servidor recusa este navegador',

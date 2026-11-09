@@ -1444,6 +1444,8 @@ export default {
   'Offline. The server can’t be reached': 'অফলাইন। সার্ভারে পৌঁছানো যাচ্ছে না',
   'Not an openGym answer (HTTP {0})': 'openGym-এর উত্তর নয় (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'আপনার সার্ভারের ঠিকানা openGym ছাড়া অন্য কিছু দিয়ে উত্তর দিয়েছে (HTTP {0})। আপনার পরিবর্তনগুলো এখানে রাখা আছে।',
+  'This copy belongs to a different account': 'এই কপিটি অন্য একটি অ্যাকাউন্টের',
+  'This copy belongs to a different account. Sign in again or reload.': 'এই কপিটি অন্য একটি অ্যাকাউন্টের। আবার সাইন ইন করুন বা পেজটি রিলোড করুন।',
   'Server error (HTTP {0})': 'সার্ভার ত্রুটি (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'আপনার সার্ভার একটি ত্রুটি দিয়ে উত্তর দিয়েছে (HTTP {0})। আপনার পরিবর্তনগুলো এখানে রাখা আছে।',
   'The server refuses this browser': 'সার্ভার এই ব্রাউজার প্রত্যাখ্যান করছে',

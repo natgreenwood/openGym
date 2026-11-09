@@ -1406,6 +1406,8 @@ export default {
   'Offline. The server can’t be reached': 'Offline. Servern går inte att nå',
   'Not an openGym answer (HTTP {0})': 'Inte ett svar från openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'Din servers adress svarade med något annat än openGym (HTTP {0}). Dina ändringar sparas här.',
+  'This copy belongs to a different account': 'Den här kopian tillhör ett annat konto',
+  'This copy belongs to a different account. Sign in again or reload.': 'Den här kopian tillhör ett annat konto. Logga in igen eller ladda om sidan.',
   'Server error (HTTP {0})': 'Serverfel (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'Din server svarade med ett fel (HTTP {0}). Dina ändringar sparas här.',
   'The server refuses this browser': 'Servern avvisar den här webbläsaren',
