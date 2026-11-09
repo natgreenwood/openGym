@@ -12,13 +12,32 @@ const MB = 1024 * 1024
 const hex = c => c.repeat(64)
 const refOf = (hash, poster, over = {}) => ({ kind: 'image', hash, mime: 'image/webp', size: 1000, width: 800, height: 600, ...(poster ? { poster: { hash: poster, mime: 'image/webp', size: 100, width: 480, height: 360 } } : {}), at: 1, ...over })
 
+// The app store as media sync sees it. `owner` is the browser's gym_owner key and `epoch` the
+// store's owner counter; ownerToken and ownerHolds are useStore's, the predicate copied as is.
 function appStore(init) {
   let st = { ready: true, user: { id: 'u1' }, config: { media: { imageMB: 2, gifMB: 8, videoMB: 40, videoSec: 60, quotaMB: 200 } }, sync: { lastSynced: 0 }, S: { customEx: [] }, stashedMediaHashes: async () => new Set(), ...init }
+  let owner = st.user?.id || null
+  let epoch = 0
+  const answerIsFor = uid => !!uid && st.user?.id === uid && owner === uid
+  const holds = tok => tok.epoch === epoch && (tok.uid
+    ? tok.owner === tok.uid && answerIsFor(tok.uid)
+    : !st.user && owner === tok.owner)
+  st = {
+    ...st,
+    ownerToken: () => Object.freeze({ uid: st.user?.id || null, owner, epoch }),
+    ownerHolds: tok => !!tok && holds(tok)
+  }
   const subs = new Set()
+  const setState = patch => { st = { ...st, ...patch }; for (const f of subs) f(st) }
   return {
     getState: () => st,
-    setState: patch => { st = { ...st, ...patch }; for (const f of subs) f(st) },
-    subscribe: f => { subs.add(f); return () => subs.delete(f) }
+    setState,
+    subscribe: f => { subs.add(f); return () => subs.delete(f) },
+    // The owner changed and this tab has followed: a sign-in, sign-out or switch here, or what
+    // this tab holds once another tab's storage event has run.
+    switchTo: (user, S) => { owner = user?.id || null; epoch++; setState({ user, ...(S ? { S } : {}) }) },
+    // Another tab wrote the owner key; this tab's storage event for it has not run yet.
+    ownerKeyMoved: id => { owner = id }
   }
 }
 
@@ -471,5 +490,210 @@ describe('a workout\'s photos and videos', () => {
       expect(await media.get(ph)).toMatchObject({ mime: 'image/jpeg', pending: false })
       expect(apiBlob.mock.calls.map(c => c[0])).toEqual(['/api/media/' + ph])
     } finally { stop() }
+  })
+})
+
+// NATG-537: every job (a run, a download, the clean-up) belongs to the owner it started for. Once
+// another account signs in or this one signs out, here or in another tab of this browser, the job
+// sends nothing more, keeps no answer and writes nothing to the device: a queued upload of A's
+// would otherwise go out under B's session cookie, and a download of A's land after A signed out.
+describe('when the owner changes under a job', () => {
+  const blobOf = b => new Blob([b])
+  const two = { customEx: [{ id: 'a', media: refOf(hex('a')) }, { id: 'c', media: refOf(hex('c')) }] }
+  const pendingNow = () => [...media.pendingNow()].sort()
+
+  describe('a sync run (AC1, AC2)', () => {
+    it('sends nothing once the account changed while /missing was answering', async () => {
+      await put(hex('a')); await put(hex('c'))
+      const store = appStore({ S: two })
+      api.mockImplementationOnce(async (path, { body }) => { store.switchTo({ id: 'u2' }); return { missing: JSON.parse(body).hashes, usage: null } })
+      await make(store).syncMedia()
+      expect(api).toHaveBeenCalledTimes(1)
+      expect(apiUpload).not.toHaveBeenCalled()
+      expect(pendingNow()).toEqual([hex('a'), hex('c')])
+    })
+
+    it('takes nothing from a /missing answer that lands after the account changed', async () => {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      const before = getMediaStatus()
+      api.mockImplementationOnce(async () => { store.switchTo({ id: 'u2' }); return { missing: [], usage: { bytes: 10, count: 1, quotaBytes: 0 } } })
+      await make(store).syncMedia()
+      expect(pendingNow()).toEqual([hex('a')])        // not marked synced on another account's answer
+      expect(getMediaStatus()).toBe(before)
+    })
+
+    it('asks nothing once the account changed while the config was loading', async () => {
+      await put(hex('a'))
+      let store
+      const loadConfig = vi.fn(async () => { store.switchTo({ id: 'u2' }); return { media: { imageMB: 2 } } })
+      store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] }, config: null, loadConfig })
+      await make(store).syncMedia()
+      expect(loadConfig).toHaveBeenCalledTimes(1)
+      expect(api).not.toHaveBeenCalled()
+      expect(apiUpload).not.toHaveBeenCalled()
+    })
+
+    it('sends nothing when another tab already moved the owner key, before this tab has heard', async () => {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      store.ownerKeyMoved('u2')
+      await make(store).syncMedia({ force: true })
+      expect(api).not.toHaveBeenCalled()
+      expect(apiUpload).not.toHaveBeenCalled()
+    })
+
+    it('a switch from A to B in the middle of an upload: the answer is dropped and the next file stays', async () => {
+      await put(hex('a')); await put(hex('c'))
+      const store = appStore({ S: two })
+      const before = getMediaStatus()
+      apiUpload.mockImplementationOnce(async () => { store.switchTo({ id: 'u2' }); return { ok: true, existed: false } })
+      await make(store).syncMedia()
+      expect(apiUpload).toHaveBeenCalledTimes(1)
+      expect(pendingNow()).toEqual([hex('a'), hex('c')])
+      expect(getMediaStatus()).toBe(before)
+      expect(toast).not.toHaveBeenCalled()
+    })
+
+    it('a full-quota answer after the switch is not said, and leaves the file pending', async () => {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      const before = getMediaStatus()
+      apiUpload.mockImplementationOnce(async () => {
+        store.switchTo({ id: 'u2' })
+        throw Object.assign(new Error('full'), { status: 413, code: 'media-quota', data: { usedMB: 200, quotaMB: 200 } })
+      })
+      await make(store).syncMedia()
+      expect(toast).not.toHaveBeenCalled()
+      expect(pendingNow()).toEqual([hex('a')])
+      expect(getMediaStatus()).toBe(before)
+    })
+
+    it('a refusal after the switch does not mark the file rejected, nor say so', async () => {
+      await put(hex('a'))
+      const store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] } })
+      apiUpload.mockImplementationOnce(async () => {
+        store.switchTo({ id: 'u2' })
+        throw Object.assign(new Error('type'), { status: 415, code: 'media-type' })
+      })
+      await make(store).syncMedia()
+      expect(toast).not.toHaveBeenCalled()
+      expect(await media.get(hex('a'))).toMatchObject({ pending: true, rejected: false })
+    })
+  })
+
+  it('a run left going after sign-out\'s settle gave up sends nothing more (AC3)', async () => {
+    vi.useFakeTimers()
+    try {
+      await put(hex('a')); await put(hex('c'))
+      const store = appStore({ S: two })
+      let release
+      apiUpload.mockImplementationOnce(() => new Promise(r => { release = r }))
+      const sync = make(store)
+      let settled = false
+      sync.settle().then(() => { settled = true })
+      await vi.advanceTimersByTimeAsync(60000)
+      expect(settled).toBe(true)
+      expect(apiUpload).toHaveBeenCalledTimes(1)
+      store.switchTo(null)                              // the sign-out cleared the account
+      release({ ok: true, existed: false })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(apiUpload).toHaveBeenCalledTimes(1)
+      expect(api).toHaveBeenCalledTimes(1)
+      expect(pendingNow()).toEqual([hex('a'), hex('c')])
+    } finally { vi.useRealTimers() }
+  })
+
+  describe('a download (AC4)', () => {
+    it('that arrives after the sign-out is not kept, and is not taken for missing', async () => {
+      const file = jpeg()
+      const h = await sha256Hex(file)
+      const store = appStore({})
+      apiBlob.mockImplementationOnce(async () => { store.switchTo(null); return blobOf(file) })
+      const sync = make(store)
+      await expect(sync.fetchToStore(h, { mime: 'image/jpeg' })).rejects.toMatchObject({ code: 'unavailable' })
+      expect(await media.list()).toEqual([])
+      expect(sync.mayFetch(h)).toBe(true)
+    })
+
+    it('a 404 under the next session does not back the file off', async () => {
+      const store = appStore({})
+      apiBlob.mockImplementationOnce(async () => { store.switchTo({ id: 'u2' }); throw Object.assign(new Error('no'), { status: 404, code: 'media-missing' }) })
+      const sync = make(store)
+      await expect(sync.fetchToStore(hex('a'), {})).rejects.toMatchObject({ code: 'unavailable' })
+      expect(sync.mayFetch(hex('a'))).toBe(true)
+    })
+
+    it('a sign-out while it is being written takes the written file out again', async () => {
+      const file = jpeg()
+      const h = await sha256Hex(file)
+      const store = appStore({})
+      apiBlob.mockResolvedValueOnce(blobOf(file))
+      const putting = { ...media, put: async (...a) => { store.switchTo(null); return media.put(...a) } }
+      await expect(make(store, { media: putting }).fetchToStore(h, { mime: 'image/jpeg' })).rejects.toMatchObject({ code: 'unavailable' })
+      expect(await media.has(h)).toBe(false)
+    })
+  })
+
+  describe('moving files between modes still works (AC7)', () => {
+    it('a guest who signs in has their files sent to the new account', async () => {
+      await put(hex('a'))
+      const S = { customEx: [{ id: 'a', media: refOf(hex('a')) }] }
+      const store = appStore({ S, user: null })
+      const sync = make(store)
+      await sync.syncMedia()
+      expect(api).not.toHaveBeenCalled()
+      store.switchTo({ id: 'u1' })
+      await sync.syncMedia({ force: true })
+      expect(apiUpload).toHaveBeenCalledTimes(1)
+      expect(pendingNow()).toEqual([])
+    })
+
+    it('the next account\'s first run is not skipped as a repeat of the last one\'s', async () => {
+      vi.useFakeTimers()
+      const idle = globalThis.requestIdleCallback
+      globalThis.requestIdleCallback = cb => setTimeout(cb, 1)
+      try {
+        await put(hex('a'))
+        const S = { customEx: [{ id: 'a', media: refOf(hex('a')) }] }
+        const store = appStore({ S })
+        const stop = make(store).start(store)
+        await vi.advanceTimersByTimeAsync(3000)
+        expect(api).toHaveBeenCalledTimes(1)
+        store.switchTo({ id: 'u2' })                    // the same files, well within ten minutes
+        await vi.advanceTimersByTimeAsync(2000)
+        expect(api).toHaveBeenCalledTimes(2)
+        stop()
+      } finally {
+        globalThis.requestIdleCallback = idle
+        vi.useRealTimers()
+      }
+    })
+  })
+
+  describe('the local clean-up (AC8)', () => {
+    it('deletes nothing once the owner changed after it worked out what is live', async () => {
+      for (const c of 'abcdef') await put(hex(c))
+      clock += 2 * 3600000
+      let store
+      const stashedMediaHashes = async () => {
+        store.switchTo({ id: 'u2' }, { customEx: [{ id: 'e', media: refOf(hex('e')) }] })
+        return new Set()
+      }
+      store = appStore({ S: { customEx: [{ id: 'a', media: refOf(hex('a')) }] }, user: null, stashedMediaHashes })
+      expect(await make(store).localMediaGc()).toBe(false)
+      expect((await media.list()).map(r => r.hash).sort()).toEqual('abcdef'.split('').map(hex))
+    })
+
+    it('stops between deletes once the owner changed', async () => {
+      for (const c of 'abcd') await put(hex(c))
+      clock += 2 * 3600000
+      const store = appStore({ S: { customEx: [] }, user: null })
+      const removed = []
+      const removing = { ...media, remove: async h => { removed.push(h); const r = await media.remove(h); if (removed.length === 1) store.switchTo({ id: 'u2' }); return r } }
+      expect(await make(store, { media: removing }).localMediaGc()).toBe(false)
+      expect(removed).toHaveLength(1)
+      expect(await media.list()).toHaveLength(3)
+    })
   })
 })

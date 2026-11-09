@@ -17,6 +17,15 @@
  *
  * It also keeps the local store tidy (localMediaGc) and makes the plan's custom media local ahead
  * of time (startCustomMediaPrefetch), so a workout opened without a network still shows them.
+ *
+ * Every job (a run, a download, the clean-up, a prefetch pass) belongs to the owner it started
+ * for: it takes one owner token (useStore ownerToken) when it starts and never re-labels it. It
+ * asks ownerHolds before each request, before each write to the media store, and after each await
+ * whose result it is about to act on. Once another account has signed in or this one has signed
+ * out, here or in another tab, the job stops silently: no toast, no status, no backoff or retry
+ * bookkeeping. A request it sent would go out under the next session's cookie, and a file it kept
+ * would stay on the device after the sign-out (NATG-537). The next owner's own triggers start
+ * fresh jobs with fresh tokens.
  */
 import { referencedHashes, referencedFiles, MEDIA_MIMES } from './media-refs.js'
 import { sniffKind } from './media-sniff.js'
@@ -68,6 +77,10 @@ export function createMediaSync(deps = {}) {
     // phone it is the durable copy and can be newer than localStorage (evicted WebView storage,
     // a write refused for room), so what it refers to is kept even if memory does not know it yet.
     nativeLoad: MOBILE ? () => nativeLoad() : null,
+    // Whose job this is (see the header), asked of the app store it was started with. No store,
+    // or one without the pair, gives no token, and no token ever holds.
+    ownerToken: () => store?.getState().ownerToken?.() || null,
+    ownerHolds: tok => !!tok && !!store?.getState().ownerHolds?.(tok),
     ...deps
   }
   let store = d.store || null
@@ -88,7 +101,18 @@ export function createMediaSync(deps = {}) {
     map.set(hash, { step, until: d.now() + steps[step] })
   }
   const active = (map, hash) => (map.get(hash)?.until || 0) > d.now()
+  const forget = () => {
+    lastRun = { refs: '', at: 0, complete: false }
+    retryNotBefore = 0
+    quotaTold = false
+    rejectTold.clear()
+    upBackoff.clear()
+    missBackoff.clear()
+  }
   const withLock = (name, fn) => (d.locks && typeof d.locks.request === 'function' ? d.locks.request(name, fn) : fn())
+  // The owner a job starts for, and a check that is true once that owner has gone.
+  const ownerOfJob = () => { const tok = d.ownerToken(); return () => !d.ownerHolds(tok) }
+  const unavailableError = () => Object.assign(new Error('unavailable'), { code: 'unavailable' })
 
   const publishPending = async extra => {
     const S = store?.getState().S
@@ -97,11 +121,14 @@ export function createMediaSync(deps = {}) {
 
   async function run({ force = false, retryRejected = false } = {}) {
     if (!store) return
+    const gone = ownerOfJob()
+    if (gone()) return   // also a tab still naming A while another tab's sign-in has the key at B
     const st = store.getState()
     if (!st.user) { await publishPending({ usage: null }); return }
     // A boot without a network leaves the config unknown; ask again rather than decide on nothing.
     let cfg = st.config
     if (!cfg && typeof st.loadConfig === 'function') cfg = await st.loadConfig()
+    if (gone()) return
     if (!cfg?.media) { await publishPending({ usage: null }); return }
     const files = referencedFiles(st.S)
     const refs = files.map(f => f.hash)
@@ -117,11 +144,14 @@ export function createMediaSync(deps = {}) {
     let usage = null
     try {
       for (let i = 0; i < refs.length; i += MISSING_CHUNK) {
+        if (gone()) return
         const r = await d.api('/api/media/missing', { method: 'POST', body: JSON.stringify({ hashes: refs.slice(i, i + MISSING_CHUNK) }) })
+        if (gone()) return   // another account's answer, or this one's sent under the next session
         if (Array.isArray(r?.missing)) missing.push(...r.missing)
         if (r?.usage) usage = r.usage
       }
     } catch (e) {
+      if (gone()) return
       lastRun = { refs: key, at: d.now(), complete: false }
       if (e?.status === 429) retryNotBefore = d.now() + (Number(e.data?.retryAfter) || 60) * 1000
       return
@@ -129,6 +159,7 @@ export function createMediaSync(deps = {}) {
     const missingSet = new Set(missing)
     for (const h of refs) {
       if (missingSet.has(h)) continue
+      if (gone()) return
       missBackoff.delete(h)   // the server has it: a device showing it as missing may ask again
       upBackoff.delete(h)
       await d.media.markSynced(h)
@@ -146,7 +177,9 @@ export function createMediaSync(deps = {}) {
       if (!rejectTold.has(h)) { rejectTold.add(h); d.toast(t('The server refused the file as too large.')) }
     }
     for (const h of missing) {
+      if (gone()) return
       const rec = await d.media.get(h)
+      if (gone()) return   // nor is it refused or sent for them
       if (!rec) { unavailable++; continue }   // nobody here has it: shown as missing until someone sends it
       if (rec.rejected && !retryRejected) { rejected++; continue }
       // Over this server's cap for its kind (a phone picked it under the defaults, or the caps
@@ -156,13 +189,16 @@ export function createMediaSync(deps = {}) {
       if (rec.size > capOf(rec.mime)) { await refuse(h); continue }
       if (!force && rec.size > BG_UPLOAD_METERED_MAX_MB * MB && !d.allowed()) { deferred++; continue }   // big files wait for Wi-Fi
       if (!force && active(upBackoff, h)) { skipped++; continue }
+      if (gone()) return
       try {
         const res = await d.apiUpload('/api/media/' + h, rec.blob, rec.mime)
+        if (gone()) return   // the file stays pending, for its own account's next run
         await d.media.markSynced(h)
         upBackoff.delete(h)
         quotaTold = false
         if (res && res.existed === false) added += rec.size
       } catch (e) {
+        if (gone()) return   // no toast, no rejection, no backoff from an answer under another session
         const code = e?.code
         if (code === 'media-quota') {
           if (!quotaTold) {
@@ -197,6 +233,7 @@ export function createMediaSync(deps = {}) {
         break
       }
     }
+    if (gone()) return
     lastRun = { refs: key, at: d.now(), complete: !stopped && !deferred && !skipped }
     if (usage && added) usage = { ...usage, bytes: (usage.bytes || 0) + added }
     await publishPending({ usage, deferred, rejected, unavailable })
@@ -233,27 +270,38 @@ export function createMediaSync(deps = {}) {
    * state says (`expect.size`) is not even read. Resolves true once it is stored. Rejects with
    * code 'missing' (the server does not have it — the per-hash backoff then keeps devices from
    * asking every render), 'offline', 'integrity' or 'unavailable' (no server to ask). `force`
-   * asks past that backoff — a tap on a tile that failed.
+   * asks past that backoff — a tap on a tile that failed. A download whose owner has gone (see
+   * the header) rejects 'unavailable' and keeps nothing: the next owner's tap or prefetch asks
+   * again for itself.
    */
   function fetchToStore(hash, expect = {}, { force = false } = {}) {
     if (fetching.has(hash)) return fetching.get(hash)
     const job = (async () => {
+      const gone = ownerOfJob()
       if (!force && active(missBackoff, hash)) throw Object.assign(new Error('missing'), { code: 'missing' })
+      if (gone()) throw unavailableError()
       let blob
       try { blob = await d.apiBlob('/api/media/' + hash, { expectSize: typeof expect.size === 'number' ? expect.size : undefined }) }
       catch (e) {
+        if (gone()) throw unavailableError()   // a 404 under another session says nothing of this file
         if (e?.status === 404) { bump(missBackoff, hash, MISSING_BACKOFF); throw Object.assign(new Error('missing'), { code: 'missing' }) }
         if (e?.code === 'not-paired' || e?.status === 401) throw Object.assign(new Error('unavailable'), { code: 'unavailable' })
         if (isNetwork(e)) throw Object.assign(new Error('offline'), { code: 'offline' })
         throw Object.assign(new Error('integrity'), { code: 'integrity' })
       }
+      if (gone()) throw unavailableError()
       const bytes = new Uint8Array(await blob.arrayBuffer())
       const sniffed = sniffKind(bytes.subarray(0, 64))
       const mime = sniffed?.mime
       if (!mime || !MEDIA_MIMES[mime] || (expect.mime && mime !== expect.mime) || (await d.sha256(bytes)) !== hash) {
         throw Object.assign(new Error('integrity'), { code: 'integrity' })
       }
-      await d.media.put(hash, new Blob([bytes], { type: mime }), { mime, pending: false })
+      if (gone()) throw unavailableError()
+      const prev = await d.media.put(hash, new Blob([bytes], { type: mime }), { mime, pending: false })
+      // The owner went while it was being written: the sign-out's clean-up keeps what was put
+      // after it began (retainOnly keepPutAfter), so what this download added goes now. A record
+      // that was here before is the clean-up's to judge.
+      if (gone()) { if (prev === null) await d.media.remove(hash); throw unavailableError() }
       missBackoff.delete(hash)
       return true
     })()
@@ -277,13 +325,18 @@ export function createMediaSync(deps = {}) {
    * localStorage held while the copy boot is about to restore — the phone's file mirror, the
    * server's pull — refers to files memory does not know yet, and on a phone in local mode those
    * files are the only copy. A call that comes too early is remembered and runs once `ready`
-   * flips (start). Resolves false when it did not run.
+   * flips (start). Resolves false when it did not run, or stopped because its owner went (see
+   * the header): it then removes nothing more, since what is live was worked out for them.
    */
   async function localMediaGc() {
     if (!store) return false
     if (!store.getState().ready) { gcWaiting = true; return false }
     gcWaiting = false
+    const gone = ownerOfJob()
+    let stopped = false
+    const stop = () => (stopped = gone())
     await withLock('opengym-media', async () => {
+      if (stop()) return   // the wait for the lock can be long
       const st = store.getState()
       const live = referencedHashes(st.S)
       try {
@@ -293,16 +346,22 @@ export function createMediaSync(deps = {}) {
       try {
         if (typeof st.stashedMediaHashes === 'function') for (const h of await st.stashedMediaHashes()) live.add(h)
       } catch { return }   // the stash could not be read: delete nothing rather than guess
+      if (stop()) return
       // A second guard on a phone: the mirror is read even after boot, since a copy that failed
       // to reach localStorage lives only there and in memory, and memory may already have moved on.
       try {
         if (d.nativeLoad) { const saved = await d.nativeLoad(); if (saved) for (const h of referencedHashes(saved)) live.add(h) }
       } catch { return }   // the mirror could not be read: delete nothing rather than guess
+      if (stop()) return
       // A file an open editor holds as its draft is live too, however long the editor has been open.
       const held = r => typeof d.media.isHeld === 'function' && d.media.isHeld(r.hash)
       const cutoff = d.now() - LOCAL_GC_GRACE_MS
       const all = await d.media.list()
-      for (const r of all) if (!live.has(r.hash) && !held(r) && (r.putAt || 0) < cutoff) await d.media.remove(r.hash)
+      for (const r of all) {
+        if (live.has(r.hash) || held(r) || (r.putAt || 0) >= cutoff) continue
+        if (stop()) return
+        await d.media.remove(r.hash)
+      }
       if (!st.user) return
       const left = (await d.media.list()).filter(r => live.has(r.hash) || held(r) || (r.putAt || 0) >= cutoff)
       let bytes = left.reduce((n, r) => n + (r.size || 0), 0)
@@ -315,11 +374,12 @@ export function createMediaSync(deps = {}) {
         .sort((a, b) => (inState.has(a.hash) - inState.has(b.hash)) || ((a.shownAt || 0) - (b.shownAt || 0)))
       for (const r of candidates) {
         if (bytes <= LOCAL_CACHE_MAX_MB * MB) break
+        if (stop()) return
         await d.media.remove(r.hash)
         bytes -= r.size || 0
       }
     })
-    return true
+    return !stopped
   }
 
   /**
@@ -347,10 +407,11 @@ export function createMediaSync(deps = {}) {
       timer = null
       const st = store.getState()
       if (busy || !st.user || !st.config?.media || !d.allowed()) return
+      const gone = ownerOfJob()
       busy = true
       try {
         for (const f of want()) {
-          if (!d.allowed()) break
+          if (gone() || !d.allowed()) break
           if (await d.media.has(f.hash) || !mayFetch(f.hash)) continue
           try { await fetchToStore(f.hash, f) } catch (e) { if (e?.code === 'offline' || e?.code === 'unavailable') break }
         }
@@ -393,6 +454,10 @@ export function createMediaSync(deps = {}) {
     let prev = store.getState()
     let prevRefs = refsKey(prev.S)
     const unsub = store.subscribe(s => {
+      // Another account, or none: what the runs learned was the previous one's. The dedupe
+      // compares the references only, so the next account's first run over the same files would
+      // be skipped as a repeat of the last one's; its quota and refusals are its own to be told.
+      if (s.user?.id !== prev.user?.id) forget()
       const refs = s.S === prev.S ? prevRefs : refsKey(s.S)
       const moved = refs !== prevRefs
       if (moved || s.sync?.lastSynced !== prev.sync?.lastSynced || s.user?.id !== prev.user?.id) schedule(2000)
