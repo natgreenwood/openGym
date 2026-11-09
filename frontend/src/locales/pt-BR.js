@@ -140,6 +140,8 @@ export const PT_BR_OVERRIDES = {
   'Ends this profile’s sessions on all your devices.': 'Encerra as sessões deste perfil em todos os seus dispositivos.',
   'Signed out on all devices': 'Sessão encerrada em todos os dispositivos',
   'Couldn’t sign out everywhere. You’re still signed in.': 'Não foi possível sair de todos os dispositivos. Sua sessão continua ativa.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'Você não saiu da sua conta. Este navegador agora está conectado como {0}.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'Você não saiu da sua conta. Este navegador agora está conectado a outra conta.',
   'Couldn’t sign out. You’re still signed in.': 'Não foi possível sair. Sua sessão continua ativa.',
   'Couldn’t disconnect. You’re still connected.': 'Não foi possível desconectar. Você continua conectado.',
   'Create passkey profile': 'Criar perfil com chave de acesso',

@@ -402,6 +402,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'Завершает сеансы этого профиля на всех ваших устройствах.',
   'Signed out on all devices': 'Выход выполнен на всех устройствах',
   'Couldn’t sign out everywhere. You’re still signed in.': 'Не удалось выйти на всех устройствах. Вы всё ещё в системе.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'Вы не вышли из аккаунта. Теперь в этом браузере выполнен вход как {0}.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'Вы не вышли из аккаунта. Теперь в этом браузере выполнен вход в другой аккаунт.',
   'Couldn’t sign out. You’re still signed in.': 'Не удалось выйти. Вы всё ещё в системе.',
   'Couldn’t disconnect. You’re still connected.': 'Не удалось отключиться. Соединение с сервером всё ещё активно.',
   'Create passkey profile': 'Создать профиль с ключом доступа',

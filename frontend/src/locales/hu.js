@@ -418,6 +418,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'Lezárja ennek a profilnak a munkameneteit minden eszközödön.',
   'Signed out on all devices': 'Kijelentkezve minden eszközön',
   'Couldn’t sign out everywhere. You’re still signed in.': 'Nem sikerült mindenhonnan kijelentkezni. Továbbra is be vagy jelentkezve.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'Nem jelentkeztél ki. Ebben a böngészőben most {0} van bejelentkezve.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'Nem jelentkeztél ki. Ebben a böngészőben most egy másik fiók van bejelentkezve.',
   'Couldn’t sign out. You’re still signed in.': 'Nem sikerült kijelentkezni. Továbbra is be vagy jelentkezve.',
   'Couldn’t disconnect. You’re still connected.': 'Nem sikerült leválasztani. Továbbra is csatlakozva vagy.',
   'Create passkey profile': 'Jelszókulcs-profil létrehozása',

@@ -147,7 +147,8 @@ export async function passkeySignIn() {
    has not received (useStore.js). When some are owed, the store refuses and says how many; this
    asks what to do: try again, export a backup, or go ahead anyway — which keeps the changes on
    the device until it reaches this server as this account again. `done(result)` runs once the
-   device has actually left. */
+   device has actually left, or with { cancelled: true } when another tab signed a different
+   account in first and nothing happened (useStore overtaken). */
 const LEAVE = {
   disconnect: { run: (st, o) => st.disconnectServer(o), anyway: () => t('Disconnect anyway'), failed: () => t('Couldn’t disconnect. You’re still connected.') },
   signout: { run: (st, o) => st.signOut(o), anyway: () => t('Sign out anyway'), failed: () => t('Couldn’t sign out. You’re still signed in.') },

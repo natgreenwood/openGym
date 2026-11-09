@@ -280,6 +280,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'ينهي جلسات هذا الملف الشخصي على جميع أجهزتك.',
   'Signed out on all devices': 'تم تسجيل الخروج من جميع الأجهزة',
   'Couldn’t sign out everywhere. You’re still signed in.': 'تعذّر تسجيل الخروج من كل الأجهزة. ما زلت مسجّلًا الدخول.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'لم يتم تسجيل خروجك. هذا المتصفح مسجّل الدخول الآن باسم {0}.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'لم يتم تسجيل خروجك. هذا المتصفح مسجّل الدخول الآن بحساب آخر.',
   'Couldn’t sign out. You’re still signed in.': 'تعذّر تسجيل الخروج. ما زلت مسجّلًا الدخول.',
   'Couldn’t disconnect. You’re still connected.': 'تعذّر قطع الاتصال. ما زلت متصلًا.',
   'Create passkey profile': 'إنشاء ملف شخصي بمفتاح مرور',

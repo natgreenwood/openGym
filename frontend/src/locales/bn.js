@@ -443,6 +443,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'আপনার সব ডিভাইসে এই প্রোফাইলের সেশন শেষ করে।',
   'Signed out on all devices': 'সব ডিভাইস থেকে সাইন আউট হয়েছে',
   'Couldn’t sign out everywhere. You’re still signed in.': 'সব জায়গা থেকে সাইন আউট করা যায়নি। আপনি এখনও সাইন ইন আছেন।',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'আপনি সাইন আউট হননি। এই ব্রাউজারে এখন {0} হিসেবে সাইন ইন করা আছে।',
+  'You weren’t signed out. This browser is now signed in to another account.': 'আপনি সাইন আউট হননি। এই ব্রাউজারে এখন অন্য একটি অ্যাকাউন্টে সাইন ইন করা আছে।',
   'Create passkey profile': 'পাসকি প্রোফাইল তৈরি করুন',
   'Passkeys not supported in this browser.': 'এই ব্রাউজারে পাসকি সমর্থিত নয়।',
   'synced with your profile': 'আপনার প্রোফাইলের সাথে সিঙ্ক করা',
