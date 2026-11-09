@@ -50,13 +50,13 @@
    rows on a 320px phone, and nine took three. */
 .focus-dots{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px}
 .focus-dots button{position:relative;flex:1 1 24px;min-width:24px;max-width:44px;height:44px}
-.focus-dots button::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:var(--label-3);transform:translate(-50%,-50%)}
+.focus-dots button::after{content:'';position:absolute;left:50%;top:50%;width:6px;height:6px;border-radius:50%;background:var(--label-2);transform:translate(-50%,-50%)}
 .focus-dots button.active::after{width:9px;height:9px;background:var(--acc)}
 .focus-dots button.done::after{box-shadow:0 0 0 2px var(--acc-line)}
 .focus-sides{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .focus-side{min-width:0;padding:10px;border-radius:var(--r);background:var(--surface-2)}
 .focus-side-header{display:flex;align-items:center;justify-content:space-between}
-.focus-side-check{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;color:var(--label-3)}
+.focus-side-check{display:grid;place-items:center;width:44px;height:44px;border-radius:50%;color:var(--label-2)}
 .focus-side-check.done{background:var(--acc);color:var(--on-acc)}
 .focus-timed{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:12px;border-radius:var(--r);background:var(--surface-2)}
 .focus-timed .btn{width:auto;min-width:120px}
