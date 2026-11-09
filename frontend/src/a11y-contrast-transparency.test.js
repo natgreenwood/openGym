@@ -62,6 +62,48 @@ describe('Increase Contrast (#707)', () => {
   })
 })
 
+// NATG-592: the import sheets' warnings sit in .shared-notice, whose body text was --label-2
+// (3.4:1 in light theme). Both lines of the notice have to read at 4.5:1 on the notice's own
+// fill and on the sheet behind it, in every theme the notice is drawn in.
+describe('Shared notice text (NATG-592)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  // Every --token the rules declare, later rules winning, as the cascade does for :root.
+  const tokens = (...rules) => Object.fromEntries(rules.flatMap((r) => [...r.matchAll(/(--[\w-]+):\s*([^;}]+)/g)].map((m) => [m[1], m[2].trim()])))
+  const themes = [
+    ['dark', tokens(rule(css, ':root')), false],
+    ['light', tokens(rule(css, ':root'), rule(css, ':root[data-theme="light"]')), true],
+    ['increased-contrast light', tokens(rule(css, ':root'), rule(css, ':root[data-theme="light"]'), rule(hc, ':root'), rule(hc, ':root[data-theme="light"]')), true],
+  ]
+  const prop = (decls, name) => decls.match(new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;}]+)`))?.[1]?.trim()
+  // A colour as the theme paints it: var() resolved, rgba() kept with its alpha.
+  const paint = (value, vars) => {
+    while (/^var\(/.test(value)) value = vars[value.match(/^var\((--[\w-]+)\)/)[1]]
+    return value.startsWith('rgba') ? rgba(value) : { rgb: hex(value), a: 1 }
+  }
+  // The first rule that sets the property wins; the title has no colour of its own and inherits.
+  const first = (name, ...sels) => sels.map((s) => prop(rule(css, s), name)).find(Boolean)
+
+  it.each(themes)('%s: title and body read at 4.5:1 on the notice and on the sheet', (_t, vars, light) => {
+    const sheet = paint((light && prop(rule(css, ':root[data-theme="light"] .sheet'), 'background')) || prop(rule(css, '.sheet'), 'background'), vars)
+    expect(sheet.a).toBe(1)
+    const fill = over(paint(prop(rule(css, '.shared-notice'), 'background'), vars), sheet.rgb)
+    for (const v of ['', '.warn']) {
+      const lines = {
+        title: first('color', `.shared-notice${v} b`, '.shared-notice b', '.shared-notice', 'body'),
+        body: first('color', `.shared-notice${v} span`, '.shared-notice span', '.shared-notice', 'body'),
+      }
+      for (const [line, colour] of Object.entries(lines)) {
+        expect(colour, `${line}${v}`).toBeTruthy()
+        const ink = paint(colour, vars)
+        for (const [where, bg] of [['notice', fill], ['sheet', sheet.rgb]]) {
+          expect(ratio(over(ink, bg), bg), `${line}${v} on the ${where}`).toBeGreaterThanOrEqual(4.5)
+        }
+      }
+    }
+  })
+})
+
 describe('Reduce Transparency (#708)', () => {
   // Every blurred surface in a sheet has to be listed in that sheet's own
   // prefers-reduced-transparency block, with the blur off. A new frosted bar that forgets it

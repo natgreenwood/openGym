@@ -695,6 +695,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'Elles sont ajoutées comme nouvelles routines. Rien de ce que tu as déjà n’est touché.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} exercice du fichier n’est pas dans ta bibliothèque et a été ignoré.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} exercices du fichier ne sont pas dans ta bibliothèque et ont été ignorés.',
+  'Some exercises were left out': 'Certains exercices ont été ignorés',
   'Use this weekly schedule': 'Utiliser ce planning hebdomadaire',
   'Replaces your current Mon–Sun assignments.': 'Remplace ton attribution lun–dim actuelle.',
   'Added {0} routine to your plan': '{0} routine ajoutée à ton plan',

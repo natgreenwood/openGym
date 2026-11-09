@@ -695,6 +695,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': '새 루틴으로 추가돼요. 기존 항목은 하나도 건드리지 않아요.',
   '{0} exercise in the file isn’t in your library and was left out.': '파일의 운동 {0}개가 라이브러리에 없어 제외했습니다.',
   '{0} exercises in the file aren’t in your library and were left out.': '파일의 운동 {0}개가 라이브러리에 없어 제외했습니다.',
+  'Some exercises were left out': '일부 운동을 제외했습니다',
   'Use this weekly schedule': '이 주간 일정 사용',
   'Replaces your current Mon–Sun assignments.': '현재 월–일 배정을 대체합니다.',
   'Added {0} routine to your plan': '계획에 루틴 {0}개를 추가했습니다',

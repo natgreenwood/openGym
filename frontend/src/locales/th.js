@@ -673,6 +673,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'จะเพิ่มเป็นรูทีนใหม่ ของเดิมที่มีอยู่จะไม่ถูกแตะต้อง',
   '{0} exercise in the file isn’t in your library and was left out.': 'มี {0} ท่าในไฟล์ที่ไม่มีในคลังของคุณ จึงถูกข้ามไป',
   '{0} exercises in the file aren’t in your library and were left out.': 'มี {0} ท่าในไฟล์ที่ไม่มีในคลังของคุณ จึงถูกข้ามไป',
+  'Some exercises were left out': 'บางท่าถูกข้ามไป',
   'Use this weekly schedule': 'ใช้ตารางรายสัปดาห์นี้',
   'Replaces your current Mon–Sun assignments.': 'จะแทนที่ตารางจันทร์–อาทิตย์ปัจจุบันของคุณ',
   'Added {0} routine to your plan': 'เพิ่ม {0} รูทีนเข้าแผนของคุณแล้ว',

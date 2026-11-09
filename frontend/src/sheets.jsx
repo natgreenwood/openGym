@@ -496,10 +496,12 @@ function ImportSummary({ parsed, close }) {
       </>}
     </div>
 
-    {parsed.mixedUnits ? <div className="small" style={{ color: 'var(--yellow)', marginBottom: 10 }}>
-      {t('The file mixes kg and lb, so each set is converted to {0}.', st.unit)}
-    </div> : parsed.converted ? <div className="small" style={{ color: 'var(--yellow)', marginBottom: 10 }}>
-      {t('The file is in {0} and your profile is in {1}, so weights get converted.', parsed.fileUnit, st.unit)}
+    {parsed.mixedUnits ? <div className="shared-notice" role="status" style={{ marginBottom: 10 }}>
+      <Icon name="info" />
+      <div><span>{t('The file mixes kg and lb, so each set is converted to {0}.', st.unit)}</span></div>
+    </div> : parsed.converted ? <div className="shared-notice" role="status" style={{ marginBottom: 10 }}>
+      <Icon name="info" />
+      <div><span>{t('The file is in {0} and your profile is in {1}, so weights get converted.', parsed.fileUnit, st.unit)}</span></div>
     </div> : null}
     {!isBW && !parsed.fileUnit && !parsed.mixedUnits && <div className="small dim" style={{ marginBottom: 10 }}>
       {t('The file doesn’t say which unit it uses, so numbers are imported as they are.')}
@@ -726,8 +728,9 @@ function HevyImportSheet({ close }) {
     </div>}
     {!b.bodyweight.length && <div style={{ borderBottom: '1px solid var(--sep)', marginBottom: 8 }} />}
 
-    {(w.converted || r.converted) && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 10 }}>
-      {t('Hevy stores weights in kg, so they’ll be converted to {0}.', st.unit)}
+    {(w.converted || r.converted) && <div className="shared-notice" role="status" style={{ marginBottom: 10 }}>
+      <Icon name="info" />
+      <div><span>{t('Hevy stores weights in kg, so they’ll be converted to {0}.', st.unit)}</span></div>
     </div>}
     {wantWorkouts && (w.rirSets + w.rpeSets) > 0 && <div className="small dim" style={{ marginBottom: 10 }}>
       {effortLine(effortOf(st), w.rirSets || w.rpeSets, w.rirSets ? 'RIR' : 'RPE')}
@@ -2549,10 +2552,14 @@ function PlanImport({ bundle, close }) {
         : ''}
     </div>
     <div className="dim small" style={{ marginBottom: 14, lineHeight: 1.4 }}>{t('These are added as new routines. Nothing you already have is touched.')}</div>
-    {bundle.dropped > 0 && <div className="small" style={{ color: 'var(--yellow)', marginBottom: 14, lineHeight: 1.4 }}>
-      {t(bundle.dropped === 1
-        ? '{0} exercise in the file isn’t in your library and was left out.'
-        : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}
+    {bundle.dropped > 0 && <div className="shared-notice warn" role="status" style={{ marginBottom: 14 }}>
+      <Icon name="warning" />
+      <div>
+        <b>{t('Some exercises were left out')}</b>
+        <span>{t(bundle.dropped === 1
+          ? '{0} exercise in the file isn’t in your library and was left out.'
+          : '{0} exercises in the file aren’t in your library and were left out.', bundle.dropped)}</span>
+      </div>
     </div>}
     {bundle.scheduledDays > 0 && <div className="row between" style={{ padding: '10px 2px', borderTop: '1px solid var(--sep)', borderBottom: '1px solid var(--sep)', marginBottom: 16, gap: 12 }}>
       <div><div className="tt" style={{ fontSize: 15 }}>{t('Use this weekly schedule')}</div><div className="small dim">{t('Replaces your current Mon–Sun assignments.')}</div></div>

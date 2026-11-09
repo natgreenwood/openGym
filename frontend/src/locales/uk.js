@@ -524,6 +524,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'Вони додаються як нові програми. Нічого з того, що в тебе вже є, не зміниться.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} вправа з файлу відсутня в твоїй бібліотеці й була пропущена.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} вправ з файлу відсутні в твоїй бібліотеці й були пропущені.',
+  'Some exercises were left out': 'Деякі вправи пропущено',
   'Use this weekly schedule': 'Використати цей розклад тижня',
   'Replaces your current Mon–Sun assignments.': 'Замінює твій поточний розподіл пн–нд.',
   'Added {0} routines to your plan': { one: 'У твій план додано {0} програму', few: 'У твій план додано {0} програми', many: 'У твій план додано {0} програм' },

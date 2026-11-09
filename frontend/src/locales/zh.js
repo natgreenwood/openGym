@@ -695,6 +695,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': '它们会作为新的训练日添加。你已有的内容一点都不会动。',
   '{0} exercise in the file isn’t in your library and was left out.': '文件中有 {0} 个动作不在你的动作库中，已略过。',
   '{0} exercises in the file aren’t in your library and were left out.': '文件中有 {0} 个动作不在你的动作库中，已略过。',
+  'Some exercises were left out': '部分动作已略过',
   'Use this weekly schedule': '使用此每周日程',
   'Replaces your current Mon–Sun assignments.': '替换你当前的周一至周日安排。',
   'Added {0} routine to your plan': '已向你的计划添加 {0} 个训练日',

@@ -695,6 +695,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'Bunlar yeni rutin olarak eklenir. Zaten sahip olduğun hiçbir şeye dokunulmaz.',
   '{0} exercise in the file isn’t in your library and was left out.': 'Dosyadaki {0} egzersiz kitaplığında yok ve atlandı.',
   '{0} exercises in the file aren’t in your library and were left out.': 'Dosyadaki {0} egzersiz kitaplığında yok ve atlandı.',
+  'Some exercises were left out': 'Bazı egzersizler atlandı',
   'Use this weekly schedule': 'Bu hafta programını kullan',
   'Replaces your current Mon–Sun assignments.': 'Mevcut Pzt–Paz atamanı değiştirir.',
   'Added {0} routine to your plan': 'Planına {0} rutin eklendi',

@@ -715,6 +715,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'De läggs till som nya rutiner. Inget du redan har ändras.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} övning i filen finns inte i ditt bibliotek och utelämnades.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} övningar i filen finns inte i ditt bibliotek och utelämnades.',
+  'Some exercises were left out': 'Vissa övningar utelämnades',
   'Use this weekly schedule': 'Använd det här veckoschemat',
   'Replaces your current Mon–Sun assignments.': 'Ersätter dina nuvarande tilldelningar mån–sön.',
   'Added {0} routine to your plan': '{0} rutin tillagd i din plan',
