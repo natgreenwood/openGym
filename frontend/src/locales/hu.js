@@ -673,6 +673,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'Ezek új rutinként kerülnek be. Semmihez nem nyúlunk, ami már megvan.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} gyakorlat a fájlban nincs a könyvtáradban, ezért kimaradt.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} gyakorlat a fájlban nincs a könyvtáradban, ezért kimaradt.',
+  'Some exercises were left out': 'Néhány gyakorlat kimaradt',
   'Use this weekly schedule': 'Heti beosztás alkalmazása',
   'Replaces your current Mon–Sun assignments.': 'Lecseréli a jelenlegi H–V beosztásod.',
   'Added {0} routine to your plan': '{0} rutin hozzáadva a tervedhez',

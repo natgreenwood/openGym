@@ -687,6 +687,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': '它們會以新課表的形式新增。你現有的內容完全不會動到。',
   '{0} exercise in the file isn’t in your library and was left out.': '檔案中有 {0} 個動作不在現有資料庫中，已自動略過。',
   '{0} exercises in the file aren’t in your library and were left out.': '檔案中有 {0} 個動作不在現有資料庫中，已自動略過。',
+  'Some exercises were left out': '部分動作已略過',
   'Use this weekly schedule': '套用此每週排程',
   'Replaces your current Mon–Sun assignments.': '直接取代目前週一至週日的課表安排。',
   'Added {0} routine to your plan': '已新增 {0} 份課表至你的訓練計畫',

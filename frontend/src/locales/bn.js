@@ -781,6 +781,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'এগুলো নতুন রুটিন হিসেবে যোগ হয়। আপনার আগের কিছুই বদলায় না।',
   '{0} exercise in the file isn’t in your library and was left out.': 'ফাইলের {0}টি ব্যায়াম আপনার লাইব্রেরিতে নেই, তাই বাদ দেওয়া হয়েছে।',
   '{0} exercises in the file aren’t in your library and were left out.': 'ফাইলের {0}টি ব্যায়াম আপনার লাইব্রেরিতে নেই, তাই বাদ দেওয়া হয়েছে।',
+  'Some exercises were left out': 'কিছু ব্যায়াম বাদ দেওয়া হয়েছে',
   'Use this weekly schedule': 'এই সাপ্তাহিক সূচি ব্যবহার করুন',
   'Replaces your current Mon–Sun assignments.': 'আপনার বর্তমান সোম–রবি বণ্টন বদলে দেয়।',
   'Added {0} routine to your plan': 'আপনার প্ল্যানে {0}টি রুটিন যোগ হয়েছে',

@@ -235,6 +235,7 @@ export const PT_BR_OVERRIDES = {
   'These are added as new routines. Nothing you already have is touched.': 'Elas entram como rotinas novas. Nada do que você já tem é alterado.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} exercício do arquivo não está na sua biblioteca e foi ignorado.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} exercícios do arquivo não estão na sua biblioteca e foram ignorados.',
+  'Some exercises were left out': 'Alguns exercícios foram ignorados',
   'Replaces your current Mon–Sun assignments.': 'Substitui os dias definidos de segunda a domingo.',
   'Added {0} routine to your plan': '{0} rotina adicionada ao seu plano',
   'Added {0} routines to your plan': '{0} rotinas adicionadas ao seu plano',

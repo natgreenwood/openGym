@@ -695,6 +695,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'ये नए रूटीन के रूप में जुड़ते हैं। आपके पास जो पहले से है, उसे छुआ नहीं जाता।',
   '{0} exercise in the file isn’t in your library and was left out.': 'फ़ाइल का {0} व्यायाम आपकी लाइब्रेरी में नहीं है और छोड़ दिया गया।',
   '{0} exercises in the file aren’t in your library and were left out.': 'फ़ाइल के {0} व्यायाम आपकी लाइब्रेरी में नहीं हैं और छोड़ दिए गए।',
+  'Some exercises were left out': 'कुछ व्यायाम छोड़ दिए गए',
   'Use this weekly schedule': 'यह साप्ताहिक कार्यक्रम इस्तेमाल करें',
   'Replaces your current Mon–Sun assignments.': 'आपके मौजूदा सोम–रवि निर्धारण को बदल देता है।',
   'Added {0} routine to your plan': 'आपके प्लान में {0} रूटीन जोड़ा गया',

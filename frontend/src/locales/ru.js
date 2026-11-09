@@ -681,6 +681,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'Они добавляются как новые программы. То, что у вас уже есть, не трогается.',
   '{0} exercise in the file isn’t in your library and was left out.': '{0} упражнение из файла отсутствует в вашей библиотеке и было пропущено.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} упражнений из файла отсутствуют в вашей библиотеке и были пропущены.',
+  'Some exercises were left out': 'Некоторые упражнения пропущены',
   'Use this weekly schedule': 'Использовать это расписание недели',
   'Replaces your current Mon–Sun assignments.': 'Заменяет ваше текущее распределение пн–вс.',
   'this isn’t an openGym plan file': 'это не файл плана openGym',

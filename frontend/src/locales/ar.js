@@ -559,6 +559,7 @@ export default {
   'These are added as new routines. Nothing you already have is touched.': 'تُضاف هذه كروتينات جديدة. لا يُمسّ أي شيء لديك حاليًا.',
   '{0} exercise in the file isn’t in your library and was left out.': 'هناك {0} تمرين في الملف غير موجود في مكتبتك وتم استبعاده.',
   '{0} exercises in the file aren’t in your library and were left out.': '{0} تمارين في الملف غير موجودة في مكتبتك وتم استبعادها.',
+  'Some exercises were left out': 'تم استبعاد بعض التمارين',
   'Use this weekly schedule': 'استخدم هذا الجدول الأسبوعي',
   'Replaces your current Mon–Sun assignments.': 'يستبدل جدولك الحالي من الاثنين إلى الأحد.',
   'Added {0} routines to your plan': 'أُضيفت {0} روتينات إلى خطتك',
