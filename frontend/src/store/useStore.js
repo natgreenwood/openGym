@@ -498,13 +498,18 @@ export const useStore = create((set, get) => {
   // the same `rev` after the server went back in time names a different document.
   // `uid`: the account signed in, whose revision this is. Nobody signed in has no revision of
   // anyone's: the write records no base. mergeInto and doPush hold every copy to it.
+  // A base stamped for another account is never replaced or dropped here, whichever path asks (a
+  // pull, a sign-in's adoption, an import, a reset): it stays, and doPush refuses the copy. Only
+  // a sign-out or a switch clears it (forgetSync).
+  const holdsForeignBase = () => { const b = metaOf().base; return !!b && b.uid !== get().user?.id }
   const writeSync = (rev, ts, wid) => {
+    if (holdsForeignBase()) return
     const uid = get().user?.id
     const base = uid ? { rev, ts: ts || 0, ...(typeof wid === 'string' ? { wid } : {}), uid } : null
     meta.set(get().S, { ...metaOf(), base })
     saveMarker(base)
   }
-  const dropSync = () => { meta.set(get().S, { ...metaOf(), base: null }); saveMarker(null) }
+  const dropSync = () => { if (holdsForeignBase()) return; meta.set(get().S, { ...metaOf(), base: null }); saveMarker(null) }
   const markOwed = owed => { meta.set(get().S, { ...metaOf(), owed }); saveOwed(owed) }
   // Whether anything here is still on its way to the server: a push that failed, one waiting in
   // the debounce or in flight, a change made while boot was pulling, or a copy changed since the
@@ -1406,6 +1411,11 @@ export const useStore = create((set, get) => {
       throw e   // the caller's toast: sign-in needed the server anyway
     }
     if (left()) return gone
+    // As pullState: a copy whose base is another account's is settled no way at all. Every branch
+    // below would restamp or drop that base and push the copy as this account's. The hold stays,
+    // so nothing syncs until a sign-out, a switch or a reload.
+    const held = metaOf().base
+    if (held && held.uid !== uid) { refuse('adopt', held.uid, uid); return { adopted: false, added: false, refused: true } }
     let { state, rev } = res
     reached()
     let asked = false
