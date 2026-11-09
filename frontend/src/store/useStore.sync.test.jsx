@@ -54,7 +54,7 @@ describe('pull against a revisioned server', () => {
   it('adopts the server copy when only the server moved, and records its revision', async () => {
     const local = { ...clone(DEF), _ts: 100, workouts: [workout('w1')], active: { id: 'running' } }
     signedIn(local)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('w2')], _rev: 2 }, rev: 2 })
 
     await useStore.getState().pullState()
@@ -63,12 +63,12 @@ describe('pull against a revisioned server', () => {
     expect(useStore.getState().S.workouts.map(w => w.id)).toEqual(['w1', 'w2'])
     expect(useStore.getState().S._ts).toBe(200)
     expect(useStore.getState().S.active).toEqual({ id: 'running' })
-    expect(sync()).toEqual({ rev: 2, ts: 200 })
+    expect(sync()).toEqual({ rev: 2, ts: 200, uid: 'user-1' })
   })
 
   it('does nothing when neither side moved', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 100, workouts: [workout('w1')], _rev: 1 }, rev: 1 })
 
     await useStore.getState().pullState()
@@ -79,7 +79,7 @@ describe('pull against a revisioned server', () => {
 
   it('pushes when only this device changed', async () => {
     signedIn({ ...clone(DEF), _ts: 150, workouts: [workout('w1')], restSec: 75 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 100, workouts: [workout('w1')], _rev: 1 }, rev: 1 })
     api.mockResolvedValueOnce({ ok: true, rev: 2 })
 
@@ -88,14 +88,14 @@ describe('pull against a revisioned server', () => {
     expect(puts()).toHaveLength(1)
     expect(puts()[0].baseRev).toBe(1)
     expect(puts()[0].state.restSec).toBe(75)
-    expect(sync()).toEqual({ rev: 2, ts: 150 })
+    expect(sync()).toEqual({ rev: 2, ts: 150, uid: 'user-1' })
   })
 
   // The report: desktop adopted rev 1, the phone logged a workout (rev 2), the desktop changed a
   // setting. One PUT, against rev 2, carrying both.
   it('merges and pushes once against the server revision when both sides changed', async () => {
     signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('w1')], restSec: 75 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('from-phone', '2026-09-02')], _rev: 2 }, rev: 2 })
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
 
@@ -120,7 +120,7 @@ describe('pull against a revisioned server', () => {
 
     expect(puts()).toHaveLength(0)
     expect(useStore.getState().S.routines.map(r => r.id)).toEqual(['r'])
-    expect(sync()).toEqual({ rev: 5, ts: 50 })
+    expect(sync()).toEqual({ rev: 5, ts: 50, uid: 'user-1' })
   })
 
   it('a first pull with a newer local copy pushes it against the server revision', async () => {
@@ -132,19 +132,19 @@ describe('pull against a revisioned server', () => {
 
     expect(puts()).toHaveLength(1)
     expect(puts()[0].baseRev).toBe(5)
-    expect(sync()).toEqual({ rev: 6, ts: 500 })
+    expect(sync()).toEqual({ rev: 6, ts: 500, uid: 'user-1' })
   })
 
   it('a 401 on pull leaves the copy, the marker and the user alone', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(httpError(401, { error: 'not signed in' }))
 
     await useStore.getState().pullState()
 
     expect(useStore.getState().user).toEqual({ id: 'user-1' })
     expect(useStore.getState().S.workouts.map(w => w.id)).toEqual(['w1'])
-    expect(sync()).toEqual({ rev: 1, ts: 100 })
+    expect(sync()).toEqual({ rev: 1, ts: 100, uid: 'user-1' })
     expect(localStorage.getItem('gym_dirty')).toBeNull()
     expect(useStore.getState().sync).toMatchObject({ status: 'auth', auth: true, lastError: { status: 401 } })
   })
@@ -153,18 +153,18 @@ describe('pull against a revisioned server', () => {
 describe('push against a revisioned server', () => {
   it('sends the marker revision as baseRev and records the one it gets back', async () => {
     signedIn({ ...clone(DEF), _ts: 120, routines: [routine('r')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ ok: true, rev: 5 })
 
     await useStore.getState().pushState()
 
     expect(puts()[0].baseRev).toBe(4)
-    expect(sync()).toEqual({ rev: 5, ts: 120 })
+    expect(sync()).toEqual({ rev: 5, ts: 120, uid: 'user-1' })
   })
 
   it('a 409 merges the server copy it carries and pushes again against that revision', async () => {
     signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('w1')], restSec: 75 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(httpError(409, { error: 'conflict', rev: 2, state: { ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('w2')], _rev: 2 } }))
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
 
@@ -182,7 +182,7 @@ describe('push against a revisioned server', () => {
 
   it('gives up after two conflicts in a row and leaves the copy dirty for the next pull', async () => {
     signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     const conflict = rev => httpError(409, { error: 'conflict', rev, state: { ...clone(DEF), _ts: 200, workouts: [workout('w' + rev)], _rev: rev } })
     api.mockRejectedValueOnce(conflict(2)).mockRejectedValueOnce(conflict(3)).mockRejectedValueOnce(conflict(4))
 
@@ -196,7 +196,7 @@ describe('push against a revisioned server', () => {
   it('a replace meant for the server goes without a baseRev, the change after it with one', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('old')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ ok: true, rev: 5 }).mockResolvedValueOnce({ ok: true, rev: 6 })
 
     useStore.getState().replaceState({ ...clone(DEF), routines: [routine('imported')] }, true)
@@ -213,6 +213,7 @@ describe('push against a revisioned server', () => {
 
   it('a push asked for during a push runs once after it, and the caller waits for it', async () => {
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('r')] })
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 0, ts: 0, uid: 'user-1' }))   // the first sync's base: a push needs one (NATG-556)
     let release
     api.mockImplementationOnce(() => new Promise(r => { release = () => r({ ok: true, rev: 1 }) }))
     api.mockResolvedValue({ ok: true, rev: 2 })
@@ -232,7 +233,7 @@ describe('push against a revisioned server', () => {
 
   it('a server without revisions drops the marker', async () => {
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('r')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ ok: true })
 
     await useStore.getState().pushState()
@@ -245,6 +246,7 @@ describe('ordering', () => {
   it('a change made before boot is through does not push until it is', async () => {
     vi.useFakeTimers()
     localStorage.setItem('gym_owner', 'user-1')   // as setUser signs in
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 0, ts: 0, uid: 'user-1' }))   // the first sync's base: a push needs one (NATG-556)
     useStore.setState({ S: clone(DEF), user: { id: 'user-1' }, ready: false })
     api.mockResolvedValue({ ok: true, rev: 1 })
 
@@ -297,7 +299,7 @@ describe('ordering', () => {
   it('a pull sends a push still waiting in the debounce first', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('r')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockImplementation(async (path, opts) => opts ? { ok: true, rev: 2 } : { state: { ...clone(DEF), _ts: 100, routines: [routine('r')], _rev: 2 }, rev: 2 })
 
     useStore.getState().update(s => { s.restSec = 30 })   // arms the 1.5 s push
@@ -314,7 +316,7 @@ describe('ordering', () => {
   it('coming back to the tab pulls, not twice within 15 s, and going online always does', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('r')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValue({ state: { ...clone(DEF), _ts: 100, routines: [routine('r')], _rev: 1 }, rev: 1 })
     const visible = () => {
       Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
@@ -365,7 +367,7 @@ describe('an edited workout between devices', () => {
   it('an edit saved offline reaches the server with the next push, over a server that moved meanwhile', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, workouts: [logged()] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(new TypeError('Failed to fetch'))
 
     edit(50)
@@ -389,7 +391,7 @@ describe('an edited workout between devices', () => {
   it('edited on one device while another still holds the old copy: the edit replaces it there too', async () => {
     // The other device: the old copy, and a setting changed after the edit was made elsewhere.
     signedIn({ ...clone(DEF), _ts: Date.now() + 60000, workouts: [logged()], restSec: 75 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     const edited = { ...logged(50), _ts: Date.now() }
     const server = { ...clone(DEF), _ts: Date.now(), workouts: [edited], _rev: 2 }
 
@@ -412,7 +414,7 @@ describe('an edited workout between devices', () => {
   it('an edit of a workout another device deleted: kept as a draft when the deletion arrived first', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, workouts: [logged()] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockResolvedValueOnce({ ok: true, rev: 2 })
     useStore.getState().update(s => { editCompletedSession(s, 'w1') })
     useStore.getState().update(s => { s.active.entries[0].sets[0].w = 50 })
@@ -433,7 +435,7 @@ describe('an edited workout between devices', () => {
   it('an edit of a workout another device deleted: saved first, it comes back edited rather than lost', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, workouts: [logged()] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     edit(50)
     api.mockRejectedValueOnce(httpError(409, { error: 'conflict', rev: 2, state: { ...clone(DEF), _ts: Date.now() + 60000, workouts: [], _rev: 2 } }))
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
@@ -460,7 +462,7 @@ describe('removals and settings across a conflict', () => {
     localStorage.clear()
     api.mockReset()
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('W'), workout('keep')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     useStore.getState().update(s => { s.restSec = 45 }, false)
     api.mockRejectedValueOnce(httpError(409, { error: 'conflict', rev: 2, state: { ...fromA, _rev: 2 } }))
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
@@ -476,7 +478,7 @@ describe('removals and settings across a conflict', () => {
     vi.useFakeTimers()
     vi.setSystemTime(10000)
     signedIn({ ...clone(DEF), _ts: 100 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     useStore.getState().update(s => { s.week = { ...s.week, 3: ['upperB'] } }, false)
     // the other device logged a weigh-in after it (its copy is newer as a whole)
     const other = { ...clone(DEF), _ts: 50000, bodyweight: [{ d: '2026-09-05', w: 80, t: 50000 }], _rev: 2 }
@@ -504,7 +506,7 @@ describe('a rotation pass a merge leaves complete', () => {
     const done = (id, d) => ({ id: 'w-' + id, d, start: now - 86400000, routineIds: [id], routineId: id, name: id, entries: [] })
     // this device trained A, the other trained B: each copy alone still has a session to go
     signedIn({ ...clone(DEF), ...clone(plan), _ts: 300, workouts: [done('a', '2026-09-10')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
     api.mockRejectedValueOnce(httpError(409, { error: 'conflict', rev: 2, state: { ...clone(DEF), ...clone(plan), _ts: 200, workouts: [done('b', '2026-09-11')], _rev: 2 } }))
     api.mockResolvedValueOnce({ ok: true, rev: 3 })
 
