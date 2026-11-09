@@ -58,10 +58,16 @@ export function useBehindSheet() {
 const pageField = a => !!a && (a.tagName === 'INPUT' || a.tagName === 'TEXTAREA' || a.isContentEditable) && !a.closest?.('#modal-root')
 const canFocus = el => !!el && typeof el.focus === 'function' && el.isConnected
 
+// A sheet that closes and opens another in the same tap ("Edit" in a menu sheet) leaves a button of
+// its own as the new sheet's opener, and that button is gone by the time the new sheet closes. So
+// the closing sheet hands its own opener on, keyed on the container of the sheet that took focus.
+const handedOpener = new WeakMap()
+
 // Focus for a bottom sheet or centred dialog: in on open, back out on close. A screen reader only
 // treats an aria-modal dialog as entered once focus is inside it. The container itself takes focus
 // (tabIndex -1, no ring: index.css) unless the sheet has already put it somewhere of its own, such
-// as an autoFocus field. On close focus goes back to whatever had it when the sheet opened, or, when
+// as an autoFocus field. On close focus goes back to whatever had it when the sheet opened (or, when
+// that was in a sheet that has closed since, to what that sheet would have gone back to), or, when
 // that is gone, to the sheet now on top. A full-screen viewer does this itself (WorkoutMedia.jsx).
 function useSheetFocus(box, skip) {
   // Read while rendering, before anything in the sheet mounts: an autoFocus field inside it has
@@ -71,8 +77,10 @@ function useSheetFocus(box, skip) {
     const a = skip ? null : document.activeElement
     opener.current = a && a !== document.body ? a : null
   }
+  // The container, kept for the cleanup below: React has detached `box` by the time that runs.
+  const self = useRef(null)
   useLayoutEffect(() => {
-    const el = box.current
+    const el = self.current = box.current
     if (skip || !canFocus(el)) return
     if (!el.contains(document.activeElement)) el.focus({ preventScroll: true })
   }, [])
@@ -81,11 +89,18 @@ function useSheetFocus(box, skip) {
   // removes this sheet is over, and an inert element refuses focus. Passive cleanups run after it.
   useEffect(() => () => {
     if (skip) return
+    const own = opener.current
+    const back = own && own.isConnected ? own : handedOpener.get(self.current) || own
     // Only when focus went with this sheet. A sheet under the top one can be closed too, and the
     // top one keeps its focus; a sheet that moved focus on purpose as it closed keeps that.
     const a = document.activeElement
-    if (a && a !== document.body && a.isConnected) return
-    const back = opener.current
+    if (a && a !== document.body && a.isConnected) {
+      // Focus is in another sheet, opened in the same tap or already on top. Its opener may be in
+      // this one, about to be gone, so it gets this one's to go back to instead.
+      const next = a.closest?.('#modal-root > div > [role="dialog"]')
+      if (next && canFocus(back) && !pageField(back)) handedOpener.set(next, back)
+      return
+    }
     if (canFocus(back) && !pageField(back)) {
       back.focus({ preventScroll: true })
       // A connected opener can still refuse focus: disabled while the sheet was open, or inert
