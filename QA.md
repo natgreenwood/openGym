@@ -35,6 +35,32 @@ npx vitest run --sequence.shuffle --sequence.seed=7
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
 Known gaps for the plates property test.
 
+## Fresh-store and global isolation
+
+The shared helper introduced in [PR #81](https://github.com/natgreenwood/openGym/pull/81)
+is `src/test-utils/fresh-store.js`. Call `await freshStore()` from a test or
+`beforeEach`; it returns the store module's exports. Its automatic `afterEach`
+signs out every store it loaded and removes the window/document listeners recorded
+during loading, including the `gym_owner` storage listener. It requires Vitest's
+default per-file isolation. A store loaded in `beforeAll` is released after the
+first test. Signed-out poll timers remain idle rather than being cancelled.
+
+Seed owner-sensitive storage before calling the helper. Import modules that must
+share its instances, such as `media-store.js` and `media-owed.js`, afterwards.
+Keep test-owned pagehide flushes in the file's `afterEach`; they run before the
+helper's cleanup.
+
+From `frontend/`, exercise listener cleanup (including spies installed before or
+during loading), descriptor restoration, and modal global-key cleanup together:
+
+```sh
+npx vitest run src/test-utils/fresh-store.test.js src/components/Modals.test.jsx --sequence.shuffle --sequence.seed=7 --reporter=dot
+```
+
+`restoreMocks` and `unstubGlobals` run before each test; create spies and global
+stubs in `beforeEach` when every test needs them. `mockReset` stays off, so
+factory-created `vi.fn()` implementations persist until explicitly reset.
+
 ## Swipe-back preview tests
 
 From `frontend/`, on Linux with CPU 0 available:
