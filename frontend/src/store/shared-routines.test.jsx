@@ -43,7 +43,7 @@ beforeEach(() => {
 })
 const signedIn = (S = clone(DEF)) => {
   useStore.setState({ S, user: USER, ready: true, sync: { ...fresh }, config: { shares: true } })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: net.rev, ts: S._ts || 0, uid: USER.id }))
 }
 
 describe('the share lists live on this device, never in S', () => {
