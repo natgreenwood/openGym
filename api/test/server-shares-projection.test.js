@@ -1008,3 +1008,87 @@ test('NATG-494 (spy): a routine the measure throws on is unreadable, never a thr
   assert.equal((await h.post(`/api/shares/${B1}/decline`, KIM)).status, 200);
   assert.equal(await h.stackFrames(), 0, h.log);
 });
+
+/* ---------- NATG-645: the sharer is told their shared routine is too large ----------
+   The sharer's outgoing item carries `unavailable: 'too-large'` exactly while the routine is
+   over the cap, read from the routine's cached verdict (routineOverCap), in GET /api/shares and
+   in the meta form the revision poll's etag is built from. */
+
+// The etag the sharer's half answered before the flag: ids alone. A sharer with no incoming
+// shares and every routine under the cap must still get exactly this.
+const idsOnlyEtag = ids =>
+  crypto.createHash('sha256').update(JSON.stringify([[], [...ids].sort().map(id => [id])])).digest('hex').slice(0, 16);
+const D1 = '00000000000000d1';
+
+test('NATG-645 AC1, AC3 (spy): the sharer\'s outgoing item is too-large while its routine is over the cap, the same for pending, accepted and declined shares, never projected or hashed', async t => {
+  const shares = [rec(A1, SAM, 'accepted'), rec(B1, KIM, 'pending'), rec(C1, ADMIN, 'declined'), rec(D1, SAM, 'pending', 'r2')];
+  const h = await startServer(t, { spy: true, shares, alex: alexSized(MAX_SHARED_BYTES + 1) });
+  const before = h.dbBytes();
+  const item = (id, to, routineId = 'r1') => ({ id, to, routineId, created: at });
+  const tooLarge = (id, to) => ({ ...item(id, to), unavailable: 'too-large' });
+
+  const list = await h.get('/api/shares', ALEX);
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.outgoing, [
+    tooLarge(A1, { id: SAM, name: 'Sam' }), tooLarge(B1, { id: KIM, name: 'Kim' }), tooLarge(C1, { id: ADMIN, name: 'Adminna' }),
+    item(D1, { id: SAM, name: 'Sam' }, 'r2')
+  ], 'one flag per routine, whatever each recipient did; a routine under the cap has no `unavailable` at all');
+  assert.equal(JSON.stringify(list.body.outgoing).includes('"state"'), false, 'no recipient state');
+  assert.equal(await h.etag(ALEX), list.body.etag, 'the poll answers the etag the list does');
+  assert.notEqual(list.body.etag, idsOnlyEtag([A1, B1, C1, D1]));
+  assert.equal(h.dbBytes(), before, 'nothing written');
+
+  await h.settled();
+  assert.deepEqual(spyCounts(h), { measure: 1, project: 0, hashRoutine: 0, hashPreview: 0 },
+    'measured once for three shares, a list and a poll; never projected or hashed');
+
+  // Exactly the cap is not over it.
+  assert.equal((await h.put(ALEX, alexSized(MAX_SHARED_BYTES))).status, 200);
+  const at64 = await h.get('/api/shares', ALEX);
+  assert.equal(at64.body.outgoing.some(o => 'unavailable' in o), false);
+  assert.equal(at64.body.etag, idsOnlyEtag([A1, B1, C1, D1]));
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-645 AC1, AC2, AC4: the sharer\'s etag moves when a routine goes over the cap and back, through PUT /api/data or outside it; the PUT is not refused or altered', async t => {
+  const h = await startServer(t);
+  const id = await acceptedShare(h);
+  const [pending] = (await h.share(ALEX, 'r1', [KIM])).body.shares;
+  const ids = [id, pending.id];
+  const outgoing = async () => (await h.get('/api/shares', ALEX)).body;
+  const flags = list => list.outgoing.map(o => o.unavailable ?? null);
+
+  const under = await outgoing();
+  assert.deepEqual(flags(under), [null, null]);
+  assert.equal(under.etag, idsOnlyEtag(ids), 'under the cap, the etag is what it was before the flag');
+  assert.equal(await h.etag(ALEX), under.etag);
+
+  // Over the cap through PUT: stored as sent, answered as before, noticed on the next poll.
+  const big = alexSized(MAX_SHARED_BYTES + 1);
+  const put = await h.put(ALEX, big);
+  assert.equal(put.status, 200);
+  assert.deepEqual(Object.keys(put.body).sort(), ['ok', 'rev', 'ts', 'wid'], 'no warning or flag on the write');
+  assert.equal(h.read(ALEX).routines[0].ex[0].note, big.routines[0].ex[0].note, 'not cut');
+  const overEtag = await h.etag(ALEX);
+  assert.notEqual(overEtag, under.etag, 'the sharer notices on the next poll');
+  const over = await outgoing();
+  assert.deepEqual(flags(over), ['too-large', 'too-large']);
+  assert.equal(over.etag, overEtag);
+
+  // Back under through PUT: the flag goes, and the etag is the one it was.
+  assert.equal((await h.put(ALEX, alexState())).status, 200);
+  assert.equal(await h.etag(ALEX), under.etag);
+  assert.deepEqual(flags(await outgoing()), [null, null]);
+
+  // Outside PUT (a restored file, a hand edit), keeping `_rev`: the next poll sees it all the same.
+  const rev = h.read(ALEX)._rev;
+  await tick();
+  h.write(ALEX, alexSized(MAX_SHARED_BYTES + 1, { _rev: rev }));
+  assert.equal(await h.etag(ALEX), overEtag);
+  assert.deepEqual(flags(await outgoing()), ['too-large', 'too-large']);
+  await tick();
+  h.write(ALEX, alexState({ _rev: rev }));
+  assert.equal(await h.etag(ALEX), under.etag);
+  assert.deepEqual(flags(await outgoing()), [null, null]);
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
