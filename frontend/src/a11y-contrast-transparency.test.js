@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
+import { customAccentVars } from './lib/accent.js'
 
 const read = (f) => readFileSync(resolve(process.cwd(), 'src', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 
@@ -214,16 +215,32 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
   const dark = rule(css, ':root')
   const light = rule(css, ':root[data-theme="light"]')
   const presets = [...css.matchAll(/:root\[data-accent="(\w+)"\]\s*\{\s*--acc:var\(--(\w+)\);\s*--acc-2:(#\w+)/g)]
-  // The surfaces a ring can sit on. Light leaves out --surface-3: no focusable element draws its
-  // ring there (Orange would be 2.97:1), and QA flags one if it turns up.
+  // A preset whose --acc-2 falls short in light gets a ring of its own there.
+  const lightRings = Object.fromEntries([...css.matchAll(/:root\[data-theme="light"\]\[data-accent="(\w+)"\]\s*\{\s*--focus-ring:(#\w+)/g)]
+    .map((m) => [m[1], m[2]]))
+  // The surfaces a ring can sit on.
   const surfaces = {
     dark: ['--bg', '--bg-el', '--surface', '--surface-2', '--surface-3'],
-    light: ['--bg', '--bg-el', '--surface', '--surface-2'],
+    light: ['--bg', '--bg-el', '--surface', '--surface-2', '--surface-3'],
   }
+  // The light search fields are a translucent fill, so their inset ring sits on that fill over
+  // whatever is behind the field.
+  const searchFill = token(rule(css, ':root[data-theme="light"] .search .input'), 'background')
+  const lightGrounds = [
+    ...surfaces.light.map((s) => [s, hex(token(light, s))]),
+    ...['--bg', '--bg-el', '--surface', '--surface-2'].map((s) => [`search fill over ${s}`, over(rgba(searchFill), hex(token(light, s)))]),
+  ]
 
   it('the ring is the accent in dark and its darker --acc-2 in light', () => {
     expect(token(dark, '--focus-ring')).toBe('var(--acc)')
     expect(token(light, '--focus-ring')).toBe('var(--acc-2)')
+    // Orange is the one preset that needs its own; every other preset keeps --acc-2.
+    expect(lightRings).toEqual({ orange: '#b36000' })
+  })
+
+  it('both light search fields use the translucent fill the contrast checks composite', () => {
+    expect(searchFill).toMatch(/^rgba\(/)
+    expect(token(rule(css, ':root[data-theme="light"] .searchf .field'), 'background')).toBe(searchFill)
   })
 
   it('every preset draws its ring at 3:1 or better in both themes, Increase Contrast included', () => {
@@ -233,7 +250,18 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
         const ring = hex(token(palette, `--${colour}`))
         for (const s of surfaces.dark) expect(ratio(ring, hex(token(dark, s))), `${name} dark on ${s}`).toBeGreaterThanOrEqual(3)
       }
-      for (const s of surfaces.light) expect(ratio(hex(acc2), hex(token(light, s))), `${name} light on ${s}`).toBeGreaterThanOrEqual(3)
+      const ring = hex(lightRings[name] || acc2)
+      for (const [g, rgb] of lightGrounds) expect(ratio(ring, rgb), `${name} light on ${g}`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('an own accent colour draws its light ring at 3:1 or better too', () => {
+    // A 5-step grid through the sRGB cube, from black to white and every saturated corner.
+    const steps = ['00', '40', '80', 'bf', 'ff']
+    const sample = steps.flatMap((r) => steps.flatMap((g) => steps.map((b) => `#${r}${g}${b}`)))
+    for (const c of sample) {
+      const ring = hex(customAccentVars(c, 'light')['--acc-2'])
+      for (const [g, rgb] of lightGrounds) expect(ratio(ring, rgb), `${c} light on ${g}`).toBeGreaterThanOrEqual(3)
     }
   })
 
@@ -260,12 +288,12 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     expect(rule(read(file), sel)).toContain(`var(${colour})`)
   })
 
-  it('no stylesheet draws a focus indicator in the raw accent', () => {
+  it('no stylesheet draws a focus indicator in the raw accent or a tint of it', () => {
     const sheets = readdirSync(resolve(process.cwd(), 'src'), { recursive: true }).filter((f) => f.endsWith('.css'))
     const focus = sheets.flatMap((f) => [...read(f).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
       .filter((m) => m[1].includes(':focus'))
       .map((m) => [`${f}: ${m[1].trim()}`, m[2]]))
     expect(focus.length).toBeGreaterThan(0)
-    for (const [where, decls] of focus) expect(decls, where).not.toMatch(/var\(--acc\)/)
+    for (const [where, decls] of focus) expect(decls, where).not.toMatch(/var\(--acc(-line|-soft)?\)/)
   })
 })
