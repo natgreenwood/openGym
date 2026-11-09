@@ -99,6 +99,28 @@ describe('a copy whose base is another account\'s', () => {
     })
   }
 
+  // The poll, with nothing owed: a revision equal to A's base used to confirm A's copy as in step
+  // with B's server, rewriting when it last synced and what it looked like, and clearing the error.
+  it('a poll whose revision matches the foreign base confirms nothing and leaves the error', async () => {
+    localStorage.setItem('gym_synced_at', '12345')
+    localStorage.setItem('gym_synced_fp', JSON.stringify({ s: 'a-fingerprint' }))
+    const { S } = await staleCopy({ dirty: false })
+    await useStore.getState().pushState()   // refused: the error is set
+    expect(useStore.getState().sync.lastError).toEqual({ status: 0, code: 'account-mismatch' })
+    const before = { ...snapshot(), at: localStorage.getItem('gym_synced_at'), fp: localStorage.getItem('gym_synced_fp') }
+    api.mockImplementation(async path => (path === '/api/data/rev' ? { rev: 1 } : { state: null, rev: 1 }))
+
+    window.dispatchEvent(new Event('online'))   // the poll, forced
+    await new Promise(r => setTimeout(r, 20))
+
+    expect(api).not.toHaveBeenCalled()
+    expect({ ...snapshot(), at: localStorage.getItem('gym_synced_at'), fp: localStorage.getItem('gym_synced_fp') }).toEqual(before)
+    expect(useStore.getState().S).toBe(S)
+    expect(useStore.getState().sync).toMatchObject({ status: 'error', lastError: { status: 0, code: 'account-mismatch' } })
+    expect(warn).toHaveBeenCalledTimes(2)   // the push, then the check
+    expect(warn.mock.calls[1][0]).toContain('check')
+  })
+
   it('is not merged when a sign-in to the account merges this copy in (mergeInto\'s own check)', async () => {
     const { S, before } = await staleCopy()
     // The sign-in marked this copy as the account's own (adoptProfile's same-account branch).
