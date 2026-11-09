@@ -120,7 +120,7 @@ function pairedPhone({ localStorage: withLocal = true, mirror, synced = true } =
     localStorage.setItem('gym_state_v1', JSON.stringify(S))
     localStorage.setItem('gym_user', JSON.stringify(USER))
     localStorage.setItem('gym_owner', USER.id)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 1000 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 1000, uid: USER.id }))
     if (synced) localStorage.setItem('gym_synced_fp', JSON.stringify(syncFingerprint(S)))
   }
 }
@@ -529,7 +529,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     delete mine._rev
     pairedPhone({ mirror: mine })
     localStorage.setItem('gym_state_v1', JSON.stringify(mine))
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 3000 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 3000, uid: USER.id }))
     return serverWith({ ...SERVER_STATE, _ts: 2000, _rev: 6, workouts: [...SERVER_STATE.workouts, workout('w-other', '2026-09-19')] })
   }
 
