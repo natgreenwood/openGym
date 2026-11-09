@@ -203,6 +203,37 @@ final class SetTypesTests: XCTestCase {
         XCTAssertTrue(n.rest, "the rest after the round")
     }
 
+    /// A workout grown too big to send: the phone sends the last one it sent again, without its rest
+    /// and with new settings (frontend lib/watch-sync.js fallbackSnapshot, SEC-613-01). The watch's
+    /// own ticks since stay, it stays where it is, and Apple Health off takes.
+    func testTheLastWorkoutSentAgainKeepsTheWatchsTicksAndTakesTheSettings() {
+        var w = ActiveWorkout(id: "w1", name: "Big", unit: "kg", cur: 0, restSec: 90, rest: RestInfo(endsAt: 5_000),
+                              entries: [entry("bench", "Bench", sets: [row(60, 8), row(60, 8)]), entry("row", "Row", sets: [row(50, 10)])], start: 0)
+        let s1 = SessionCore.applySnapshot(SessionState(), Snapshot(v: 1, unit: "kg", restSec: 90, active: w, ready: nil, settings: WatchSettings(health: true)))
+        XCTAssertEqual(s1.settings.health, true)
+        let ticked = SessionCore.tick(s1, entry: 0, set: 0, w: 62.5, r: 7, at: 10, id: "t").0
+        w.rest = nil
+        let s = SessionCore.applySnapshot(ticked, Snapshot(v: 1, unit: "kg", restSec: 90, active: w, ready: nil, settings: WatchSettings(health: false)))
+        let set = s.workout!.entries[0].sets[0]
+        XCTAssertTrue(set.done, "the watch's tick is not taken back")
+        XCTAssertEqual(set.w, 62.5)
+        XCTAssertEqual(set.r, 7)
+        XCTAssertEqual(set.at, 10)
+        XCTAssertNotNil(s.pending[SessionCore.key("bench", 0)], "still waiting for the phone to have it")
+        XCTAssertEqual(s.entryIndex, ticked.entryIndex)
+        XCTAssertEqual(s.settings.health, false)
+    }
+
+    /// No workout from the phone while one started here is not confirmed yet: it stays, and the
+    /// settings still take (SEC-613-01, the phone's "another workout, or none" case).
+    func testNoWorkoutFromThePhoneKeepsOneStartedHereAndTakesTheSettings() {
+        let ready = ReadySession(routineIds: ["r"], name: "Push", entries: [entry("bench", "Bench", sets: [row(60, 8)])])
+        let started = SessionCore.start(SessionState(), ready, wid: "watch-1", at: 5, id: "s").0
+        let s = SessionCore.applySnapshot(started, Snapshot(v: 1, unit: "kg", restSec: 90, active: nil, ready: nil, settings: WatchSettings(health: false)))
+        XCTAssertEqual(s.workout?.id, "watch-1")
+        XCTAssertEqual(s.settings.health, false)
+    }
+
     func testAStateSavedByTheLastBuildStillLoads() throws {
         let saved = #"{"settings":{},"unit":"kg","restSec":90,"finishedHere":[],"pending":{"x#0":{"w":1,"r":2,"at":3}},"entryIndex":0}"#
         let s = try JSONDecoder().decode(SessionState.self, from: Data(saved.utf8))
