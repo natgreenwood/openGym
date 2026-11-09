@@ -52,7 +52,7 @@
 
 /* provider chips grouped under a small heading */
 .adm-group{margin:0 0 12px}
-.adm-group-t{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--label-3);margin:0 0 7px}
+.adm-group-t{font-size:11.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--label-2);margin:0 0 7px}
 .adm-chips{display:flex;flex-wrap:wrap;gap:8px}
 .adm-chips .chip{min-height:38px;display:inline-flex;align-items:center;gap:7px}
 .adm-chip-key{
@@ -113,7 +113,7 @@
 .adm-log{display:flex;flex-direction:column}
 .adm-log-row{display:flex;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:var(--hair) solid var(--sep);font-size:13.5px}
 .adm-log-row:last-child{border-bottom:0}
-.adm-log-row .when{color:var(--label-3);font-size:12px;flex:none}
+.adm-log-row .when{color:var(--label-2);font-size:12px;flex:none}
 
 /* users list rows with a copy affordance for invite codes */
 .adm-code{
@@ -121,7 +121,7 @@
   background:var(--surface-2);padding:4px 9px;border-radius:8px;font-size:14px
 }
 .adm-iconbtn{width:44px;height:44px;border-radius:12px;font-size:17px}
-.adm-empty{color:var(--label-3);font-size:13.5px;padding:10px 2px}
+.adm-empty{color:var(--label-2);font-size:13.5px;padding:10px 2px}
 
 /* ---------- the Coach before setup: a pitch, not a form ---------- */
 .adm-hero{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:6px 2px 2px}
