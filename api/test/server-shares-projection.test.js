@@ -651,7 +651,10 @@ test('SEC-01: a share the server cannot project at all is unreadable with its id
   assert.equal((await h.del(`/api/shares/${id}`, SAM)).status, 200, 'the recipient can still remove it');
   assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [keep]);
   await h.settled();
-  assert.equal(h.log.match(/cannot project share/g)?.length, 1, 'logged once');
+  // Caught where the routine's verdict is worked out (NATG-494), once per version of the
+  // document, so the line names the routine rather than each share of it.
+  assert.equal(h.log.match(/shares: cannot project/g)?.length, 1, 'logged once');
+  assert.match(h.log, /shares: cannot project routine r1 of u_alex/);
   assert.equal(await h.stackFrames(), 0, h.log);
 });
 /* QA contract checks: the design and ShareIncoming require primitive text: a string, or a number

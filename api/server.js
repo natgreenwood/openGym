@@ -37,7 +37,7 @@ import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
-import { sharedRoutine, sharedPreview, contentHash, text } from './shared-routine.js';
+import { sharedRoutine, sharedPreview, sharedName, sharedOverCap, contentHash, text, MAX_SHARED_BYTES } from './shared-routine.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -504,8 +504,11 @@ const STATE_CACHE_MAX = 64;
 // (10 s), so nobody who is actually using the instance is ever evicted by age; the tests shorten
 // it, as they do REMINDER_TICK_MS.
 const STATE_CACHE_TTL_MS = Math.max(50, +(process.env.STATE_CACHE_TTL_MS || 600000) || 600000);
-const stateCache = new Map(); // uid -> { mtimeMs, size, hitAt, S }
-function readStateCached(uid) {
+// An entry is one version of one document. `shared` holds what routine sharing derives from that
+// version (sharedVerdict, by the projection), so it goes wherever the document goes: a changed
+// file is a new entry, PUT /api/data evicts it, and the two bounds below drop it.
+const stateCache = new Map(); // uid -> { mtimeMs, size, hitAt, S, shared }
+function stateEntry(uid) {
   let st;
   try { st = fs.statSync(stateFile(uid)); } catch { stateCache.delete(uid); return null; }
   const now = Date.now();
@@ -515,12 +518,16 @@ function readStateCached(uid) {
   if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
     hit.hitAt = now;
     stateCache.set(uid, hit);
-    return hit.S;
+    return hit;
   }
-  const S = readState(uid);
-  stateCache.set(uid, { mtimeMs: st.mtimeMs, size: st.size, hitAt: now, S });
+  const entry = { mtimeMs: st.mtimeMs, size: st.size, hitAt: now, S: readState(uid), shared: new Map() };
+  stateCache.set(uid, entry);
   while (stateCache.size > STATE_CACHE_MAX) stateCache.delete(stateCache.keys().next().value);
-  return S;
+  return entry;
+}
+function readStateCached(uid) {
+  const entry = stateEntry(uid);
+  return entry ? entry.S : null;
 }
 // Missed-workout nudge (nudge.js): opt-in on top of the reminder, so it needs everything the
 // reminder does (a push subscription, the reminder on, a zone). Owed from 20:00 — or 2 h after the
@@ -2155,31 +2162,88 @@ const hasCustomEx = (S, routine) => {
 //   { unavailable: 'unreadable' }        the sharer's document cannot be read or is missing; the
 //                                         record is kept, a disk problem must not look like a revoke
 //   { gone: true }                       no routine with that id in the sharer's document
+//   { unavailable: 'too-large' }         the routine's projection is over MAX_SHARED_BYTES (NATG-494),
+//                                         pending or accepted; the record and its days are kept
 //   { unavailable: 'custom-exercise' }   accepted, but the routine now holds a custom exercise
-//   { unit, routine }                    usable (accepted) or previewable (pending)
+//   { unit, routine, shared }            usable (accepted) or previewable (pending); `shared` is
+//                                         the routine's verdict, projection and hashes included
 //
 // A pending share is never hidden for a custom exercise: it only shows a name and a count, and
 // the accepted item is where the rule bites. The sharer's document revision is never exposed: it
 // moves on every sync, workouts included, and would tell every recipient when the sharer trains.
 // An item's version tag is `hash`, over what the recipient can see (incomingItem).
 const unreadableSharers = new Set();   // logged once per sharer until the document reads again
+// The sharer's state cache entry (`S` and its `shared` verdicts), or UNREADABLE.
 function sharerDoc(uid, docs) {
   if (docs?.has(uid)) return docs.get(uid);
-  const S = readStateCached(uid);
-  const doc = S && typeof S === 'object' && !Array.isArray(S) ? S : UNREADABLE;
+  const entry = stateEntry(uid);
+  const S = entry?.S;
+  const doc = S && typeof S === 'object' && !Array.isArray(S) ? entry : UNREADABLE;
   if (doc === UNREADABLE) {
     if (!unreadableSharers.has(uid)) { unreadableSharers.add(uid); console.error('shares: sharer state unreadable for', uid); }
   } else unreadableSharers.delete(uid);
   docs?.set(uid, doc);
   return doc;
 }
+// What sharing makes of one routine in one version of the sharer's document, worked out once
+// and kept on that version's cache entry, by routine id: per routine, not per share, so a routine
+// shared with ten people is measured and hashed once. Never keyed on `_rev` (SEC-02): the entry
+// follows the file, so a sharer's PUT, a restored file and a hand edit all start a new one.
+//
+// Two stages, so the size can be asked without paying for the hashes (routineOverCap):
+//   sizeVerdict    { over } from the measure (shared-routine.js sharedBytes), which stops counting
+//                  at the cap; an over-cap routine is `unavailable: 'too-large'` and goes no
+//                  further, so its projection is never kept, canonicalised or hashed.
+//   sharedVerdict  for one within the cap, adds the projection, the preview, both hashes, the
+//                  sharer's unit and whether it holds a custom exercise. Every poll after the
+//                  first reads these.
+// Both catch: resolveShare must never throw (see sharedRoutineFor), so anything the sharer's
+// data makes them throw on is `unavailable: 'unreadable'`, logged once per document version.
+function sizeVerdict(doc, uid, routine) {
+  let v = doc.shared.get(routine.id);
+  if (v) return v;
+  try { v = sharedOverCap(routine) ? { over: true, unavailable: 'too-large' } : { over: false }; }
+  catch (e) { v = { unavailable: 'unreadable' }; unprojectableRoutine(uid, routine, e); }
+  doc.shared.set(routine.id, v);
+  return v;
+}
+function sharedVerdict(doc, uid, routine) {
+  const v = sizeVerdict(doc, uid, routine);
+  if (v.unavailable || v.hash) return v;
+  try {
+    const unit = doc.S.unit === 'lb' ? 'lb' : 'kg';
+    const projected = sharedRoutine(routine);
+    const preview = sharedPreview(routine);
+    const body = {
+      unit, routine: projected, hash: contentHash({ unit, routine: projected }),
+      preview, previewHash: contentHash({ preview }), custom: hasCustomEx(doc.S, routine)
+    };
+    Object.assign(v, body);
+  } catch (e) { v.unavailable = 'unreadable'; unprojectableRoutine(uid, routine, e); }
+  return v;
+}
+const unprojectableRoutine = (uid, routine, e) =>
+  console.error('shares: cannot project routine', text(routine.id).slice(0, 64), 'of', uid, e?.name || 'error');
 function resolveShare(s, docs) {
-  const S = sharerDoc(s.from, docs);
-  if (S === UNREADABLE) return { unavailable: 'unreadable' };
-  const routine = records(S.routines).find(r => r.id === s.routineId);
+  const doc = sharerDoc(s.from, docs);
+  if (doc === UNREADABLE) return { unavailable: 'unreadable' };
+  const routine = records(doc.S.routines).find(r => r.id === s.routineId);
   if (!routine) return { gone: true };
-  if (s.state === 'accepted' && hasCustomEx(S, routine)) return { unavailable: 'custom-exercise' };
-  return { unit: S.unit === 'lb' ? 'lb' : 'kg', routine };
+  const v = sharedVerdict(doc, s.from, routine);
+  if (v.unavailable) return { unavailable: v.unavailable };
+  if (s.state === 'accepted' && v.custom) return { unavailable: 'custom-exercise' };
+  return { unit: v.unit, routine, shared: v };
+}
+// Whether `uid`'s routine `routineId` is over the cap, as of their document now: true or false,
+// or null when the document cannot be read, holds no such routine or the routine cannot be
+// measured. Measures at most once per document version and never hashes.
+function routineOverCap(uid, routineId) {
+  const doc = sharerDoc(uid);
+  if (doc === UNREADABLE) return null;
+  const routine = records(doc.S.routines).find(r => r.id === routineId);
+  if (!routine) return null;
+  const v = sizeVerdict(doc, uid, routine);
+  return v.unavailable === 'unreadable' ? null : v.over;
 }
 // What each side sees. The recipient never sees a declined or removed share; the sharer sees
 // every record they hold, with no state at all (epic AC12). An incoming item comes in two sizes
@@ -2190,7 +2254,8 @@ function resolveShare(s, docs) {
 // `hash` is a content hash of exactly what the item shows (shared-routine.js contentHash): of
 // `{ unit, routine }` for an accepted share, of `{ preview }` for a pending one, so a weight
 // changed while a share waits signals nothing to someone who has not accepted, and a rename does.
-// The meta form builds the body to hash it, and sends only the hash.
+// Both bodies and both hashes come from the routine's verdict (sharedVerdict), worked out once
+// per version of the sharer's document; the meta form sends only the hash.
 function incomingItem(s, p, { meta = false } = {}) {
   const from = userRef(s.from);
   if (!from || p.gone) return null;
@@ -2199,13 +2264,11 @@ function incomingItem(s, p, { meta = false } = {}) {
   };
   if (p.unavailable) return { ...item, unavailable: p.unavailable };
   if (s.state === 'pending') {
-    const preview = sharedPreview(p.routine);
-    item.hash = contentHash({ preview });
-    return meta ? item : { ...item, preview };
+    item.hash = p.shared.previewHash;
+    return meta ? item : { ...item, preview: p.shared.preview };
   }
-  const routine = sharedRoutine(p.routine);
-  item.hash = contentHash({ unit: p.unit, routine });
-  return meta ? item : { ...item, unit: p.unit, routine };
+  item.hash = p.shared.hash;
+  return meta ? item : { ...item, unit: p.unit, routine: p.shared.routine };
 }
 function outgoingItem(s) {
   const to = userRef(s.to);
@@ -2290,8 +2353,9 @@ function dropSharesOfGoneRoutines(req, user, state) {
   for (const s of gone) auditRoutineGone(req, s);
 }
 // What a reminder or nudge about a `shared:<id>` needs of the routine: its name and emoji, as
-// text (SEC-01: the push builders interpolate both). Null when there is no such shared routine
-// for `uid`, or it has no name, so the push falls back to its generic title.
+// text (SEC-01: the push builders interpolate both), the name bounded as the recipient's list
+// shows it (NATG-494). Null when there is no such shared routine for `uid`, it is unavailable
+// (too large, say), or it has no name, so the push falls back to its generic title.
 // Invariant: this runs outside projectIncoming's try/catch, and only after sharedRoutineIds
 // deemed the share usable through it in the same tick. That is safe only while resolveShare
 // cannot throw, so resolveShare must never gain a step that can: anything that can goes in
@@ -2300,7 +2364,7 @@ function sharedRoutineFor(uid, rid) {
   if (typeof rid !== 'string' || !rid.startsWith('shared:')) return null;
   const s = db.shares.find(x => x.id === rid.slice(7) && x.to === uid && x.state === 'accepted');
   const r = s ? resolveShare(s).routine : null;
-  const name = r ? text(r.name) : '';
+  const name = r ? sharedName(r) : '';
   return name ? { name, emoji: text(r.emoji) } : null;
 }
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
@@ -2387,6 +2451,13 @@ const shareRoutes = {
     if (!routine) return json(res, 404, { error: 'no routine with that id in your profile', code: 'routine-missing' });
     if (hasCustomEx(S, routine)) {
       return json(res, 400, { error: 'a routine with a custom exercise cannot be shared', code: 'custom-exercise' });
+    }
+    // NATG-494: what every recipient's poll would otherwise build and hash. A routine that cannot
+    // even be measured is refused the same way: no recipient could ever be shown it.
+    let tooLarge;
+    try { tooLarge = sharedOverCap(routine); } catch { tooLarge = true; }
+    if (tooLarge) {
+      return json(res, 400, { error: `a shared routine can hold at most ${MAX_SHARED_BYTES / 1024} KB`, code: 'too-large', maxKB: MAX_SHARED_BYTES / 1024 });
     }
     if (to.includes(user.id)) return json(res, 400, { error: 'you cannot share a routine with yourself', code: 'self' });
     const recipients = to.map(id => db.users.find(u => u.id === id && !u.disabled));
@@ -2992,8 +3063,17 @@ const routes = {
     // A routine the caller deleted takes its shares with it (epic AC10), in any state: a revoke in
     // the sharer's name, audited as such. Bookkeeping too, after the write.
     try { dropSharesOfGoneRoutines(req, user, body.state); } catch (e) { console.error('shares cleanup', e); }
+    // The size of each routine this caller shares, measured now against the file just written, so
+    // the sharer pays for it once rather than the first recipient to poll (NATG-494). Never
+    // refuses or alters the write: a routine over the cap is shown to its recipients as
+    // `unavailable: 'too-large'` until it is back under it.
+    try {
+      const live = new Set(db.shares.filter(x => x.from === user.id && !isTombstone(x)).map(x => x.routineId));
+      for (const rid of live) routineOverCap(user.id, rid);
+    } catch (e) { console.error('shares measure', e?.name || 'error'); }
     // This write can make a shared routine usable or unusable for its recipients (a custom
-    // exercise added or taken out), which their reminder tick's settled rest day cannot see.
+    // exercise added or taken out, the routine grown past the cap or back under it), which their
+    // reminder tick's settled rest day cannot see.
     for (const x of db.shares) if (x.from === user.id && x.state === 'accepted') clearSettled(x.to);
     json(res, 200, { ok: true, ts: body.state._ts || null, rev: curRev + 1, wid: body.state._wid });
   },
