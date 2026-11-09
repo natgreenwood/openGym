@@ -134,3 +134,34 @@ describe('Secondary text contrast (NATG-644)', () => {
     expect(ratio(over(rgba(token(dark, dim)), card), card)).toBeGreaterThanOrEqual(4.5)
   })
 })
+
+describe('Icon-only controls (WCAG 1.4.11)', () => {
+  // A control that is only a glyph (or a disc) needs 3:1 against whatever it sits on, so its ink
+  // is --label-2. --label-3 is for decorative and disabled marks, and is under 3:1 in both themes.
+  const css = read('index.css')
+  const themes = [['dark', rule(css, ':root')], ['light', rule(css, ':root[data-theme="light"]')]]
+
+  it.each(themes)('%s: --label-2 reads at 3:1 on every background', (_t, base) => {
+    const ink = rgba(token(base, '--label-2'))
+    for (const k of ['--bg', '--surface', '--surface-2', '--surface-3']) {
+      const bg = hex(token(base, k))
+      expect(ratio(over(ink, bg), bg), k).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it.each([
+    ['index.css', '.helpbtn'],
+    ['index.css', '.conn-x'],
+    ['index.css', '.share-check'],
+    ['index.css', '.routine-grip'],
+    ['index.css', '.plan-handle'],
+    ['index.css', '.searchf .clear'],
+    ['index.css', '.search .clear'],
+    ['views/FocusView.css', '.focus-side-check'],
+    ['views/FocusView.css', '.focus-dots button::after'],
+  ])('%s: %s paints with --label-2', (file, sel) => {
+    const decls = rule(read(file), sel)
+    expect(decls).toContain('var(--label-2)')
+    expect(decls).not.toContain('--label-3')
+  })
+})
