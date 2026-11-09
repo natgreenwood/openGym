@@ -14,6 +14,7 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
 import { DEF } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const USER = { id: 'user-1', name: 'One' }
@@ -27,15 +28,15 @@ const tick = () => new Promise(r => setTimeout(r, 0))
 // A fresh store per test, loaded as a page would be on this browser: whose copy the browser holds
 // is the module's to remember, and a test that signed out left that behind for the next one, whose
 // edit then read as another tab's sign-in. The media modules come with it, so the store sees the
-// in-memory media store and the runner set here.
+// in-memory media store and the runner set here: loaded after freshStore (test-utils/fresh-store.js),
+// they are the instances the store imported.
 let media, useStore, createMediaStore, memoryBackend, _setMediaStore, _resetMediaOwed, registerMediaRunner
 beforeEach(async () => {
   localStorage.clear()
   localStorage.setItem('gym_owner', USER.id)
-  vi.resetModules()
+  ;({ useStore } = await freshStore())
   ;({ createMediaStore, memoryBackend, _setMediaStore } = await import('../lib/media-store.js'))
   ;({ _resetMediaOwed, registerMediaRunner } = await import('../lib/media-owed.js'))
-  ;({ useStore } = await import('./useStore.js'))
   api.mockReset(); toast.mockReset()
   _resetMediaOwed()
   media = createMediaStore(memoryBackend())
@@ -46,7 +47,6 @@ afterEach(() => {
   localStorage.clear()
   _setMediaStore(null)
   _resetMediaOwed()
-  useStore.setState({ S: clone(DEF), user: null, ready: false, sync: { ...fresh }, config: null })
 })
 
 // Signed in, with a copy the server already has (the push lands, nothing else is owed).

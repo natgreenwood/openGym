@@ -6,6 +6,7 @@
    the app was killed. Real modules: store/useStore.js, lib/mobile.js. Mocked: the Capacitor
    plugins, with an in-memory Directory.Data. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -35,13 +36,6 @@ const readFile = name => { const v = h.files.get('DATA/' + name); return v == nu
 const tick = () => new Promise(r => setTimeout(r, 20))
 const workout = id => ({ id, d: '2026-10-10', start: 1, end: 2, entries: [] })
 
-let stores = []
-async function freshStore() {
-  vi.resetModules()
-  const { useStore } = await import('./useStore.js')
-  stores.push(useStore)
-  return useStore
-}
 // A phone in local mode with a history and a workout running, in localStorage and in the file.
 async function localPhone() {
   const { DEF } = await import('./useStore.js')
@@ -56,11 +50,11 @@ async function localPhone() {
   return S
 }
 
+// The stores a test loaded flush what they owe, as a page being hidden does, before freshStore's
+// clean-up (test-utils/fresh-store.js) signs them out and takes their listeners off.
 afterEach(async () => {
   window.dispatchEvent(new Event('pagehide'))
   await tick()
-  for (const s of stores) s.setState({ user: null, ready: false })
-  stores = []
   localStorage.clear()
 })
 
@@ -70,7 +64,7 @@ describe('a phone with no server', { timeout: 30000 }, () => {
 
   it('a ticked set is in the file at once, not after the usual wait', async () => {
     await localPhone()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.active.entries[0].sets[0].done = true })
     await tick()                                    // far less than the 800 ms of other changes
@@ -80,7 +74,7 @@ describe('a phone with no server', { timeout: 30000 }, () => {
 
   it('a finished workout is in the file at once too', async () => {
     await localPhone()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push({ ...s.active, end: 9000 }); s.active = null })
     await tick()
@@ -92,7 +86,7 @@ describe('a phone with no server', { timeout: 30000 }, () => {
   it('storage evicted: the file brings everything back, and the store says ready only then', async () => {
     await localPhone()
     localStorage.clear()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     expect(useStore.getState().ready).toBe(false)
     expect(useStore.getState().S.workouts).toEqual([])
     await useStore.getState().boot()
@@ -103,7 +97,7 @@ describe('a phone with no server', { timeout: 30000 }, () => {
 
   it('saveNow writes the copy to the file without waiting', async () => {
     await localPhone()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.restSec = 75 })
     expect(readFile('opengym-state.json').restSec).not.toBe(75)
@@ -113,7 +107,7 @@ describe('a phone with no server', { timeout: 30000 }, () => {
 
   it('going to the background (Capacitor\'s pause) writes a change still waiting', async () => {
     await localPhone()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.restSec = 80 })
     document.dispatchEvent(new Event('pause'))

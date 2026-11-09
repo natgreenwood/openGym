@@ -8,6 +8,7 @@
    profile as is". Each "tab" is a fresh import of the store sharing one localStorage; the browser's
    storage events are replayed in the order the writes happened, as the browser delivers them. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 import { localTZ } from '../lib/format.js'
 import { sharedPointer } from '../lib/routine-lookup.js'
 
@@ -66,12 +67,11 @@ async function act(t, fn) {
 }
 
 async function openTab(user) {
-  vi.resetModules()
   const tab = { store: null, ls: [], inbox: [], busy: 0 }
   const add = window.addEventListener
   window.addEventListener = function (type, l, o) { if (type === 'storage') tab.ls.push(l); else add.call(this, type, l, o) }
   try {
-    const m = await import('./useStore.js')
+    const m = await freshStore()
     DEF = m.DEF
     tab.store = m.useStore
   } finally { window.addEventListener = add }
@@ -151,7 +151,6 @@ beforeEach(async () => {
   DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => {
-  for (const t of tabs) t.store.setState({ user: null, ready: false })
   tabs = []
   localStorage.clear()
 })

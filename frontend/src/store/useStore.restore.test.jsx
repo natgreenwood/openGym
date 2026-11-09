@@ -10,16 +10,18 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
 import { DEF, hasData, restoredStateFor } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const routine = id => ({ id, name: id, ex: [] })
 const workout = id => ({ id, d: '2026-09-01', entries: [] })
 const httpError = status => Object.assign(new Error('HTTP ' + status), { status })
 
-// A fresh store per test: whose copy the browser holds is the module's to remember, and a test that
-// signs in left that behind for the next one, whose guest edit then read as another tab's sign-out.
+// A fresh store per test (test-utils/fresh-store.js): whose copy the browser holds is the module's
+// to remember, and a test that signs in left that behind for the next one, whose guest edit then
+// read as another tab's sign-out.
 let useStore
-beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
+beforeEach(async () => { ({ useStore } = await freshStore()) })
 
 beforeEach(() => {
   localStorage.clear()
@@ -29,7 +31,6 @@ beforeEach(() => {
 
 afterEach(() => {
   localStorage.clear()
-  useStore.setState({ S: clone(DEF), user: null, ready: false })
 })
 
 describe('saved workout state sync and restore', () => {

@@ -11,6 +11,7 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }
 
 import { api } from '../lib/api.js'
 import { DEF } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const ids = xs => (xs || []).map(x => x.id)
@@ -21,20 +22,20 @@ const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([,
 const signedIn = async (S, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
   localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
-  vi.resetModules()
-  ;({ useStore } = await import('./useStore.js'))
+  ;({ useStore } = await freshStore())
   useStore.setState({ S, user: { id: 'u1' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }
 const BACKUP = { ...clone(DEF), _ts: 50, restSec: 120, workouts: [workout('w1'), workout('w2')] }
 const SERVER = { ...clone(DEF), _ts: 300, restSec: 60, workouts: [workout('w1'), workout('w2'), workout('elsewhere', '2026-09-26')], _rev: 7 }
 
-// A fresh store per test: whose copy the browser holds is the module's to remember, and a test that
-// signs in left that behind for the next one, whose guest edit then read as another tab's sign-out.
+// A fresh store per test (test-utils/fresh-store.js): whose copy the browser holds is the module's
+// to remember, and a test that signs in left that behind for the next one, whose guest edit then
+// read as another tab's sign-out.
 let useStore
-beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
+beforeEach(async () => { ({ useStore } = await freshStore()) })
 
 beforeEach(() => { localStorage.clear(); api.mockReset() })
-afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user: null, ready: false }) })
+afterEach(() => { localStorage.clear() })
 
 describe('importing a backup over a profile that moved on', () => {
   it('names the workouts on the server that the backup lacks', async () => {

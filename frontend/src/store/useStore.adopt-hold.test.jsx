@@ -12,6 +12,7 @@
    Real modules: store/useStore.js, lib/api.js, lib/remote.js, lib/mobile.js. Mocked: the Capacitor
    plugins (an in-memory Directory.Data), the question sheet, and fetch, which plays the server. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -103,13 +104,6 @@ function localPhone() {
   localStorage.setItem('gym_guest', '1')
 }
 
-let stores = []
-async function freshStore() {
-  vi.resetModules()
-  const { useStore } = await import('./useStore.js')
-  stores.push(useStore)
-  return useStore
-}
 // Everything that used to start a sync while the question was open: the poll's check on a
 // resume, a pull, a push, a change on its debounce.
 async function everySyncTrigger(useStore) {
@@ -121,11 +115,11 @@ async function everySyncTrigger(useStore) {
 }
 
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); installFetch(); h.ask = null })
+// The stores a test loaded flush what they owe, as a page being hidden does, before freshStore's
+// clean-up (test-utils/fresh-store.js) signs them out and takes their listeners off.
 afterEach(async () => {
   window.dispatchEvent(new Event('pagehide'))
   await sleep(20)
-  for (const s of stores) s.setState({ user: null, ready: false })
-  stores = []
   localStorage.clear()
   vi.useRealTimers()
 })
@@ -134,7 +128,7 @@ describe('pairing a phone: nothing syncs while the question is open', () => {
   it('a pull, a push, the poll and a debounced change in the window write nothing, and Keep leaves all twelve', async () => {
     localPhone()
     const srv = serverWith(SERVER)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const answer = deferred()
     const ask = vi.fn(() => answer.p)
@@ -161,7 +155,7 @@ describe('pairing a phone: nothing syncs while the question is open', () => {
   it('Keep takes the server\'s copy as it is when the question closes, not as it was when it opened', async () => {
     localPhone()
     const srv = serverWith(SERVER)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const answer = deferred()
     const ask = vi.fn(() => answer.p)
@@ -180,7 +174,7 @@ describe('pairing a phone: nothing syncs while the question is open', () => {
   it('Add them merges into the server\'s current copy and pushes against its revision', async () => {
     localPhone()
     const srv = serverWith(SERVER)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const answer = deferred()
     const ask = vi.fn(() => answer.p)
@@ -198,17 +192,17 @@ describe('pairing a phone: nothing syncs while the question is open', () => {
   it('closed with the question open, the next start asks again and pushes nothing before the answer', async () => {
     localPhone()
     const srv = serverWith(SERVER)
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
     const first = vi.fn(() => new Promise(() => {}))   // never answered: the app is killed
     useStore.getState().connectToServer('gym.example.com', 'ABCD2345', first)
     while (!first.mock.calls.length) await sleep(5)
     await sleep(900)   // the file mirror's debounce, as on a phone that stayed open a moment
-    for (const s of stores) s.setState({ user: null, ready: false })
+    useStore.setState({ user: null, ready: false })   // the app is killed
 
     const answer = deferred()
     h.ask = vi.fn(() => answer.p)
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     while (!h.ask.mock.calls.length) await sleep(5)
     expect(h.ask).toHaveBeenCalledWith(expect.objectContaining({ workouts: 1 }))

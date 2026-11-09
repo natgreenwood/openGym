@@ -2,6 +2,7 @@
 // Phone persistence of shared routines: the store and native write helper are real.
 // Native file reads and the API use synthetic fixtures; no physical device is required.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -50,12 +51,12 @@ const file = name => JSON.parse(h.files.get('DATA/' + name))
 let store
 beforeEach(() => {
   vi.stubEnv('VITE_MOBILE', '1')
-  vi.resetModules(); localStorage.clear(); h.files.clear(); h.offline = false
+  localStorage.clear(); h.files.clear(); h.offline = false
 })
-afterEach(() => { store?.setState({ user: null, ready: false }); vi.unstubAllEnvs() })
+afterEach(() => { vi.unstubAllEnvs() })
 
 async function load() {
-  const { useStore, DEF } = await import('./useStore.js')
+  const { useStore, DEF } = await freshStore()
   store = useStore
   localStorage.setItem('gym_owner', USER.id)   // as setUser signs in
   store.setState({ user: USER, S: structuredClone(DEF), ready: false })
@@ -85,7 +86,7 @@ it.each([false, true])('offline cold boot after storage eviction, foreign owner=
   h.files.set('LIBRARY_NO_CLOUD/opengym-remote.json', JSON.stringify({ mode: 'remote', base: 'https://gym.example.com', token: 'test-token', user: USER }))
   h.files.set('DATA/opengym-shared.json', JSON.stringify(foreign ? { ...saved, uid: 'test-other-recipient' } : saved))
   h.offline = true
-  const { useStore } = await import('./useStore.js')
+  const { useStore } = await freshStore()
   store = useStore
   await store.getState().boot()
   const { sharedViewOf } = await import('../lib/shared-routines.js')

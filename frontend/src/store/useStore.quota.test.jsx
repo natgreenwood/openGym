@@ -6,6 +6,7 @@
    "synced", and its next push (a matching conditional one) deleted those workouts from the
    server and from the other device. (QA 2026-10-06, also in v1.3.9.) */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -33,8 +34,7 @@ function server(doc) {
   }
 }
 async function openApp() {
-  vi.resetModules()
-  const m = await import('./useStore.js')
+  const m = await freshStore()
   m.useStore.setState({ user: { id: 'u1' }, ready: true })
   return m
 }

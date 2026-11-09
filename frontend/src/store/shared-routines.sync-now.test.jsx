@@ -4,6 +4,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 import { api } from '../lib/api.js'
 let DEF, useStore, useUI, sharedViewOf, buildCombinedEntries, saveSessionAsRoutine, workoutDetailSheet, setNav
@@ -13,9 +14,8 @@ const fresh = { offline: false, pending: false, auth: false, lastError: null, la
 const accepted = (name = 'Original', hash = 'qa-h1') => ({ id: 'qa-share', state: 'accepted', from: { id: 'qa-sharer', name: 'Sharer' }, unit: 'kg', hash, routine: { id: 'source', name, ex: [{ id: '0025', sets: 2, reps: 5, weight: 100 }] } })
 let net
 beforeEach(async () => {
-  vi.resetModules()
   localStorage.clear()
-  ;({ DEF, useStore } = await import('../store/useStore.js'))
+  ;({ DEF, useStore } = await freshStore())
   ;({ useUI } = await import('../store/useUI.js'))
   ;({ sharedViewOf } = await import('../lib/shared-routines.js'))
   ;({ buildCombinedEntries } = await import('../lib/session-merge.js'))
@@ -40,7 +40,7 @@ beforeEach(async () => {
     return {}
   })
 })
-afterEach(() => { useStore.setState({ ready: false, user: null }); useUI.setState({ sheets: [] }) })
+afterEach(() => { useUI.setState({ sheets: [] }) })
 
 it('AC3: Sync now refreshes an edited shared routine', async () => {
   await useStore.getState().loadShares()
