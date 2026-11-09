@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-07 (frontend); 2026-11-06 (API)_
+_Last verified by QA agent: 2026-11-09 (frontend); 2026-11-06 (API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -34,6 +34,23 @@ npx vitest run --sequence.shuffle --sequence.seed=7
 
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
 Known gaps for the plates property test.
+
+## Swipe-back preview tests
+
+From `frontend/`, on Linux with CPU 0 available:
+
+```sh
+./node_modules/.bin/vitest --clearCache
+taskset -c 0 ./node_modules/.bin/vitest run src/App.swipe-preview.test.jsx --reporter=verbose --maxWorkers=1
+```
+
+For the contention reproduction, run eight competing processes with
+`taskset -c 0 python3 -c 'while True: pass'`, sharing that CPU with Vitest.
+Clear the cache before each run and stop the competing processes afterward. Vitest's persistent
+transform cache can make the original lazy-import timeout disappear, so warm
+runs cannot establish that the preload fixes it. The four cases cover preview
+route, scroll position, inert/hidden attributes, element identity, cancellation
+and a back navigation that lands elsewhere. No account or server is needed.
 
 ## Cross-tab account ownership
 
