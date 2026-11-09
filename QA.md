@@ -54,6 +54,11 @@ needed.
 - `act()` identifies the writing tab; a tab's `busy` counter delays its storage
   callbacks until `pump()` can deliver them.
 
+Owner-sensitive fixtures must write their storage before loading a fresh store
+with `vi.resetModules()` and dynamic import. In media tests, re-import
+`media-store.js` and `media-owed.js` with the store so the fixture and application
+use the same instances.
+
 For mutation checks that transform guards in memory, disable `fsModuleCache`:
 changing only a plugin's environment options can reuse a previous transformed module.
 When changing the helpers, compare test names and counts against the base, then
