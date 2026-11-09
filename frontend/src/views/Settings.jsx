@@ -102,6 +102,11 @@ const standalone = () => {
 // rather than from lib/api.js, whose test mocks across the Settings suites only carry IS_ANDROID.
 const APPLE_UA = typeof navigator !== 'undefined' && /iPhone|iPad|iPod|Macintosh/.test(navigator.userAgent)
 
+// The backup import this tab started last, and its confirm once open (doImport). Kept for the
+// tab, not one mount: the page is keyed by its path (App.jsx), so leaving Settings and coming
+// back mounts a new one while the first import is still reading or checking.
+const lastImport = { n: 0, sheet: null }
+
 export default function Settings({ page = null, find = null, via = null, entryKey = null }) {
   const nav = useNavigate()
   const S = useStore(s => s.S)
@@ -128,8 +133,6 @@ export default function Settings({ page = null, find = null, via = null, entryKe
   const lostBy = routines => (user ? sharesLostBy(myShares?.outgoing, routines) : 0)
   const fileRef = useRef(null)
   const importRef = useRef(null)
-  // The backup import this tab started last, and its confirm once open (doImport).
-  const lastImport = useRef({ n: 0, sheet: null })
   const body = useRef(null)
   const wakeOK = wakeLockSupported()
   // The gym reminder's switch lives on its own page and on this device only (lib/gym-reminder.js).
@@ -343,10 +346,10 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // takes over: this one does nothing more, and its confirm, if open, closes without a word. Its
     // check read the server before the second import, and answering it after would merge or
     // replace with that older read (NATG-562). Checked beside the account's token, not instead.
-    const run = ++lastImport.current.n
-    lastImport.current.sheet?.close()
-    lastImport.current.sheet = null
-    const superseded = () => lastImport.current.n !== run
+    const run = ++lastImport.n
+    lastImport.sheet?.close()
+    lastImport.sheet = null
+    const superseded = () => lastImport.n !== run
     let read
     try {
       const { readBackupFile } = await import('../lib/backup-media.js')
@@ -394,7 +397,7 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // close on an account change leaves open (useUI).
     if (conflict?.stale || !importIsCurrent(token)) return
     const whileCurrent = sheet => {
-      lastImport.current.sheet = sheet
+      lastImport.sheet = sheet
       const off = useStore.subscribe(() => {
         if (!importIsCurrent(token)) { off(); sheet.close() }
         else if (!useUI.getState().sheets.some(x => x.id === sheet.id)) off()

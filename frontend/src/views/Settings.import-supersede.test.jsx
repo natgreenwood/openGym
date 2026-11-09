@@ -181,6 +181,27 @@ describe('Settings import, a second file chosen while the first is in progress',
     expect(imported()).toBe(1)
   })
 
+  // Tester, NATG-562: the page is keyed by its path (App.jsx), so going to Home and back mounts a
+  // new Settings. The first import is still this tab's, and the second still takes over.
+  it('a first import started before Settings was left and opened again is still superseded', async () => {
+    const answers = []
+    mocks.importConflict.mockImplementation((b, token) => new Promise(r => answers.push(() => r(conflictOf(token)))))
+    await choose({ ...FILE_1, files: [{ name: 'media/a.jpg' }] })
+    act(() => root.unmount())
+    root = createRoot(host)
+    act(() => root.render(<Settings page="data" />))
+    await choose(FILE_2)
+    await act(async () => { answers[1]() })
+    await act(async () => { answers[0]() })
+    expect(mocks.menuSheet).toHaveBeenCalledTimes(1)
+    expect(mocks.confirmSheet).not.toHaveBeenCalled()
+    await press(item(0, 'Merge them in').onClick)
+    expect(mocks.storeBackupMedia).not.toHaveBeenCalled()
+    expect(mocks.importBackup).toHaveBeenCalledTimes(1)
+    expect(mocks.importBackup).toHaveBeenCalledWith(FILE_2.state, { mergeWith: conflictOf(mocks.tokens[1]), token: mocks.tokens[1] })
+    expect(imported()).toBe(1)
+  })
+
   it('the account check still holds for the import that took over', async () => {
     await choose(FILE_1)
     await choose(FILE_2)
