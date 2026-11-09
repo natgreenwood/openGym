@@ -121,20 +121,50 @@ describe('a copy whose base is another account\'s', () => {
     expect(warn.mock.calls[1][0]).toContain('check')
   })
 
-  it('is not merged when a sign-in to the account merges this copy in (mergeInto\'s own check)', async () => {
-    const { S, before } = await staleCopy()
-    // The sign-in marked this copy as the account's own (adoptProfile's same-account branch).
-    localStorage.setItem('gym_adopt', JSON.stringify({ uid: 'B', rejoined: true }))
-    api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 6 } : { state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 }))
+  // A sign-in's adoption reads the server itself, not through pullState, and each of its branches
+  // restamped or dropped the base before pushing: A's copy went out as B's (Architect, PR #90).
+  const signIns = [
+    ['no copy on the server: nothing is asked, and nothing is forced over it', { state: null, rev: 0 }, null],
+    ['B\'s copy on the server, and "add this device\'s data" answered yes', { state: { ...clone(DEF), _ts: 300, workouts: [workout('b-server')], _rev: 3 }, rev: 3 }, null],
+    ['a sign-in that took this copy for the account\'s own', { state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 }, { uid: 'B', rejoined: true }],
+  ]
+  for (const [what, answer, mark] of signIns) {
+    it(`a sign-in's adoption takes nothing and sends nothing: ${what}`, async () => {
+      const { S, before } = await staleCopy()
+      if (mark) localStorage.setItem('gym_adopt', JSON.stringify(mark))
+      api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 9 } : answer))
+      const ask = vi.fn(async () => true)
 
-    const r = await useStore.getState().adoptProfile(async () => true)
+      const r = await useStore.getState().adoptProfile(ask)
+      await new Promise(r => setTimeout(r, 0))   // anything the answer would have started
 
-    expect(r).toMatchObject({ adopted: false, refused: true })
-    expect(calls()).toEqual(['GET /api/data'])   // no push follows a refused merge
-    expect(useStore.getState().S).toBe(S)
-    expect(snapshot()).toEqual(before)
-    expect(localStorage.getItem('gym_state_owner')).not.toBe('B')   // not claimed as B's either
-    refusedWith('merge')
+      expect(r).toMatchObject({ adopted: false, refused: true })
+      expect(ask).not.toHaveBeenCalled()           // B is not asked about A's data
+      expect(calls()).toEqual(['GET /api/data'])
+      expect(useStore.getState().S).toBe(S)
+      expect(snapshot()).toEqual(before)
+      expect(localStorage.getItem('gym_state_owner')).not.toBe('B')   // not claimed as B's either
+      expect(useStore.getState().sync.held).toBe(true)                // still held: nothing syncs
+      refusedWith('adopt')
+    })
+  }
+
+  // The invariant itself: whatever path asks to record a revision (here an import merged with the
+  // server's copy, which records the revision it merged against), A's base stays, so the push
+  // that follows is refused. The import may still save the copy here; it never reaches B's server.
+  it('a path that records a revision leaves the foreign base in place, and the push is refused', async () => {
+    await staleCopy()
+    const marker = localStorage.getItem('gym_sync')
+    const token = useStore.getState().importToken()
+    const serverB = { ...clone(DEF), _ts: 300, workouts: [workout('b-server')], _rev: 7 }
+
+    expect(useStore.getState().importBackup({ ...clone(DEF), _ts: 50, workouts: [workout('backup')] }, { mergeWith: { state: serverB, rev: 7, token }, token })).toBe(true)
+    expect(localStorage.getItem('gym_sync')).toBe(marker)
+
+    await useStore.getState().pushState()
+    expect(api).not.toHaveBeenCalled()
+    expect(localStorage.getItem('gym_sync')).toBe(marker)
+    refusedWith('push')
   })
 
   it('is not pushed: nothing goes out, nothing here changes, and the error is said', async () => {
