@@ -279,10 +279,10 @@ describe('a push with no base', () => {
     expect(warn).not.toHaveBeenCalled()
   })
 
-  // Reset everything on a copy whose marker is from before the update: the reset armed for this
-  // push must outlast the pull that writes the base, or it would go as an ordinary push and the
-  // merge would bring the wiped entries back (the no-base branch returns before forceNext is read).
-  it('a reset on a copy with an unstamped marker still replaces the server copy, once', async () => {
+  // Reset everything on a copy whose marker is from before the update: the reset's own read of the
+  // profile is its base, so it goes as a replace against that read, not as an ordinary push whose
+  // first-sync merge would bring the wiped entries back (NATG-655).
+  it('a reset on a copy with an unstamped marker still replaces the server copy, once, against its read', async () => {
     const profile = { ...clone(DEF), _ts: 100, workouts: [workout('w1'), workout('w2', '2026-09-02')] }
     saved(profile, { owner: 'u1', sync: { rev: 3, ts: 100 } })
     await load()
@@ -295,8 +295,9 @@ describe('a push with no base', () => {
     await new Promise(r => setTimeout(r, 20))   // and nothing after it
 
     expect(puts()).toHaveLength(1)
-    expect(puts()[0].baseRev).toBeUndefined()
+    expect(puts()[0].baseRev).toBe(3)
     expect(puts()[0].state.workouts).toEqual([])
+    expect(puts()[0].state.resetIds.workouts).toEqual(['w1', 'w2'])
     expect(warn).not.toHaveBeenCalled()
   })
 

@@ -184,16 +184,22 @@ describe('push against a revisioned server', () => {
     expect(useStore.getState().S.workouts.map(w => w.id).sort()).toEqual(['w1', 'w2', 'w3'])
   })
 
-  it('a replace meant for the server goes without a baseRev, the change after it with one', async () => {
+  // Never a blind write (NATG-655): with no revision of its own to go against, the replace reads
+  // the profile first and goes against that read.
+  it('a replace meant for the server goes against the revision it read, the change after it against the replace', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('old')] })
     localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100, uid: 'user-1' }))
-    api.mockResolvedValueOnce({ ok: true, rev: 5 }).mockResolvedValueOnce({ ok: true, rev: 6 })
+    api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 100, routines: [routine('old')], _rev: 4 }, rev: 4 })
+      .mockResolvedValueOnce({ ok: true, rev: 5 }).mockResolvedValueOnce({ ok: true, rev: 6 })
 
     useStore.getState().replaceState({ ...clone(DEF), routines: [routine('imported')] }, true)
     await vi.advanceTimersByTimeAsync(2000)
+    expect(api.mock.calls[0][0]).toBe('/api/data')
+    expect(api.mock.calls[0][1]?.method).toBeUndefined()
     expect(puts()).toHaveLength(1)
-    expect('baseRev' in puts()[0]).toBe(false)
+    expect(puts()[0].baseRev).toBe(4)
+    expect(puts()[0].state.routines.map(r => r.id)).toEqual(['imported'])
     expect(sync().rev).toBe(5)
 
     useStore.getState().update(s => { s.restSec = 45 })
