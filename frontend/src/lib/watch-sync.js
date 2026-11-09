@@ -27,7 +27,7 @@ import { sessionHistory } from './backfill.js'
 import { buildCombinedEntries, deriveSessionName } from './session-merge.js'
 import { todayISO, exerciseNameText } from './format.js'
 import { sanitizeHr } from './heart-rate.js'
-import { readWatchPrefs, settingsForWatch, writeWatchStatus, onWatchPrefs } from './watch-settings.js'
+import { readWatchPrefs, settingsForWatch, writeWatchStatus, onWatchPrefs, WATCH_LAST_SENT_KEY } from './watch-settings.js'
 import { plannedType } from './health-connect.js'
 import { clipText } from './limits.js'
 
@@ -459,9 +459,14 @@ export function fitSnapshot (snap, max = SNAPSHOT_MAX_BYTES) {
 
 // The last snapshot the watch was sent (its JSON), kept across a reload or a relaunch: what the
 // watch holds, as far as the phone can know. A workout too big to send leans on it (fallbackSnapshot).
-const LAST_SENT_KEY = 'gym_watch_last_sent'
-const readLastSent = () => { try { const v = JSON.parse(localStorage.getItem(LAST_SENT_KEY)); return v && typeof v === 'object' ? v : null } catch { return null } }
-const writeLastSent = json => { try { localStorage.setItem(LAST_SENT_KEY, json) } catch { /* the next send writes it again */ } }
+// One that could not be kept is taken out instead: an older record read back as what the watch
+// holds could end its workout or untick its sets, where no record at all sends nothing.
+const readLastSent = () => { try { const v = JSON.parse(localStorage.getItem(WATCH_LAST_SENT_KEY)); return v && typeof v === 'object' ? v : null } catch { return null } }
+const writeLastSent = json => {
+  try { localStorage.setItem(WATCH_LAST_SENT_KEY, json) } catch {
+    try { localStorage.removeItem(WATCH_LAST_SENT_KEY) } catch { /* nothing more to do */ }
+  }
+}
 
 /**
  * What goes to the watch instead when the running workout `wid` is too big to send (SEC-613-01):
@@ -610,7 +615,9 @@ export async function startWatchSync ({ useStore, useUI }) {
       let out = fitSnapshot(snap), refused = 0, fallback = null
       if (!out) {
         refused = bytesOf(snap)
-        fallback = fallbackSnapshot(snap, readLastSent(), wid)
+        // What this page sent last is the newest the watch can have; the record only after a
+        // reload or a link change, when this page has nothing of its own.
+        fallback = fallbackSnapshot(snap, lastSent ? JSON.parse(lastSent) : readLastSent(), wid)
         out = fallback.snap
       }
       if (out) {

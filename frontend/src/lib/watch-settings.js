@@ -16,6 +16,9 @@
 // `health` field in the stored prefs is left alone and not read.
 export const WATCH_PREFS_KEY = 'gym_watch_v1'
 export const WATCH_STATUS_KEY = 'gym_watch_status_v1'
+// The last snapshot this phone's watch received (lib/watch-sync.js): it holds the account's running
+// workout, so a sign-out wipes it with the account (store/useStore.js clearLocalSession).
+export const WATCH_LAST_SENT_KEY = 'gym_watch_last_sent'
 export const SHOW_DEFAULTS = Object.freeze({ clip: true, hr: true, last: true, elapsed: false, kcal: false, next: true, rest: 'ring' })
 export const WATCH_DEFAULTS = Object.freeze({ enabled: true, autoShow: true, restHaptics: true, crown: 'reps', show: SHOW_DEFAULTS })
 

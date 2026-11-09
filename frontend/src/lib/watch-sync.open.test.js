@@ -316,6 +316,63 @@ describe('a workout too big for the watch', () => {
     two.stop()
   })
 
+  // The Tester's storage probe: a record that could not be saved must never stand in for what the
+  // watch received since. Read back, an older one ends the watch's workout (`active: null`) or
+  // unticks a set it has.
+  describe('when what was sent could not be kept', () => {
+    const KEY = 'gym_watch_last_sent'
+    let full = false, saving
+    beforeEach(() => {
+      full = false
+      const setItem = localStorage.setItem.bind(localStorage)
+      saving = vi.spyOn(localStorage, 'setItem').mockImplementation((k, v) => {
+        if (full && k === KEY) throw new DOMException('The quota has been exceeded.', 'QuotaExceededError')
+        return setItem(k, v)
+      })
+    })
+    afterEach(() => saving.mockRestore())
+    const firstDone = S => { const c = JSON.parse(JSON.stringify(S)); c.active.entries[0].sets[0] = { w: 60, r: 8, done: true, at: 100 }; return c }
+
+    for (const failing of [true, false]) {
+      it(`${failing ? '' : 'control, saving works: '}never ends the workout the watch was sent last (end)`, async () => {
+        const { b, stop, set } = await start(S0)
+        expect(sent(b).active).toBeNull()
+        full = failing
+        await set(running(1))
+        expect(sent(b).active.id).toBe('w-9')
+        expect(localStorage.getItem(KEY) === null).toBe(failing)
+        await set(running(500))
+        expect(b.sendSnapshot).toHaveBeenCalledTimes(3)
+        expect(sent(b).active?.id).toBe('w-9')
+        expect(bytes(json(b))).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+        stop()
+      })
+
+      it(`${failing ? '' : 'control, saving works: '}never sends a done set as not done (rollback)`, async () => {
+        const { b, stop, set } = await start(running(1))
+        full = failing
+        await set(firstDone(running(1)))
+        expect(sent(b).active.entries[0].sets[0].done).toBe(true)
+        await set(firstDone(running(500)))
+        expect(b.sendSnapshot).toHaveBeenCalledTimes(3)
+        expect(sent(b).active.entries[0].sets[0]).toMatchObject({ done: true, at: 100 })
+        stop()
+      })
+    }
+
+    it('after a reload, takes a record it could not keep as none, and sends nothing', async () => {
+      const one = await start(running(1))
+      full = true
+      await one.set(firstDone(running(1)))
+      one.stop()
+      _resetWatchSync()
+      const two = await start(firstDone(running(500)))
+      expect(two.b.sendSnapshot).not.toHaveBeenCalled()
+      expect(warn.mock.calls.at(-1)[0]).toMatch(/no record of what the watch holds/)
+      two.stop()
+    })
+  })
+
   describe('when the workout sent again is over the budget too', () => {
     // A record of what the watch was sent, `room` bytes under the budget: one long name does it.
     const record = room => {

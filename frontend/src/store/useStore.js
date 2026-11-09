@@ -14,6 +14,7 @@ import { setSharedSource } from '../lib/shared-source.js'
 import { stateJson } from '../lib/state-json.js'
 import { MOBILE, initReminderSync, nativeLoad, nativeSave, onAppActive, readJsonFile, syncReminder, writeAutoBackup, writeJsonFile } from '../lib/mobile.js'
 import { initHealthSync, syncHealth, readHealth } from '../lib/health-sync.js'
+import { WATCH_LAST_SENT_KEY } from '../lib/watch-settings.js'
 import { refillIfComplete } from '../lib/rotation.js'
 import { liftLegacy } from '../lib/sync-legacy.js'
 import { mergeStates, localExtras, stampChange, highestStamp, stampRestore, stampReplace, inUnitOf, keepReset, resetIdsOf, mergeResetIds, entryKey } from '../lib/sync-merge.js'
@@ -1139,6 +1140,9 @@ export const useStore = create((set, get) => {
     localStorage.removeItem('gym_owner')
     // The account's share lists go with it: a shared device keeps nothing of whom it shared with.
     try { localStorage.removeItem(SHARED_KEY) } catch { /* nothing to keep */ }
+    // So does the last workout sent to the watch: without it, the next account's phone sends the
+    // watch nothing in its place (lib/watch-sync.js fallbackSnapshot).
+    try { localStorage.removeItem(WATCH_LAST_SENT_KEY) } catch { /* nothing to keep */ }
     sharesFresh = null
     sharesBefore = null
     set({ shares: null, sharesError: false })
