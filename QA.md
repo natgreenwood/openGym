@@ -202,6 +202,35 @@ The sharing notice informs without blocking Share; verify both over-limit and
 within-limit routines with mocked recipients. These checks do not establish
 live-server delivery or native watch behavior.
 
+## Backup import overlap
+
+From `frontend/`:
+
+```sh
+npm test -- src/store/useStore.import src/views/Settings.import --maxWorkers=2
+```
+
+The Settings suites mock file reads, media writes and the account store; the store
+suites assert the outgoing document as well as local state. Check account changes
+and photo-storage refusal alongside supersession, not only the final workout list.
+
+For browser checks with an isolated local API and synthetic profiles, hold the
+first import's `GET /api/data`, pick a second backup, and release both responses
+in each order. Repeat after navigating Home → Settings between the picks: the
+import generation must survive that remount. Only the latest confirm and success
+toast should appear. Check memory, localStorage, the first PUT body and a fresh
+server GET. Exercise merge with both pending and already-synced device edits;
+the latter also covers a real 409/retry. Replace keeps its original warning count.
+
+The page is inert while a confirm is open. Reproducing a second pick at that point
+requires setting the hidden file input directly; picks during a held server check
+can use the normal picker. Also exercise a malformed second backup: it cancels
+the first import even though the second cannot proceed.
+
+Also hold a real ZIP import's media write after its confirm closes, then complete
+a second import before releasing the write. Check that superseded work does not
+resume an old replace or merge, show success, or leave its photos stored.
+
 ## Backup media
 
 From `frontend/`:
