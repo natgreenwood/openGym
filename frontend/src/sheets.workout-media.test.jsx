@@ -17,6 +17,7 @@ import { bindUI } from './components/ui.jsx'
 import { createMediaStore, memoryBackend, _setMediaStore } from './lib/media-store.js'
 import { workoutDetailSheet, WorkoutRow } from './sheets.jsx'
 import WorkoutMediaSection, { openWorkoutMediaViewer } from './components/WorkoutMedia.jsx'
+import Modals from './components/Modals.jsx'
 import { WORKOUT_MEDIA_MAX } from './lib/media-refs.js'
 
 bindUI(useUI)
@@ -230,6 +231,22 @@ describe('a workout\'s photos and videos', () => {
       expect(count()).toBe('2 / 3')
     } finally { document.documentElement.dir = 'ltr' }
     // Let the media store's async answers land inside act, not after the test.
+    await settle()
+  })
+
+  it('the viewer opened from a sheet gives focus back to its thumbnail in that sheet on close', async () => {
+    useStore.setState(s => ({ S: { ...s.S, workouts: [workout({ media: [refOf(1)] })] } }))
+    render(<Modals />)
+    act(() => { useUI.getState().openSheet(() => <button type="button" id="thumb">Photo</button>) })
+    const thumb = document.getElementById('thumb')
+    act(() => thumb.focus())
+    act(() => openWorkoutMediaViewer(S().workouts[0], 0))
+    // the sheet under the viewer is inert now, the thumbnail with it
+    expect(thumb.closest('[inert]')).not.toBe(null)
+    expect(document.activeElement).toBe(document.querySelector('.mviewer button[aria-label="Close"]'))
+    act(() => document.activeElement.click())
+    expect(document.querySelector('.mviewer')).toBe(null)
+    expect(document.activeElement).toBe(thumb)
     await settle()
   })
 

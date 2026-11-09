@@ -85,9 +85,14 @@ it in review.
 </picture>
 </p>
 
-A pull request runs the three test suites and builds and boots both api image targets. Changes to
-the iPhone or Apple Watch app (`frontend/ios`) can run the `iOS` workflow too (build, UI tests and the
-WatchCore tests on a macOS runner); ask in the pull request if a maintainer should start it. Signed
+A pull request runs the three test suites and builds and boots both api image targets. The `iOS`
+workflow (build, UI tests and the WatchCore tests on a macOS runner) starts on its own when a pull
+request touches the paths in the `gate` job of `.github/workflows/ios.yml`. For any other change
+that might matter on the iPhone, ask a maintainer to add the `ios` label: that starts it, and while
+the label stays on it runs on every later push. The Android build is the `android` job in
+`.github/workflows/test.yml`. It runs only when a pull request touches the `android` paths in that
+workflow's `changes` job, or when a maintainer starts the Tests workflow by hand. There is no
+`android` label. Signed
 APKs, TestFlight and App Store builds are made by the maintainer at release time, so if your change
 needs a phone build to be judged, say so and we'll put it on TestFlight or send you an APK.
 A first-time contributor's workflows wait for a maintainer to approve them, so "no checks yet"

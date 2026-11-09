@@ -143,7 +143,9 @@ describe('routine long-press reorder', () => {
   it('moves across measured slots and persists one complete changed order', () => {
     const layout = mount([configured('a'), configured('b'), configured('c'), configured('d')])
     const before = localStorage.getItem('gym_state_v1')
-    const writes = vi.spyOn(Storage.prototype, 'setItem')
+    // On the instance: happy-dom binds setItem onto localStorage the first time it is read, and a
+    // spy on Storage.prototype set after an earlier test saved never sees the call.
+    const writes = vi.spyOn(localStorage, 'setItem')
     const row = rows()[0], item = row.querySelector('.item')
     lift(row, layout.centers[0])
     pointer(item, 'pointermove', { y: layout.centers[2] + 1 })

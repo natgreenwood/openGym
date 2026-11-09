@@ -9,12 +9,12 @@ import { createRoot } from 'react-dom/client'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-const net = vi.hoisted(() => ({ mode: 'fail' }))
+const net = vi.hoisted(() => ({ mode: 'fail', hanging: [] }))
 vi.mock('../lib/api.js', () => ({
   api: vi.fn(path => {
     if (path !== '/api/shares') return Promise.resolve({ ok: true })
     if (net.mode === 'fail') return Promise.reject(new TypeError('Failed to fetch'))
-    return new Promise(() => {})   // never answers: still loading
+    return new Promise((_, reject) => net.hanging.push(reject))   // no answer while the test runs: still loading
   }),
   setRemoteAuth: vi.fn(),
 }))
@@ -51,7 +51,13 @@ const pickCustom = () => {
 const exIds = () => useStore.getState().S.routines[0].ex.map(e => e.id)
 
 beforeEach(() => { vi.clearAllMocks(); useUI.setState({ sheets: [] }) })
-afterEach(() => { act(() => root.unmount()); host.remove() })
+// The request left loading is answered (refused) once its test is over: the store joins every later
+// load to the one in flight, and the tests after it read "still checking" instead of their own.
+afterEach(async () => {
+  act(() => root.unmount()); host.remove()
+  net.hanging.splice(0).forEach(reject => reject(new TypeError('Failed to fetch')))
+  await act(() => new Promise(r => setTimeout(r, 0)))
+})
 
 describe('turnAway with no list from the server', () => {
   it('goes by the list kept on this device when the server can’t be asked', async () => {

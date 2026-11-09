@@ -122,6 +122,28 @@ const recordPuts = puts => {
     return answer(path, opts)
   }
 }
+// `hold(method, path)`: the next such request, to whichever server h.api is now, is answered as it
+// arrives (refused, 409 and all, as the server would), and that answer held until `release()`, as
+// QA's route held the real one. `asked` resolves once it has arrived.
+const hold = (method, path = '/api/data') => {
+  const answer = h.api
+  const g = {}
+  g.asked = new Promise(r => { g.ask = r })
+  const released = new Promise(r => { g.release = r })
+  h.api = async (p, opts = {}) => {
+    if ((opts.method || 'GET') === method && p === path) {
+      h.api = answer
+      let res, err = null
+      try { res = await answer(p, opts) } catch (e) { err = e }
+      g.ask()
+      await released
+      if (err) throw err
+      return res
+    }
+    return answer(p, opts)
+  }
+  return g
+}
 
 beforeEach(async () => {
   localStorage.clear()
@@ -311,25 +333,7 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
 // answer was taken as the signed-out tab's copy and saved, so the account's routines came back in
 // a tab that showed nobody signed in, and the next sign-in was asked to adopt them.
 describe('a pull still on its way when another tab changes the owner', () => {
-  // GET /api/data held after the server has answered, as QA's route did: `release` lets it land.
-  const holdPull = srv => {
-    const answer = h.api
-    const gate = { release: null, asked: null }
-    const asked = new Promise(r => { gate.asked = r })
-    const released = new Promise(r => { gate.release = r })
-    h.api = async (path, opts = {}) => {
-      if ((opts.method || 'GET') === 'GET' && path === '/api/data' && gate.asked) {
-        const res = await answer(path, opts)   // answered as the account it was sent for
-        h.api = answer
-        gate.asked(); gate.asked = null
-        await released
-        return res
-      }
-      return answer(path, opts)
-    }
-    return { asked, release: () => gate.release() }
-  }
-
+  // hold('GET'): the pull's GET /api/data is answered as the account it was sent for, then held.
   it('an answer landing after a sign-out in the other tab is dropped, in both tabs and in storage', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
@@ -338,7 +342,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     await act(B, () => B.getState().signOut())
@@ -378,7 +382,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     // Another device's newer revision, so the held answer is one this tab would take and save.
     srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     const tabA = tabs.find(x => x.store === A)
@@ -422,31 +426,16 @@ describe('a pull still on its way when another tab changes the owner', () => {
     await act(A, () => A.getState().update(s => { s.restSec = 90 }))   // waits in the debounce
 
     // The PUT held once the server has refused it with its document (409), as the pull's GET above.
-    const answer = h.api
-    let asked, release
-    const isAsked = new Promise(r => { asked = r })
-    const released = new Promise(r => { release = r })
-    h.api = async (path, opts = {}) => {
-      if (opts.method === 'PUT' && path === '/api/data') {
-        h.api = answer
-        let err = null
-        try { await answer(path, opts) } catch (e) { err = e }
-        asked()
-        await released
-        if (err) throw err
-        throw new Error('expected a 409')
-      }
-      return answer(path, opts)
-    }
+    const held = hold('PUT')
     const pull = A.getState().pullState()
-    await isAsked
+    await held.asked
     const tabA = tabs.find(x => x.store === A)
     tabA.busy++
     try {
       await act(B, () => B.getState().signOut())
       expect(A.getState().user?.id).toBe(OWNER)
       writer = tabA
-      release()
+      held.release()
       await pull
     } finally { writer = null; tabA.busy-- }
     pump()
@@ -467,7 +456,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
@@ -492,7 +481,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     savedCopy(srv.doc, 1)
     const A = await openTab({ id: OWNER, name: 'Xavi' })
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const old = A.getState().pullState()
     await held.asked
     await act(A, () => A.getState().setUser(null))
@@ -521,7 +510,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
     await openTab({ id: OWNER, name: 'Xavi' })
     srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr2')], _ts: 200, _rev: 2 }   // another device's edit
 
-    const held = holdPull(srv)
+    const held = hold('GET')
     const pull = A.getState().pullState()
     await held.asked
     held.release()
@@ -537,7 +526,7 @@ describe('a pull still on its way when another tab changes the owner', () => {
 // holds: a request is answered as whoever that cookie names when it arrives, as the real API does.
 describe('a request sent after its account has left the browser', () => {
   function accounts(docs) {
-    const s = { docs: clone(docs), session: null, logoutFails: false, sent: [], held: [] }
+    const s = { docs: clone(docs), session: null, logoutFails: false, sent: [] }
     const answer = (method, path, body, who) => {
       if (method === 'POST' && path.startsWith('/api/logout')) {
         if (s.logoutFails) throw Object.assign(new TypeError('Failed to fetch'), { status: 0 })
@@ -565,30 +554,13 @@ describe('a request sent after its account has left the browser', () => {
       }
       throw new Error('unexpected ' + method + ' ' + path)
     }
-    // `hold(method, path)`: the next such request is answered as it arrives, and its answer held
-    // until `release()`, as QA's route held the real one.
-    s.hold = (method, path) => {
-      const g = { method, path }
-      g.asked = new Promise(r => { g.ask = r })
-      const released = new Promise(r => { g.release = r })
-      g.wait = released
-      s.held.push(g)
-      return g
-    }
+    // A request `hold` keeps back is still sent, and answered, under the session it arrived with.
     h.api = async (path, opts = {}) => {
       const method = opts.method || 'GET'
       const body = opts.body ? JSON.parse(opts.body) : undefined
       const who = s.session
       s.sent.push({ method, path, who })
-      const i = s.held.findIndex(g => g.method === method && g.path === path)
-      if (i < 0) return answer(method, path, body, who)
-      const g = s.held.splice(i, 1)[0]
-      let res, err = null
-      try { res = answer(method, path, body, who) } catch (e) { err = e }
-      g.ask()
-      await g.wait
-      if (err) throw err
-      return res
+      return answer(method, path, body, who)
     }
     return s
   }
@@ -610,7 +582,7 @@ describe('a request sent after its account has left the browser', () => {
     const A = await openTab({ id: aId, name: 'Xavi' })
     const B = await openTab({ id: aId, name: 'Xavi' })
 
-    const held = srv.hold('PUT', '/api/data')
+    const held = hold('PUT')
     const first = A.getState().pushState()
     await held.asked
     A.getState().pushState()   // asked for while the upload is out, before anything changes owner
@@ -697,7 +669,7 @@ describe('a request sent after its account has left the browser', () => {
     A.setState({ ready: false })
     const bBefore = clone(srv.docs[bId])
 
-    const held = srv.hold('GET', '/api/config')
+    const held = hold('GET', '/api/config')
     const booting = A.getState().boot()
     await held.asked
     const tabA = tabs.find(x => x.store === A)
@@ -732,7 +704,7 @@ describe('a request sent after its account has left the browser', () => {
   // started from A's copy. Each case is run against a sign-out in the other tab, and against a
   // sign-out followed by B's sign-in ("Keep profile as is").
   const otherTz = localTZ() === 'Pacific/Chatham' ? 'Pacific/Kiritimati' : 'Pacific/Chatham'
-  async function bootThroughOwnerChange({ aDoc, hold, during = async () => {}, toB }) {
+  async function bootThroughOwnerChange({ aDoc, hold: heldPath, during = async () => {}, toB }) {
     const aId = OWNER, bId = 'B-' + OWNER
     const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
     const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
@@ -747,7 +719,7 @@ describe('a request sent after its account has left the browser', () => {
     A.setState({ ready: false })
     const bBefore = clone(srv.docs[bId])
 
-    const held = srv.hold('GET', hold)
+    const held = hold('GET', heldPath)
     const booting = A.getState().boot()
     await held.asked
     await during(A)
@@ -832,7 +804,7 @@ describe('a request sent after its account has left the browser', () => {
     const A = await openTab({ id: aId, name: 'Xavi' })
     srv.docs[aId] = { ...srv.docs[aId], routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }   // another device
 
-    const held = srv.hold('GET', '/api/data/rev')
+    const held = hold('GET', '/api/data/rev')
     window.dispatchEvent(new Event('online'))   // the revision check, unthrottled
     await held.asked
     srv.logoutFails = true
@@ -850,6 +822,71 @@ describe('a request sent after its account has left the browser', () => {
     expect(ids(A.getState().S)).toEqual([])
     expect(saved().routines).toEqual([])
     expect(ids(saved())).toEqual([])
+  })
+
+  // NATG-574: tab 1 reloads signed in as A, whose cookie has expired, and its /api/me is out when
+  // the other tab signs out and in as B. The 401 arrives after that: it is about A's old session,
+  // and boot's setUser(null) removed B's gym_user, so the other tab showed the sign-in screen
+  // until its next boot. The same 401 with the owner unchanged still signs this tab out.
+  async function bootRefused({ toB }) {
+    DEF = (await import('./useStore.js')).DEF
+    const aId = OWNER, bId = 'B-' + OWNER
+    const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+    const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
+    const srv = accounts({ [aId]: aDoc, [bId]: bDoc })
+    srv.session = null   // A's cookie has expired: /api/me answers 401
+    localStorage.setItem('gym_owner', aId)
+    localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+    const S = clone(aDoc); delete S._rev
+    localStorage.setItem('gym_state_v1', JSON.stringify(S))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+    const A = await openTab({ id: aId, name: 'Xavi' })   // the tab that reloads
+    const B = await openTab({ id: aId, name: 'Xavi' })
+    A.setState({ ready: false })
+
+    const held = hold('GET', '/api/me')
+    const booting = A.getState().boot()
+    await held.asked
+    const tabA = tabs.find(x => x.store === A)
+    tabA.busy++   // tab 1's storage callbacks wait, in order, until its boot has gone on
+    try {
+      if (toB) {
+        await act(B, () => B.getState().signOut())
+        srv.session = bId
+        await act(B, () => B.getState().setUser({ id: bId, name: 'Bea' }, { adopt: true }))
+        await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+        expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
+      }
+      writer = tabA
+      held.release()
+      await booting
+      await settleTicks()
+    } finally { writer = null; tabA.busy-- }
+    pump()
+    await act(A, settleTicks)
+    return { A, B, aId, bId }
+  }
+
+  it('NATG-574: a boot 401 landing after the other tab signed in as B leaves B\'s gym_user in place', async () => {
+    const { A, B, bId } = await bootRefused({ toB: true })
+
+    expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
+    expect(localStorage.getItem('gym_owner')).toBe(bId)
+    expect(B.getState().user?.id).toBe(bId)
+    // Tab 1 follows the other tab rather than saying A's session ended.
+    expect(A.getState().user?.id ?? null).not.toBe(OWNER)
+    expect(A.getState().sync.lastError?.code).not.toBe('auth')
+  })
+
+  it('NATG-574: a boot 401 with the owner unchanged still signs this tab out', async () => {
+    const { A, aId } = await bootRefused({ toB: false })
+
+    expect(localStorage.getItem('gym_user')).toBeNull()
+    expect(A.getState().user).toBeNull()
+    expect(A.getState().sync).toMatchObject({ status: 'auth', lastError: { status: 401 } })
+    // The copy stays with its owner, for A signing in again (adoptProfile).
+    expect(localStorage.getItem('gym_owner')).toBe(aId)
+    expect(ids(saved())).toEqual(['x1', 'x2', 'x3'])
   })
 })
 
@@ -983,14 +1020,19 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       await vi.advanceTimersByTimeAsync(2000)
     } finally { vi.useRealTimers() }
   }
-
-  it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
-    DEF = (await import('./useStore.js')).DEF
-    const srv = server({ ...account(), _rev: 1 })
+  // Two tabs signed in as Xavi, holding the server's copy at revision 1.
+  const twoTabs = async srv => {
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
     const A = await openTab({ id: OWNER, name: 'Xavi' })
     const B = await openTab({ id: OWNER, name: 'Xavi' })
+    return { A, B, tabA: tabs.find(x => x.store === A) }
+  }
+
+  it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    const { A, B } = await twoTabs(srv)
     const puts = []
 
     await editThenSwitch(A, async () => {
@@ -1011,10 +1053,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   it('after a sign-in to another account: the waiting push is not sent under the new session', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const { A, B } = await twoTabs(srv)
     const yan = 'Y-' + OWNER
     const puts = []
 
@@ -1041,10 +1080,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   it('after the other tab signed out and back in as the same account: the waiting push still goes', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const { A, B } = await twoTabs(srv)
     const puts = []
 
     await editThenSwitch(A, async () => {
@@ -1081,26 +1117,34 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     },
     pullState: A => A.getState().pullState(),
   }
+  // Each owner change tab B makes (`switchOwner`), and what it leaves on the server besides
+  // (`kept`): Yan's document as it was.
   const moves = {
-    'a sign-out': async (B, srv, puts) => {
-      await act(B, () => B.getState().signOut())   // its settle's own push of the account should go
-      recordPuts(puts)
+    'a sign-out': {
+      switchOwner: async (B, srv, puts) => {
+        await act(B, () => B.getState().signOut())   // its settle's own push of the account should go
+        recordPuts(puts)
+      },
+      kept: () => {},
     },
-    'a sign-in to another account': async (B, srv, puts) => {
-      srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
-      recordPuts(puts)
-      await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+    'a sign-in to another account': {
+      switchOwner: async (B, srv, puts) => {
+        srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+        recordPuts(puts)
+        await act(B, () => B.getState().setUser({ id: 'Y-' + OWNER, name: 'Yan' }, { adopt: true }))
+      },
+      kept: srv => {
+        expect(ids(srv.doc)).toEqual(['yW1'])
+        expect(srv.doc._rev).toBe(4)
+      },
     },
   }
   for (const [via, send] of Object.entries(sends)) {
-    for (const [move, switchOwner] of Object.entries(moves)) {
+    for (const [move, { switchOwner }] of Object.entries(moves)) {
       it(`${via} after ${move} in the other tab: the waiting push is not sent`, async () => {
         DEF = (await import('./useStore.js')).DEF
         const srv = server({ ...account(), _rev: 1 })
-        localStorage.setItem('gym_owner', OWNER)
-        savedCopy(srv.doc, 1)
-        const A = await openTab({ id: OWNER, name: 'Xavi' })
-        const B = await openTab({ id: OWNER, name: 'Xavi' })
+        const { A, B } = await twoTabs(srv)
         const puts = []
 
         await editThenSwitch(A, async () => {
@@ -1118,46 +1162,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
 
   /* Sends that resume after an await: an answer A was waiting for lands, or a pull A's own
      sign-out was waiting for, after the other tab has moved the owner and before A has heard.
-     `hold(method)`: the next such request to /api/data is answered as it arrives (refused, 409 and
-     all, as the server would), and that answer held until `release()`. */
-  const hold = method => {
-    const answer = h.api
-    const g = {}
-    g.asked = new Promise(r => { g.ask = r })
-    const released = new Promise(r => { g.release = r })
-    h.api = async (path, opts = {}) => {
-      if ((opts.method || 'GET') === method && path === '/api/data') {
-        h.api = answer
-        let res, err = null
-        try { res = await answer(path, opts) } catch (e) { err = e }
-        g.ask()
-        await released
-        if (err) throw err
-        return res
-      }
-      return answer(path, opts)
-    }
-    return g
-  }
-  // What each move leaves on the server besides: Yan's document as it was.
-  const kept = {
-    'a sign-out': () => {},
-    'a sign-in to another account': srv => {
-      expect(ids(srv.doc)).toEqual(['yW1'])
-      expect(srv.doc._rev).toBe(4)
-    },
-  }
-  const twoTabs = async srv => {
-    localStorage.setItem('gym_owner', OWNER)
-    savedCopy(srv.doc, 1)
-    const A = await openTab({ id: OWNER, name: 'Xavi' })
-    const B = await openTab({ id: OWNER, name: 'Xavi' })
-    return { A, B, tabA: tabs.find(x => x.store === A) }
-  }
-  // `resume` runs as A while its storage callbacks still wait; then they run, and the clock is
-  // given the chance to start anything left (the debounce, a follow-up).
-  const thenResume = async (tabA, resume) => {
+     The request is held with hold(method), so its answer lands only on `release()`. */
+  // `switchOwner` runs while A's storage callbacks wait, then `resume` as A while they still wait;
+  // then they run, and the clock is given the chance to start anything left (the debounce, a
+  // follow-up).
+  const thenResume = async (tabA, switchOwner, resume) => {
+    tabA.busy++
     try {
+      await switchOwner()
       writer = tabA
       await resume()
     } finally { writer = null; tabA.busy-- }
@@ -1165,7 +1177,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     await vi.advanceTimersByTimeAsync(2000)
   }
 
-  for (const [move, switchOwner] of Object.entries(moves)) {
+  for (const [move, { switchOwner, kept }] of Object.entries(moves)) {
     // AC2: a second edit's push, asked for while the first is still on its way, waits behind it
     // (pushAgain). The other tab moves the owner before the first one's answer lands: the
     // follow-up is for Xavi, and does not go.
@@ -1183,14 +1195,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
         await held.asked   // the first push is out
         await act(A, () => A.getState().update(s => { s.restSec = 50 }))
         await vi.advanceTimersByTimeAsync(2000)   // its push asked for while the first is in flight
-        tabA.busy++
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
-        await thenResume(tabA, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
+        await thenResume(tabA, async () => {
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
     })
@@ -1210,14 +1222,14 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
         await act(A, () => A.getState().update(s => { s.restSec = 45 }))
         await vi.advanceTimersByTimeAsync(2000)
         await held.asked   // refused, and the refusal on its way back
-        tabA.busy++
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
-        await thenResume(tabA, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
+        await thenResume(tabA, async () => {
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => { held.release(); await vi.advanceTimersByTimeAsync(2000) })
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
       expect(A.getState().S.routines).toEqual([])
@@ -1239,13 +1251,15 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
         const pull = A.getState().pullState()
         await held.asked
         await act(A, () => A.getState().update(s => { s.restSec = 45 }))   // owed: the pull has left without it
-        tabA.busy++
-        writer = tabA
-        const signingOut = A.getState().signOut()   // waits for the pull
-        writer = null
-        await switchOwner(B, srv, puts)
-        expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        let signingOut
         await thenResume(tabA, async () => {
+          // Only signOut()'s synchronous start is A's (settle() can write before it awaits the pull); the rest runs in `resume`, as A.
+          writer = tabA
+          signingOut = A.getState().signOut()   // waits for the pull
+          writer = null
+          await switchOwner(B, srv, puts)
+          expect(A.getState().user?.id).toBe(OWNER)   // not heard of yet
+        }, async () => {
           held.release()
           await vi.advanceTimersByTimeAsync(2000)
           await pull
@@ -1254,7 +1268,7 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
       } finally { vi.useRealTimers() }
 
       expect(puts).toEqual([])
-      kept[move](srv)
+      kept(srv)
       expect(A.getState().user).toBeNull()
       expect(ids(A.getState().S)).toEqual([])
     })
@@ -1330,5 +1344,73 @@ describe('a reset or import refused before this tab has heard that the other tab
     expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
     expect(srv.doc.restSec).toBe(75)
     expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
+  })
+})
+
+describe('a reset or import followed, before its push, by this tab signing in to another account', () => {
+  /* NATG-572. A reset or an import arms its replace (no baseRev, or the revision it read) and
+     queues its push. Before the 1.5 s debounce fires, this same tab signs in to another account,
+     the way a device link does (Passkeys: setUser with `adopt` while signed in). The sign-in drops
+     the queued push, and the replace, left armed, went out with the new account's next change,
+     over what another device had synced to it. The account this tab held is at revision 5, Yan at
+     4; another device then takes Yan to 5. */
+  const signInBeforePush = async replace => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => replace(A))
+    expect(puts).toEqual([])   // still in the debounce
+    const yan = 'Y-' + OWNER
+    srv.doc = { ...clone(DEF), _ts: 500, workouts: [w('yW1', '2026-09-05')], _rev: 4 }   // the server now answers as Yan
+    await act(A, () => A.getState().setUser({ id: yan, name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().user?.id).toBe(yan)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    // Another device syncs a workout to Yan's profile; A has not pulled it.
+    srv.doc = { ...srv.doc, _rev: 5, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther', '2026-09-06')] }
+    h.toasts = []
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    return { srv, bases: puts.map(p => p.baseRev) }
+  }
+
+  it('a reset leaves no replace behind: the next account\'s change goes against its own revision', async () => {
+    const { srv, bases } = await signInBeforePush(A => A.getState().resetEverything())
+    // Yan's revision, then the merge's retry; not a replace without one.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  it('an import leaves no replace behind: the previous account\'s revision does not go out with the next one\'s change', async () => {
+    const backup = { ...clone(DEF), workouts: [w('b1', '2026-08-01')] }
+    const { srv, bases } = await signInBeforePush(async A => {
+      const token = A.getState().importToken()
+      expect(await A.getState().importConflict(backup, token)).not.toBeNull()   // the check read revision 5
+      expect(A.getState().importBackup(backup, { token })).toBe(true)
+    })
+    // Not the previous account's revision 5, which Yan's document has just reached too.
+    expect(bases).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+    expect(h.toasts.some(m => /while you were importing/.test(m))).toBe(false)
+  })
+
+  it('with no sign-in in between, the reset still goes out as a replace of the account\'s copy', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 5 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 5)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().resetEverything())
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([null])
+    expect(ids(srv.doc)).toEqual([])
   })
 })

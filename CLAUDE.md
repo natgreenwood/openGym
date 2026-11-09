@@ -67,6 +67,14 @@ Pull requests are gated by `.github/workflows/test.yml`; `ios.yml` compiles the 
 runner. Release packages (APK, Play bundle, App Store IPA) are built and signed on the release
 machine, never in CI (see "Exercise media" below and docs/APP_STORES.md).
 
+iOS CI runs on its own when a PR touches the paths in the `gate` job of `.github/workflows/ios.yml`.
+For any other PR that needs it, add the `ios` label (or ask a maintainer to): adding it starts the
+iOS jobs, and while it stays on they run on every later push. If the label doesn't exist, a
+maintainer has to create it. Android CI is the `android` job in `.github/workflows/test.yml`. It
+runs only when a PR touches the `android` paths in that workflow's `changes` job, or when someone
+dispatches the Tests workflow manually on the branch. There is no `android` label, and adding one
+does nothing.
+
 ## Architecture
 
 ### Frontend (`frontend/src`)

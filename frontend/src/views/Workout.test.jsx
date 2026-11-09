@@ -286,6 +286,7 @@ it('edits a saved set without running live completion, rest or success feedback'
 
 afterEach(async () => {
   await unmount()
+  vi.unstubAllGlobals()
 })
 
 describe('Workout set completion flow', () => {
@@ -2773,7 +2774,9 @@ describe('exercise chips at the top of the workout (#323)', () => {
 
   it('jumps without the glide when the system asks for less motion', async () => {
     await mount(session(), 0, { active: { workoutView: 'list' } })
-    dom.matchMedia = q => ({ matches: q.includes('reduce') })
+    // Stubbed, not set on dom: linkedom's window writes through to globalThis, and a plain
+    // assignment kept every later test in this file on reduced motion.
+    vi.stubGlobal('matchMedia', q => ({ matches: q.includes('reduce') }))
     await flushFrame()
     mocks.scrollCalls.length = 0
     await click(chip(2))

@@ -29,6 +29,7 @@ import { todayISO, exerciseNameText } from './format.js'
 import { sanitizeHr } from './heart-rate.js'
 import { readWatchPrefs, settingsForWatch, writeWatchStatus, onWatchPrefs } from './watch-settings.js'
 import { plannedType } from './health-connect.js'
+import { clipText } from './limits.js'
 
 export const SNAPSHOT_VERSION = 1
 const APPLIED_KEY = 'gym_watch_applied'
@@ -107,15 +108,17 @@ function watchEntry (e, H, S) {
     // one id that came in as a number (an import) would leave it with nothing at all.
     id: String(e.id),
     // Title-cased as on the phone; the watch has no CSS to do it (lib/format.js exerciseNameText).
-    name: ex ? exerciseNameText(ex) : String(target.name || e.name || e.id),
+    // Routine names and custom exercise names are cut to MAX_WIDGET_TEXT code points (NATG-553).
+    name: clipText(ex ? exerciseNameText(ex) : String(target.name || e.name || e.id)),
     mode,
     restSec: num(target.restSec),
     last,
     sets: (e.sets || []).map(watchSet),
     ...(isBw(cfg) ? { bodyweight: true } : {}),
     ...(isPerSide(cfg) ? { perSide: true } : {}),
-    // a superset: the exercises next to each other with the same group, done in turns
-    ...(e.sg ? { group: String(e.sg) } : {}),
+    // a superset: the exercises next to each other with the same group, done in turns. A shared
+    // slot's group id is the sharer's text, so it is cut like a name (NATG-553).
+    ...(e.sg ? { group: clipText(e.sg) } : {}),
     ...(best ? { best } : {}),
     ...(mode === 'reps' && isAssisted(e.id) ? { assisted: true } : {}),
     // the step the weight moves in, as on the phone (this exercise's own, else its plates' default)
@@ -139,7 +142,7 @@ export function buildReady (S, today = todayISO()) {
       const healthType = plannedType(entries)
       return {
         routineIds: routineIds.map(String),
-        name: String(deriveSessionName(routines.map(r => r.name)) || ''),
+        name: clipText(deriveSessionName(routines.map(r => r.name)) || ''),
         entries: entries.filter(e => e && e.id != null).map(e => watchEntry(e, H, S)),
         // Apple Health's workout type on the watch: a run is a run (#799)
         ...(healthType ? { healthType } : {}),
@@ -169,7 +172,8 @@ export function buildSnapshot(S, { timer = null, ready = null } = {}) {
     ready,
     active: {
       id: A.id || null,
-      name: A.name || '',
+      // named from its routines, a shared one's included: cut like every routine name here
+      name: clipText(A.name || ''),
       // when it started (ms), for the watch's summary at the finish
       ...(num(A.start) ? { start: num(A.start) } : {}),
       unit,

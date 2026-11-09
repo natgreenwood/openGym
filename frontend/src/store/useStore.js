@@ -1991,10 +1991,15 @@ export const useStore = create((set, get) => {
         rejoined = owner === u.id
         const other = !!owner && owner !== u.id
         // The hold goes on before anything else can run: a poll, a resume, a debounced push.
+        // A replace a reset or an import armed for that push goes with it: the adoption decides
+        // what this copy is, and pushes it against the server's revision. Left armed, it went out
+        // with the next account's first push, over what another device had synced (NATG-572).
         if (adopt) {
           adoptHold = true
           clearTimeout(pushTm)
           pushTm = null
+          forceNext = false
+          replaceRev = null
         } else {
           // Boot signing the account back in: an adoption it still owes holds sync until it is
           // answered (resumeAdoption); one another account left behind is void.
@@ -2507,8 +2512,12 @@ export const useStore = create((set, get) => {
         // screen, which says so. The copy stays here with its owner, and signing in again as the
         // same account merges it (adoptProfile). A later reload still says so while that copy
         // owes its account changes — the user is gone by then, the owner and the copy are not —
-        // unless whoever is here chose to go on as a guest.
+        // unless whoever is here chose to go on as a guest. A 401 that lands after another tab
+        // signed out or in is about the session this copy's owner had, not the browser's now:
+        // setUser(null) would remove the new account's gym_user, so this tab only follows the
+        // other one (the owner event), as boot's other waits do (NATG-574).
         if (e.status === 401) {
+          if (moved()) { finishBoot(); return }
           const kept = !!get().user || (!get().isGuest() && !!localStorage.getItem('gym_owner') && owes())
           get().setUser(null)
           if (kept) failed(e, { pending: owes() })

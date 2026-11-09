@@ -4,7 +4,7 @@
 // `shares` etag moved; a share that has gone leaves the schedule through the same delete as your
 // own routines, while one that is only not available keeps its days; removing one asks the server
 // and takes it off your plan; a sign-out wipes the lists.
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const ui = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
@@ -19,6 +19,12 @@ const fresh = { offline: false, pending: false, auth: false, lastError: null, la
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const LEG = { id: 'r9', name: 'Leg Day', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] }
 const accepted = (id, extra = {}) => ({ id, state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h' + id, routine: LEG, ...extra })
+
+// A store a test loads for itself (a new start, a page that has not heard from the server) keeps
+// listening after the test: signed in, the next test's `online` event made it load the lists too.
+let pages = []
+const load = async () => { vi.resetModules(); const { useStore: page } = await import('./useStore.js'); pages.push(page); return page }
+afterEach(() => { for (const page of pages) page.setState({ user: null, ready: false }); pages = [] })
 
 let net
 beforeEach(() => {
@@ -66,12 +72,10 @@ describe('the share lists live on this device, never in S', () => {
   it('a new start reads them back for the same account only (offline at the last-synced version, AC8)', async () => {
     localStorage.setItem('gym_user', JSON.stringify(USER))
     localStorage.setItem(SHARED_KEY, JSON.stringify({ uid: 'u2', incoming: [accepted('s1')], outgoing: [], etag: 'e1', fetchedAt: 5 }))
-    vi.resetModules()
-    let { useStore: again } = await import('./useStore.js')
+    let again = await load()
     expect(again.getState().shares).toMatchObject({ uid: 'u2', fetchedAt: 5 })
     localStorage.setItem('gym_user', JSON.stringify({ id: 'u7', name: 'Someone else' }))
-    vi.resetModules()
-    ;({ useStore: again } = await import('./useStore.js'))
+    again = await load()
     expect(again.getState().shares).toBeNull()
   })
 })
@@ -123,8 +127,7 @@ describe('a share that has gone leaves the schedule (AC6), one not available kee
   it('judges no pointer by a list that is only kept on this device', async () => {
     // A page that has not heard from the server yet: only the kept list, which can be older
     // than a share accepted on another device.
-    vi.resetModules()
-    const { useStore: page } = await import('./useStore.js')
+    const page = await load()
     page.setState({ S: { ...clone(DEF), week: { 1: ['shared:s1'] } }, user: USER, ready: true, shares: { uid: 'u2', incoming: [], outgoing: [], etag: 'old' } })
     page.getState().sweepSharedPointers()
     expect(page.getState().S.week[1]).toEqual(['shared:s1'])

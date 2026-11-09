@@ -347,14 +347,25 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     }
     if (!importIsCurrent(token)) return
     // Nothing of the backup is kept, its photos included, once the import's account has gone;
-    // importBackup checks again after the photos are written.
+    // importBackup checks again after the photos are written, and when it refuses, the photos
+    // this import wrote are taken back out (NATG-557).
     const apply = async mergeWith => {
       if (!importIsCurrent(token)) return
+      let kept = null
       if (read.files.length) {
         const { storeBackupMedia } = await import('../lib/backup-media.js')
-        await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
+        kept = await storeBackupMedia(read.files, { limits: limitsFrom(useStore.getState().config) })
       }
-      if (!importBackup(read.state, { mergeWith, token })) return
+      if (!importBackup(read.state, { mergeWith, token })) {
+        // Best effort: whatever it cannot take back goes at the next local clean-up.
+        if (kept) {
+          try {
+            const { undoBackupMedia } = await import('../lib/backup-media.js')
+            await undoBackupMedia(kept, useStore.getState().S)
+          } catch { /* the import is refused either way; nothing more to say */ }
+        }
+        return
+      }
       // The photos it brought are pending here and maybe gone from the server (a reset): sent now,
       // not after the ten-minute dedupe of the run before the reset.
       if (read.files.length) syncMedia({ force: true })

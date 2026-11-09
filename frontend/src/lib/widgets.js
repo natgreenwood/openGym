@@ -19,7 +19,7 @@ import { sharedViewOf } from './shared-routines.js'
 import { todayISO, isoOf, fmtNum, weekStartOf, startOfWeek, exerciseNameText } from './format.js'
 import { accentPair, accentValue } from './accent.js'
 import { speedUnitOf } from './speed.js'
-import { MAX_WIDGET_TEXT } from './limits.js'
+import { clipText } from './limits.js'
 
 export const WIDGET_SNAPSHOT_VERSION = 1
 // Today and the week after it: enough for "next workout" to still be right a few days on.
@@ -27,18 +27,6 @@ export const WIDGET_DAYS = 8
 // What the large widget lists of today's plan.
 export const WIDGET_EXERCISES_MAX = 8
 const WRITE_DEBOUNCE_MS = 1000
-
-// Text that comes from routine data, a shared routine's included, cut to MAX_WIDGET_TEXT code
-// points so the snapshot's size is bounded whatever the names are (SEC-526-01). Counted by code
-// point, so an emoji at the cut is kept or dropped whole, never split into half a surrogate pair.
-function clipText (s) {
-  const str = String(s ?? '')
-  // A string no longer than the limit in UTF-16 units is no longer than it in code points.
-  if (str.length <= MAX_WIDGET_TEXT) return str
-  let i = 0
-  for (let n = 0; n < MAX_WIDGET_TEXT && i < str.length; n++) i += str.codePointAt(i) > 0xffff ? 2 : 1
-  return str.slice(0, i)
-}
 
 // Title-cased as the app shows it; a widget has no CSS to do it (lib/format.js exerciseNameText).
 const nameOfCfg = cfg => clipText(EXIDX[cfg?.id] ? exerciseNameText(EXIDX[cfg.id]) : String(cfg?.name || cfg?.n || cfg?.id || ''))
