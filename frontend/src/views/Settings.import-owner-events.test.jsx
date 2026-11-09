@@ -63,7 +63,7 @@ const settled = owner => {
 }
 const asA = ({ settle = true } = {}) => {
   if (settle) settled('A'); else localStorage.setItem('gym_owner', 'A')
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 6, ts: 200 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 6, ts: 200, uid: 'A' }))
   useStore.setState({ S: { ...clone(DEF), _ts: 200, workouts: [workout('w1')] }, user: { id: 'A' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }
 const asGuest = () => {
