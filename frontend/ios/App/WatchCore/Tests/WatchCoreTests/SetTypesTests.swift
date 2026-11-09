@@ -170,6 +170,39 @@ final class SetTypesTests: XCTestCase {
         XCTAssertEqual(snap2.active?.start, 5)
     }
 
+    /// A snapshot too big for the application context comes without its null keys, and with each
+    /// superset as a short token (frontend lib/watch-sync.js fitSnapshot, NATG-613): it reads the
+    /// same as with the nulls, and the superset still goes in turns.
+    func testASnapshotWithoutItsNullKeysReadsTheSame() throws {
+        let lean = #"{"v":1,"active":{"id":"w","name":"A","unit":"kg","cur":0,"restSec":90,"entries":["#
+            + #"{"id":"curl","name":"Curl","mode":"reps","group":"g1","sets":[{"r":10,"done":false,"warmup":false},{"r":10,"done":false,"warmup":false}]},"#
+            + #"{"id":"push","name":"Pushdown","mode":"reps","group":"g1","sets":[{"r":12,"done":false,"warmup":false},{"r":12,"done":false,"warmup":false}]},"#
+            + #"{"id":"raise","name":"Lateral raise","mode":"reps","sets":[{"w":8,"r":15,"done":false,"warmup":false}]}]}}"#
+        let snap = try JSONDecoder().decode(Snapshot.self, from: Data(lean.utf8))
+        let curl = snap.active!.entries[0]
+        XCTAssertNil(curl.restSec)
+        XCTAssertNil(curl.last)
+        XCTAssertNil(curl.sets[0].w)
+        XCTAssertNil(curl.sets[0].sec)
+        XCTAssertNil(curl.sets[0].at)
+        XCTAssertEqual(curl.sets[0].r, 10)
+        XCTAssertNil(snap.active?.rest)
+        XCTAssertNil(snap.ready)
+        // the same as the phone sends it when it fits, nulls and all
+        let full = #"{"id":"curl","name":"Curl","mode":"reps","restSec":null,"last":null,"group":"g1","sets":[{"w":null,"r":10,"sec":null,"done":false,"warmup":false},{"w":null,"r":10,"sec":null,"done":false,"warmup":false}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(Entry.self, from: Data(full.utf8)), curl)
+
+        var s = SessionCore.applySnapshot(SessionState(), snap)
+        s = SessionCore.tick(s, entry: 0, set: 0, w: nil, r: 10, at: 1, id: "1").0
+        var n = SessionCore.next(after: s, entry: 0, set: 0)
+        XCTAssertEqual(n.entry, 1, "on to the partner")
+        XCTAssertFalse(n.rest, "no rest inside a round")
+        s = SessionCore.tick(s, entry: 1, set: 0, w: nil, r: 12, at: 2, id: "2").0
+        n = SessionCore.next(after: s, entry: 1, set: 0)
+        XCTAssertEqual(n.entry, 0, "back to the first for the next round")
+        XCTAssertTrue(n.rest, "the rest after the round")
+    }
+
     func testAStateSavedByTheLastBuildStillLoads() throws {
         let saved = #"{"settings":{},"unit":"kg","restSec":90,"finishedHere":[],"pending":{"x#0":{"w":1,"r":2,"at":3}},"entryIndex":0}"#
         let s = try JSONDecoder().decode(SessionState.self, from: Data(saved.utf8))
