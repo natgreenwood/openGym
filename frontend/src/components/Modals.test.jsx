@@ -103,7 +103,7 @@ afterEach(async () => {
   root = null
   container = null
   dom = null
-  for (const key of Reflect.ownKeys(globalThis)) if (!globalKeys.has(key)) delete globalThis[key]
+  for (const key of Reflect.ownKeys(globalThis)) if (!globalKeys.has(key)) Reflect.deleteProperty(globalThis, key)
   vi.restoreAllMocks()
 })
 
