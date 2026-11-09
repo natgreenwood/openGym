@@ -128,6 +128,8 @@ export default function Settings({ page = null, find = null, via = null, entryKe
   const lostBy = routines => (user ? sharesLostBy(myShares?.outgoing, routines) : 0)
   const fileRef = useRef(null)
   const importRef = useRef(null)
+  // The backup import this tab started last, and its confirm once open (doImport).
+  const lastImport = useRef({ n: 0, sheet: null })
   const body = useRef(null)
   const wakeOK = wakeLockSupported()
   // The gym reminder's switch lives on its own page and on this device only (lib/gym-reminder.js).
@@ -337,19 +339,30 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // signing out, switching account or signing in from guest at any point ends it, and nothing
     // is imported (NATG-535).
     const token = importToken()
+    // A second file chosen while this import is still reading, checking or waiting on its confirm
+    // takes over: this one does nothing more, and its confirm, if open, closes without a word. Its
+    // check read the server before the second import, and answering it after would merge or
+    // replace with that older read (NATG-562). Checked beside the account's token, not instead.
+    const run = ++lastImport.current.n
+    lastImport.current.sheet?.close()
+    lastImport.current.sheet = null
+    const superseded = () => lastImport.current.n !== run
     let read
     try {
       const { readBackupFile } = await import('../lib/backup-media.js')
       read = await readBackupFile(f)
     } catch (e) {
+      if (superseded()) return
       const { backupImportError } = await import('../lib/backup-media.js')
       toast(backupImportError(e)); return
     }
+    if (superseded()) return
     if (!importIsCurrent(token)) return
     // Nothing of the backup is kept, its photos included, once the import's account has gone;
     // importBackup checks again after the photos are written, and when it refuses, the photos
     // this import wrote are taken back out (NATG-557).
     const apply = async mergeWith => {
+      if (superseded()) return
       if (!importIsCurrent(token)) return
       let kept = null
       if (read.files.length) {
@@ -375,11 +388,13 @@ export default function Settings({ page = null, find = null, via = null, entryKe
     // another device meanwhile, would be deleted from the profile by the replace — said, with the
     // choice to merge those in instead (useStore importConflict / importBackup).
     const conflict = await importConflict(read.state, token)
+    if (superseded()) return
     // No confirm for an import whose account went during the check, and the open one closes when
     // it goes, whichever choice it offered. The sign-in from guest is the switch the sheets' own
     // close on an account change leaves open (useUI).
     if (conflict?.stale || !importIsCurrent(token)) return
     const whileCurrent = sheet => {
+      lastImport.current.sheet = sheet
       const off = useStore.subscribe(() => {
         if (!importIsCurrent(token)) { off(); sheet.close() }
         else if (!useUI.getState().sheets.some(x => x.id === sheet.id)) off()
