@@ -192,24 +192,37 @@ function fromOklch([L, C, h]) {
 
 // Text on --acc-soft has to read at 4.5:1 on the darkest tint in light theme and the lightest in
 // dark theme: the accent at 16% over --surface-2 (index.css), the way color-mix() lays it over.
+// A browser rounds that mix to whole channel values its own way (Chromium paints #42fc96's tint a
+// shade darker than rounding to nearest), so the ink aims for 4.6:1, the margin the presets were
+// drawn with, against the tint rounded down, rounded up and not rounded at all, whichever is worst.
 const INK_ON = { light: '#ececef', dark: '#2c2c2e' }
-export const INK_MIN = 4.5
+export const INK_MIN = 4.6
 export const SOFT = 0.16
+
+const lumOf = c => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2])
+function worstOnTint(ink, surface, acc) {
+  const s = rgb(surface), a = rgb(acc), y = luminance(ink)
+  const tint = s.map((v, i) => v + (a[i] - v) * SOFT)
+  return Math.min(...[tint, tint.map(Math.floor), tint.map(Math.ceil)].map(c => {
+    const t = lumOf(c)
+    return (Math.max(y, t) + 0.05) / (Math.min(y, t) + 0.05)
+  }))
+}
 
 /**
  * The colour for text on the accent's own tint (index.css --acc-ink) when the accent is the
- * user's: `acc` itself when it already reads at 4.5:1 there, otherwise made darker (light theme)
+ * user's: `acc` itself when it already reads at 4.6:1 there, otherwise made darker (light theme)
  * or lighter (dark theme) in small steps of OKLCH lightness at the same hue until it does. Black
  * and white always do, so it never fails (a11y-contrast-transparency.test.js, whole sRGB cube).
  */
 export function inkOnTint(acc, theme) {
   const light = theme === 'light'
-  const tint = mix(INK_ON[light ? 'light' : 'dark'], acc, SOFT)
-  if (contrast(acc, tint) >= INK_MIN) return acc
+  const surface = INK_ON[light ? 'light' : 'dark']
+  if (worstOnTint(acc, surface, acc) >= INK_MIN) return acc
   const [L, C, h] = toOklch(acc)
   for (let i = 1; i <= 100; i++) {
     const c = fromOklch([light ? Math.max(0, L - i * 0.01) : Math.min(1, L + i * 0.01), C, h])
-    if (contrast(c, tint) >= INK_MIN) return c
+    if (worstOnTint(c, surface, acc) >= INK_MIN) return c
   }
   return light ? '#000000' : '#ffffff'
 }

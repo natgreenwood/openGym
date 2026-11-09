@@ -131,7 +131,7 @@ describe('readable on the theme', () => {
 
 describe('CSS for the own colour', () => {
   it('derives the accent, its pressed shade and its text', () => {
-    expect(customAccentVars('#0a84ff', 'dark')).toEqual({ '--acc': '#0a84ff', '--acc-2': '#0863bf', '--on-acc': '#000000', '--acc-ink': '#5ea4ff', '--knob-ring': 'transparent' })
+    expect(customAccentVars('#0a84ff', 'dark')).toEqual({ '--acc': '#0a84ff', '--acc-2': '#0863bf', '--on-acc': '#000000', '--acc-ink': '#64a8ff', '--knob-ring': 'transparent' })
     const v = customAccentVars('#000033', 'dark')
     expect(v['--acc']).toBe(readableIn('#000033', 'dark'))
     expect(v['--on-acc']).toBe(inkOn(v['--acc']))
@@ -188,6 +188,10 @@ describe('the text on the own colour\'s tint', () => {
   it('keeps the accent where it already reads', () => {
     expect(inkOnTint('#003a8c', 'light')).toBe('#003a8c')
     expect(inkOnTint('#ffd60a', 'dark')).toBe('#ffd60a')
+  })
+  it('reads at 4.5:1 on the tint Chromium actually paints, not only the tint rounded to nearest', () => {
+    // #42fc96 in light theme: its tint over --surface-2 rounds to #c7dfd4, Chromium paints #c6ded3
+    expect(contrast(inkOnTint(readableIn('#42fc96', 'light'), 'light'), '#c6ded3')).toBeGreaterThanOrEqual(4.5)
   })
   it('goes darker in light theme and lighter in dark theme', () => {
     for (const c of ['#34c759', '#ff9500', '#ff00aa', '#30b0c7']) {
