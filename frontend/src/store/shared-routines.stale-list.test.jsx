@@ -32,7 +32,7 @@ beforeEach(async () => {
   net = { incoming: [accepted()], etag: 'qa-e1', rev: 1, state: clone(S), puts: [] }
   useStore.setState({ S, user: ME, ready: true, config: { shares: true, coach: null }, shares: null, sharesError: false, sync: { ...fresh } })
   useUI.setState({ sheets: [], toastMsg: '', timer: null, work: null })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0, uid: ME.id }))
   api.mockReset()
   api.mockImplementation(async (path, o = {}) => {
     if (path === '/api/shares') return { incoming: clone(net.incoming), outgoing: [], etag: net.etag }
