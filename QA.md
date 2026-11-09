@@ -229,7 +229,9 @@ the first import even though the second cannot proceed.
 
 Also hold a real ZIP import's media write after its confirm closes, then complete
 a second import before releasing the write. Check that superseded work does not
-resume an old replace or merge, show success, or leave its photos stored.
+resume an old replace or merge or show success. Remove unused photos, but keep
+hashes referenced by the newer import or held by an editor. Check IndexedDB again
+after reload; memory alone cannot establish rollback or preservation.
 
 ## Backup media
 
