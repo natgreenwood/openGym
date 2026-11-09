@@ -105,6 +105,19 @@ final class OpenGymUITests: XCTestCase {
         }
     }
 
+    /**
+     * Full Body A, started from the Start screen. On the day the starter plan gives it (Monday) it
+     * is today's plan: a card with its own Start button, and no row under "Other routines". Its
+     * name on that card starts nothing (CI 11-09, every Monday). The card and the list show
+     * together, so once the screen's title is up the button is there if it is going to be.
+     */
+    private func startFullBodyA() {
+        tap(app.buttons["Choose a different workout"], "Choose a different workout")
+        XCTAssertTrue(app.staticTexts["Start workout"].waitForExistence(timeout: 15), "the Start screen did not show up")
+        let todaysPlan = app.buttons["Start Full Body A"]
+        if todaysPlan.exists { todaysPlan.tap() } else { tap(app.staticTexts["Full Body A"], "Full Body A") }
+    }
+
     /** A switch on, for sure: tapped until it reads on, a system question answered in between. */
     private func switchOn(_ sw: XCUIElement, _ what: String) {
         XCTAssertTrue(sw.waitForExistence(timeout: 15), "no \(what) switch")
@@ -124,10 +137,12 @@ final class OpenGymUITests: XCTestCase {
         app.launch()
         chooseLocal()
         shot("1-home")
-        tap(app.buttons["Load starter plan"], "Load starter plan")
-        tap(button(startingWith: "Full Body"), "the Full Body plan")
-        tap(app.buttons["Choose a different workout"], "Choose a different workout")
-        tap(app.staticTexts["Full Body A"], "Full Body A")
+        // A retry finds the plan an earlier attempt loaded, and no welcome card to load it from.
+        if app.buttons["Load starter plan"].waitForExistence(timeout: 15) {
+            tap(app.buttons["Load starter plan"], "Load starter plan")
+            tap(button(startingWith: "Full Body"), "the Full Body plan")
+        }
+        startFullBodyA()
         shot("2-workout")
         let tick = app.switches["Set 1 done"]
         tap(tick, "Set 1 done")
@@ -190,8 +205,7 @@ final class OpenGymUITests: XCTestCase {
                 tap(app.buttons["Load starter plan"], "Load starter plan")
                 tap(button(startingWith: "Full Body"), "the Full Body plan")
             }
-            tap(app.buttons["Choose a different workout"], "Choose a different workout")
-            tap(app.staticTexts["Full Body A"], "Full Body A")
+            startFullBodyA()
             tap(app.switches["Set 1 done"], "Set 1 done")
             allowSystemAlert(within: 5)
         }
