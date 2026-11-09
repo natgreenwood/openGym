@@ -830,7 +830,10 @@ describe('a request sent after its account has left the browser', () => {
   // the other tab signs out and in as B. The 401 arrives after that: it is about A's old session,
   // and boot's setUser(null) removed B's gym_user, so the other tab showed the sign-in screen
   // until its next boot. The same 401 with the owner unchanged still signs this tab out.
-  async function bootRefused({ toB }) {
+  // NATG-606: the other tab signs back in as A instead, after a sign-out (`roundTrip`) or after its
+  // own copy of A's session expired (`reSignIn`, the owner key left at A). The owner key ends where
+  // it was, so only the sign-in token shows boot that the 401 is about A's old session.
+  async function bootRefused({ toB, roundTrip, reSignIn }) {
     DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
@@ -859,6 +862,14 @@ describe('a request sent after its account has left the browser', () => {
         await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
         expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
       }
+      if (roundTrip || reSignIn) {
+        if (roundTrip) await act(B, () => B.getState().signOut())
+        else await act(B, () => B.getState().setUser(null))   // tab 2's own 401: A's session is gone there too
+        srv.session = aId
+        await act(B, () => B.getState().setUser({ id: aId, name: 'Xavi' }, { adopt: true }))
+        await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+        expect(localStorage.getItem('gym_owner')).toBe(aId)
+      }
       writer = tabA
       held.release()
       await booting
@@ -875,12 +886,28 @@ describe('a request sent after its account has left the browser', () => {
     expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
     expect(localStorage.getItem('gym_owner')).toBe(bId)
     expect(B.getState().user?.id).toBe(bId)
-    // Tab 1 follows the other tab rather than saying A's session ended.
+    // Tab 1 follows the other tab rather than saying A's session ended, onto B's own copy.
     expect(A.getState().user?.id ?? null).not.toBe(OWNER)
     expect(A.getState().sync.lastError?.code).not.toBe('auth')
+    expect(ids(A.getState().S)).toEqual(['bW1'])
   })
 
+  for (const [label, how] of [['signed out and back in as A', { roundTrip: true }], ['signed in again as A after its own session expired', { reSignIn: true }]]) {
+    it(`NATG-606: a boot 401 landing after the other tab ${label} leaves A's new session signed in`, async () => {
+      const { A, B, aId } = await bootRefused(how)
+
+      expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(aId)
+      expect(localStorage.getItem('gym_owner')).toBe(aId)
+      expect(B.getState().user?.id).toBe(aId)
+      // Tab 1 stays on A and is not told A's session ended: the browser holds A's new one.
+      expect(A.getState().user?.id).toBe(aId)
+      expect(A.getState().sync.lastError?.code).not.toBe('auth')
+      expect(A.getState().sync.status).not.toBe('auth')
+    })
+  }
+
   it('NATG-574: a boot 401 with the owner unchanged still signs this tab out', async () => {
+    const gen = localStorage.getItem('gym_owner_gen')
     const { A, aId } = await bootRefused({ toB: false })
 
     expect(localStorage.getItem('gym_user')).toBeNull()
@@ -889,7 +916,36 @@ describe('a request sent after its account has left the browser', () => {
     // The copy stays with its owner, for A signing in again (adoptProfile).
     expect(localStorage.getItem('gym_owner')).toBe(aId)
     expect(ids(saved())).toEqual(['x1', 'x2', 'x3'])
+    // A 401 only drops this tab's user: no sign-in or sign-out, so no new token (NATG-606).
+    expect(localStorage.getItem('gym_owner_gen')).toBe(gen)
   })
+
+  // NATG-606: boot's own setUser for the owner already here is no sign-in. Were it to rewrite the
+  // token, boot's last check (a 401 from its pull) would always find it moved and never sign out.
+  // A browser without the token yet (opened before this was deployed) is not given one either.
+  for (const gen of ['g-before', null]) {
+    it(`NATG-606: a boot that signs A back in leaves the sign-in token ${gen ? 'as it was' : 'unset'}`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const aId = OWNER
+      const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+      const srv = accounts({ [aId]: aDoc })
+      srv.session = aId
+      localStorage.setItem('gym_owner', aId)
+      if (gen) localStorage.setItem('gym_owner_gen', gen)
+      localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+      const S = clone(aDoc); delete S._rev
+      localStorage.setItem('gym_state_v1', JSON.stringify(S))
+      localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+      const A = await openTab({ id: aId, name: 'Xavi' })
+      A.setState({ ready: false })
+
+      await act(A, () => A.getState().boot())
+      await act(A, settleTicks)
+
+      expect(A.getState().user?.id).toBe(aId)
+      expect(localStorage.getItem('gym_owner_gen')).toBe(gen)
+    })
+  }
 })
 
 // NATG-530: the NATG-528 window reached from a local edit instead of a late answer. The other tab
