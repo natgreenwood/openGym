@@ -45,7 +45,7 @@ describe('sync status', () => {
   it('ok, with the time, once a check finds this device and the server in step — and that time is kept', async () => {
     const S = { ...clone(DEF), _ts: 100, workouts: [workout('w1')] }
     signedIn(S)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })
     window.dispatchEvent(new Event('online'))   // the rev check the poll and a focus also run
     await new Promise(r => setTimeout(r, 10))
@@ -60,7 +60,7 @@ describe('sync status', () => {
   it('offline, error with the HTTP status, and refused — each from the failure that caused it', async () => {
     const S = { ...clone(DEF), _ts: 500, workouts: [workout('w1')] }
     signedIn(S)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
 
     api.mockRejectedValueOnce(netError())
     await useStore.getState().pushState()
@@ -86,13 +86,13 @@ describe('sync status', () => {
 
   it('a refused rev check or pull says so and leaves the copy, the marker and the user alone', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockRejectedValueOnce(httpError(401))
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 10))
     expect(useStore.getState().sync.status).toBe('auth')
     expect(useStore.getState().user).toEqual(USER)
-    expect(JSON.parse(localStorage.getItem('gym_sync'))).toEqual({ rev: 1, ts: 100 })
+    expect(JSON.parse(localStorage.getItem('gym_sync'))).toEqual({ rev: 1, ts: 100, uid: USER.id })
   })
 
   it('pending when a change is owed and nothing has failed yet; local without an account', () => {
@@ -106,7 +106,7 @@ describe('sync status', () => {
   it('syncNow sends the change waiting in the debounce, checks the server, and answers with the result', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 2 } : { state: { ...clone(useStore.getState().S), _rev: 2 }, rev: 2 }))
     useStore.getState().update(s => { s.restSec = 30 })
 
@@ -178,7 +178,7 @@ describe('the web boot', () => {
 describe('signing out never loses a change silently', () => {
   const owedCopy = () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })   // a check in step: the fingerprint of rev 1 is taken
     window.dispatchEvent(new Event('online'))
   }
@@ -313,7 +313,7 @@ describe('signing out never loses a change silently', () => {
 describe('a sign-out sends the copy only when it owes the server something', () => {
   const inStep = async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })   // a check in step: the fingerprint of rev 1 is taken
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 10))
@@ -352,7 +352,7 @@ describe('a sign-out sends the copy only when it owes the server something', () 
 
   it('a change made since the revision it descends from is owed, with no push waiting for it', async () => {
     signedIn({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('w2', '2026-09-02')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValue({ ok: true, rev: 2 })
     expect(await useStore.getState().signOutAll()).toEqual({ owed: false })
     expect(paths()).toEqual(['PUT /api/data', 'POST /api/logout/all'])
@@ -417,7 +417,7 @@ describe('a sign-out the server did not answer', () => {
   // A copy in step with the server: nothing owed, so the sign-out goes ahead at once.
   const inStep = async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ rev: 1 })
     window.dispatchEvent(new Event('online'))
     await new Promise(r => setTimeout(r, 10))
@@ -480,7 +480,7 @@ describe('signing in again to the account this copy belongs to', () => {
   // server a workout, a routine edit and a setting.
   const sessionEnded = () => {
     useStore.setState({ S: { ...clone(DEF), _ts: 300, restSec: 60, routines: [routine('push', 15), routine('new-plan', 8)], workouts: [workout('w1'), workout('w-week', '2026-09-18')] }, ready: true })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     localStorage.setItem('gym_dirty', '1')
   }
   const server = { ...clone(DEF), _ts: 200, restSec: 90, routines: [routine('push', 10)], workouts: [workout('w1'), workout('w-phone', '2026-09-17')], _rev: 2 }
@@ -505,7 +505,7 @@ describe('signing in again to the account this copy belongs to', () => {
 
   it('a copy with nothing of its own since its revision takes the server\'s as it is', async () => {
     useStore.setState({ S: { ...clone(DEF), _ts: 100, workouts: [workout('w1'), workout('gone', '2026-09-02')] }, ready: true })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockResolvedValueOnce({ state: clone(server), rev: 2 })
     useStore.getState().setUser(USER)
     await useStore.getState().adoptProfile(async () => false)
@@ -530,7 +530,7 @@ describe('another account signing in on a copy that still owes the first', () =>
 
   it('keeps what the first account was owed aside for it — nothing of it goes into the new account — and gives it back when that account returns', async () => {
     signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('w1'), workout('w-week', '2026-09-18')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     localStorage.setItem('gym_dirty', '1')
 
     api.mockImplementation(twosServer)
@@ -555,7 +555,7 @@ describe('another account signing in on a copy that still owes the first', () =>
     const S = { ...clone(DEF), _ts: 300, workouts: [workout('w1'), { ...workout('w-week', '2026-09-18'), note: 'x'.repeat(20000) }] }
     signedIn(S)
     localStorage.setItem('gym_state_v1', JSON.stringify(S))
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     localStorage.setItem('gym_dirty', '1')
     // A quota: room for one copy of this profile and a little more, never for two.
     const used = () => Object.keys(localStorage).reduce((n, k) => n + k.length + localStorage.getItem(k).length, 0)
@@ -580,7 +580,7 @@ describe('another account signing in on a copy that still owes the first', () =>
   it('names the first account, also when its session had already ended, and says when the kept changes move', async () => {
     useStore.getState().setUser(USER)
     useStore.setState({ S: { ...clone(DEF), _ts: 300, workouts: [workout('w1'), workout('w-week', '2026-09-18')] }, ready: true })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     localStorage.setItem('gym_dirty', '1')
     useStore.getState().setUser(null)   // what the boot does when the server ended the session
 
@@ -602,7 +602,7 @@ describe('another account signing in on a copy that still owes the first', () =>
 
   it('a copy that owes nothing is replaced as before, with nothing kept', async () => {
     signedIn({ ...clone(DEF), _ts: 100, workouts: [workout('w1')] })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: USER.id }))
     api.mockImplementation(twosServer)
     useStore.getState().setUser({ id: 'user-2', name: 'Two' })
     await useStore.getState().adoptProfile(async () => false)
