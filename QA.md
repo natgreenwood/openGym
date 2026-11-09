@@ -91,7 +91,7 @@ npx vitest run src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-s
 Then the store with the adjacent leave-server UI:
 
 ```sh
-npx vitest run src/store/ src/components/ServerSync.leave.test.jsx src/components/ServerSync.media.test.jsx src/views/Settings.server-sync.test.jsx --reporter=dot
+npx vitest run src/store/ src/components/ServerSync.leave.test.jsx src/components/ServerSync.media.test.jsx src/components/ServerSync.retry-owner.test.jsx src/views/Settings.server-sync.test.jsx --reporter=dot
 ```
 
 These tests use synthetic localStorage profiles and mocked API responses. The
@@ -105,6 +105,9 @@ authentication or browser storage-event scheduling.
   saved-tab changes and account switches.
 - `useStore.hold-signout.test.jsx` and `useStore.media.test.jsx` cover adoption
   holds and pending media.
+- `ServerSync.retry-owner.test.jsx` checks the initiating account through a retry
+  after its sheet unmounts and a forced attempt before the owner event arrives,
+  using real stores and the UI account-change subscriber.
 
 In a browser with a synthetic profile, use Settings → Account → Sign out and
 Sign out everywhere. A clean copy sends only the corresponding logout POST;
@@ -112,6 +115,12 @@ an edited copy sends `PUT /api/data` before logout. Both clear memory and the
 saved workout list. A failed PUT keeps the account and workouts locally and
 sends no logout. Browser checks with intercepted API responses cannot establish
 server revision changes or delivery to other devices.
+
+For cancellation, hold the sign-out's pull or the owed sheet's retry GET, sign
+another synthetic account into a second tab, then release the response. Check
+that no logout is sent, the new owner stays signed in, the sheet closes, and the
+cancellation toast names that account without leaving Settings. Also test a new,
+deliberate sign-out after the tab follows the new account.
 
 ## Shared routines
 
