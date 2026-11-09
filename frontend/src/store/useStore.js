@@ -1097,6 +1097,19 @@ export const useStore = create((set, get) => {
     while (pushing) await pushing
     await settleMedia(get().S)
   }
+  // Whether a sign-out asked for under `owner` (the browser's owner at the click) was overtaken by
+  // another tab signing a different account in while it waited. Its logout would end that
+  // account's session in this browser, and "everywhere" its sessions on every device, so it stops
+  // and changes nothing (NATG-581). An owner gone to nobody is not another account: another tab
+  // signed the same account out, and the sign-out goes on as before. This tab hands over to the
+  // new owner first, as a save does (refuseStale): the handover closes the sheets and the toast
+  // (useUI), so whatever the caller then says about the cancelled sign-out stays on screen.
+  const overtaken = owner => {
+    const now = readOwner()
+    if (!now || now === owner) return false
+    if (now !== seenOwner) handOver(now)
+    return true
+  }
 
   // Forget where this device stood with the server — a different account, a sign-out. The copy
   // that replaces it descends from no revision and owes nothing.
@@ -2250,14 +2263,21 @@ export const useStore = create((set, get) => {
        device (stashOwed) and comes back when it next reaches this server as this account. If
        even that cannot be written, nothing is wiped ({ owed, count, stashed: false }).
        Otherwise { owed: false } or { owed: true, count, stashed: true }, signed out. A workout
-       running here is kept aside either way (stashActive), and the rest and hold timers stop. */
-    async signOut({ force = false } = {}) {
+       running here is kept aside either way (stashActive), and the rest and hold timers stop.
+       Another tab signing a different account in before the logout is sent cancels it: nothing
+       is sent or wiped, and the result is { cancelled: true } (overtaken). `owner`: the account
+       the sign-out was asked for under, when that was before this call (a "Try again" or "Sign
+       out anyway" from the owed sheet, leaveServer); by default the browser's owner now. */
+    async signOut({ force = false, owner = readOwner() } = {}) {
       await settle()
+      if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()
       if (left.owed && !force) return owedResult(left)
       await stopTimers()
       if (left.owed && !(await stashOwed())) return owedResult(left, { stashed: false })
       if (!left.owed && !(await stashActive())) return { owed: true, count: 0, stashed: false }
+      // Checked again right before the request: the stash and the timers wait too.
+      if (overtaken(owner)) return { cancelled: true }
       // The device is signed out either way. A request that did not get through leaves the cookie
       // behind, still valid, so the logout is owed until the server answers it (see boot).
       try { await api('/api/logout', { method: 'POST', body: '{}' }) } catch (e) { if (!MOBILE) logoutOwed(true) }
@@ -2292,10 +2312,10 @@ export const useStore = create((set, get) => {
     },
     // Leaves remote mode and drops back to local-only, the way signOut does: never with changes
     // the server has not seen, unless `force` keeps them aside first. Same result as signOut;
-    // the phone stays paired when that comes back owed and not stashed.
+    // the phone stays paired when that comes back owed and not stashed, or cancelled.
     async disconnectServer(opts) {
       const r = await get().signOut(opts)
-      if (r.owed && !r.stashed) return r
+      if (r.cancelled || (r.owed && !r.stashed)) return r
       await forgetRemote()
       pairedBase = null
       setSync({ server: null })
@@ -2309,12 +2329,15 @@ export const useStore = create((set, get) => {
     // where a normal signOut leaves it, under the same rule about changes still owed. Unlike
     // signOut the request is NOT swallowed: if it fails the sessions elsewhere are all still
     // valid, and wiping this device's copy of the data would sign the user out of the one place
-    // the bump didn't reach. Caller reports the error.
-    async signOutAll({ force = false } = {}) {
+    // the bump didn't reach. Caller reports the error. Cancelled like signOut ({ cancelled: true }),
+    // against the same `owner`.
+    async signOutAll({ force = false, owner = readOwner() } = {}) {
       await settle()
+      if (overtaken(owner)) return { cancelled: true }
       const left = get().unsyncedChanges()
       if (left.owed && !force) return owedResult(left)
       await stopTimers()
+      if (overtaken(owner)) return { cancelled: true }
       await api('/api/logout/all', { method: 'POST', body: '{}' })
       if (left.owed && !(await stashOwed())) return owedResult(left, { stashed: false })
       if (!left.owed && !(await stashActive())) return { owed: true, count: 0, stashed: false }

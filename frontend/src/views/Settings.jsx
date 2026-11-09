@@ -423,7 +423,21 @@ export default function Settings({ page = null, find = null, via = null, entryKe
   const kept = t('The changes your server has not seen are kept on this device, and added back when it connects as this account again.')
   // A workout running here is kept aside by the sign-out (useStore stashActive): the confirm says so.
   const running = () => S.active ? ' ' + t('You have a workout running. It waits on this device until you’re back on this account.') : ''
-  const leave = (kind, after) => leaveServer(kind, { exportBackup: doExport, exportBackupZip: doExportZip, done: r => { nav('/home'); if (r.stashed) toast(kept); else if (after) toast(after) } })
+  // Another tab signed a different account in while the sign-out waited (useStore overtaken):
+  // nothing happened, so this stays on Settings and says whose browser it is now. The name is the
+  // one stored beside that account's owner key; the phone has no second tab, and its line is the
+  // failed disconnect's.
+  const overtaken = kind => {
+    if (kind === 'disconnect') { toast(t('Couldn’t disconnect. You’re still connected.')); return }
+    let name = ''
+    try { name = localStorage.getItem('gym_owner_name') || '' } catch { /* the line without it */ }
+    toast(name ? t('You weren’t signed out. This browser is now signed in as {0}.', name)
+      : t('You weren’t signed out. This browser is now signed in to another account.'), { ms: 5000 })
+  }
+  const leave = (kind, after) => leaveServer(kind, { exportBackup: doExport, exportBackupZip: doExportZip, done: r => {
+    if (r.cancelled) return overtaken(kind)
+    nav('/home'); if (r.stashed) toast(kept); else if (after) toast(after)
+  } })
   const disconnect = () => confirmSheet({
     title: t('Disconnect from your server?'),
     message: t('This phone switches back to local-only and its copy of your account is removed. First it checks that your server has every change. If not, you choose what happens to them.') + running(),

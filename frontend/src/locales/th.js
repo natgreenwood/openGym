@@ -418,6 +418,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'จะยุติเซสชันของโปรไฟล์นี้ในทุกอุปกรณ์ของคุณ',
   'Signed out on all devices': 'ออกจากระบบทุกอุปกรณ์แล้ว',
   'Couldn’t sign out everywhere. You’re still signed in.': 'ออกจากระบบทุกอุปกรณ์ไม่สำเร็จ คุณยังเข้าสู่ระบบอยู่',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'คุณไม่ได้ถูกออกจากระบบ ตอนนี้เบราว์เซอร์นี้ลงชื่อเข้าใช้เป็น {0}',
+  'You weren’t signed out. This browser is now signed in to another account.': 'คุณไม่ได้ถูกออกจากระบบ ตอนนี้เบราว์เซอร์นี้ลงชื่อเข้าใช้บัญชีอื่นอยู่',
   'Couldn’t sign out. You’re still signed in.': 'ออกจากระบบไม่สำเร็จ คุณยังเข้าสู่ระบบอยู่',
   'Couldn’t disconnect. You’re still connected.': 'ยกเลิกการเชื่อมต่อไม่สำเร็จ คุณยังเชื่อมต่ออยู่',
   'Create passkey profile': 'สร้างโปรไฟล์พาสคีย์',

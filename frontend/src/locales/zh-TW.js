@@ -408,6 +408,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': '結束此個人檔案在所有裝置上的登入階段。',
   'Signed out on all devices': '已在所有裝置上登出',
   'Couldn’t sign out everywhere. You’re still signed in.': '無法在所有裝置上登出。你目前仍保持登入狀態。',
+  'You weren’t signed out. This browser is now signed in as {0}.': '你沒有被登出。此瀏覽器現在以 {0} 的身分登入。',
+  'You weren’t signed out. This browser is now signed in to another account.': '你沒有被登出。此瀏覽器現在已登入另一個帳號。',
   'Couldn’t sign out. You’re still signed in.': '無法登出。你目前仍保持登入狀態。',
   'Couldn’t disconnect. You’re still connected.': '無法中斷連線。你目前仍保持連線狀態。',
   'Create passkey profile': '建立通行密鑰個人檔案',

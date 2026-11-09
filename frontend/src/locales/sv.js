@@ -427,6 +427,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'Avslutar profilens sessioner på alla dina enheter.',
   'Signed out on all devices': 'Utloggad på alla enheter',
   'Couldn’t sign out everywhere. You’re still signed in.': 'Kunde inte logga ut överallt. Du är fortfarande inloggad.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'Du loggades inte ut. Den här webbläsaren är nu inloggad som {0}.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'Du loggades inte ut. Den här webbläsaren är nu inloggad på ett annat konto.',
   'Couldn’t sign out. You’re still signed in.': 'Kunde inte logga ut. Du är fortfarande inloggad.',
   'Couldn’t disconnect. You’re still connected.': 'Kunde inte koppla från. Du är fortfarande ansluten.',
   'Create passkey profile': 'Skapa profil med passkey',

@@ -412,6 +412,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'आपके सभी डिवाइस पर इस प्रोफ़ाइल के सेशन खत्म करता है।',
   'Signed out on all devices': 'सभी डिवाइस पर साइन आउट हो गया',
   'Couldn’t sign out everywhere. You’re still signed in.': 'हर जगह साइन आउट नहीं हो सका। आप अभी भी साइन इन हैं।',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'आप साइन आउट नहीं हुए। यह ब्राउज़र अब {0} के रूप में साइन इन है।',
+  'You weren’t signed out. This browser is now signed in to another account.': 'आप साइन आउट नहीं हुए। यह ब्राउज़र अब किसी दूसरे खाते में साइन इन है।',
   'Couldn’t sign out. You’re still signed in.': 'साइन आउट नहीं हो सका। आप अभी भी साइन इन हैं।',
   'Couldn’t disconnect. You’re still connected.': 'डिस्कनेक्ट नहीं हो सका। आप अभी भी कनेक्ट हैं।',
   'Create passkey profile': 'पासकी प्रोफ़ाइल बनाएँ',

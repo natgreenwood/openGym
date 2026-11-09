@@ -427,6 +427,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': 'Beendet die Sitzungen dieses Profils auf all deinen Geräten.',
   'Signed out on all devices': 'Auf allen Geräten abgemeldet',
   'Couldn’t sign out everywhere. You’re still signed in.': 'Abmelden auf allen Geräten fehlgeschlagen. Du bist weiterhin angemeldet.',
+  'You weren’t signed out. This browser is now signed in as {0}.': 'Du wurdest nicht abgemeldet. In diesem Browser ist jetzt {0} angemeldet.',
+  'You weren’t signed out. This browser is now signed in to another account.': 'Du wurdest nicht abgemeldet. In diesem Browser ist jetzt ein anderes Konto angemeldet.',
   'Couldn’t sign out. You’re still signed in.': 'Abmelden fehlgeschlagen. Du bist weiterhin angemeldet.',
   'Couldn’t disconnect. You’re still connected.': 'Trennen fehlgeschlagen. Du bist weiterhin verbunden.',
   'Create passkey profile': 'Passkey-Profil erstellen',

@@ -412,6 +412,8 @@ export default {
   'Ends this profile’s sessions on all your devices.': '모든 기기에서 이 프로필의 세션을 종료합니다.',
   'Signed out on all devices': '모든 기기에서 로그아웃했습니다',
   'Couldn’t sign out everywhere. You’re still signed in.': '모든 기기에서 로그아웃하지 못했습니다. 아직 로그인 상태입니다.',
+  'You weren’t signed out. This browser is now signed in as {0}.': '로그아웃되지 않았습니다. 이 브라우저는 이제 {0}(으)로 로그인되어 있습니다.',
+  'You weren’t signed out. This browser is now signed in to another account.': '로그아웃되지 않았습니다. 이 브라우저는 이제 다른 계정으로 로그인되어 있습니다.',
   'Couldn’t sign out. You’re still signed in.': '로그아웃하지 못했습니다. 아직 로그인 상태입니다.',
   'Couldn’t disconnect. You’re still connected.': '연결을 해제하지 못했습니다. 아직 연결된 상태입니다.',
   'Create passkey profile': '패스키 프로필 만들기',
