@@ -60,8 +60,8 @@ describe('a copy whose base is another account\'s', () => {
   // The copy this tab loaded is A's, with A's base, and owes A's server a change. The store now
   // names B, and the owner key says B: a continuation that outlived the switch, which every
   // per-call guard (answerIsFor) passes, because it only asks who is signed in now.
-  const staleCopy = async () => {
-    saved({ ...clone(DEF), _ts: 100, workouts: [workout('a1')] }, { owner: 'A', sync: { rev: 1, ts: 100, uid: 'A' }, dirty: true })
+  const staleCopy = async ({ dirty = true } = {}) => {
+    saved({ ...clone(DEF), _ts: 100, workouts: [workout('a1')] }, { owner: 'A', sync: { rev: 1, ts: 100, uid: 'A' }, dirty })
     await load()
     localStorage.setItem('gym_owner', 'B')
     useStore.setState({ user: { id: 'B' }, ready: true })
@@ -75,15 +75,43 @@ describe('a copy whose base is another account\'s', () => {
     expect(warn.mock.calls[0][0]).toContain('B')
   }
 
-  it('is not merged: the copy, the marker and the owed flag stay as they were, and the error is said', async () => {
+  // Whatever the server answers, a pull settles nothing for it: each of its branches would drop or
+  // restamp A's base on the way to a push or an adopt, and the push check would then find B's base
+  // on A's copy (Tester, PR #90).
+  const answers = [
+    ['a newer revision, with changes owed here', { state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 }, true],
+    ['no copy on the server yet', { state: null, rev: 0 }, true],
+    ['a server without revisions', { state: { ...clone(DEF), _ts: 50, workouts: [workout('b-server')] } }, true],
+    ['a newer revision, with nothing owed here', { state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 }, false],
+  ]
+  for (const [what, answer, dirty] of answers) {
+    it(`a pull answered with ${what} takes nothing, sends nothing, and the error is said`, async () => {
+      const { S, before } = await staleCopy({ dirty })
+      api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 1 } : answer))
+
+      await useStore.getState().pullState()
+      await new Promise(r => setTimeout(r, 0))   // anything the answer would have started
+
+      expect(calls()).toEqual(['GET /api/data'])
+      expect(useStore.getState().S).toBe(S)
+      expect(snapshot()).toEqual(before)
+      refusedWith('pull')
+    })
+  }
+
+  it('is not merged when a sign-in to the account merges this copy in (mergeInto\'s own check)', async () => {
     const { S, before } = await staleCopy()
-    api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 })
+    // The sign-in marked this copy as the account's own (adoptProfile's same-account branch).
+    localStorage.setItem('gym_adopt', JSON.stringify({ uid: 'B', rejoined: true }))
+    api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 6 } : { state: { ...clone(DEF), _ts: 300, workouts: [workout('b1')], _rev: 5 }, rev: 5 }))
 
-    await useStore.getState().pullState()
+    const r = await useStore.getState().adoptProfile(async () => true)
 
+    expect(r).toMatchObject({ adopted: false, refused: true })
     expect(calls()).toEqual(['GET /api/data'])   // no push follows a refused merge
     expect(useStore.getState().S).toBe(S)
     expect(snapshot()).toEqual(before)
+    expect(localStorage.getItem('gym_state_owner')).not.toBe('B')   // not claimed as B's either
     refusedWith('merge')
   })
 
@@ -196,6 +224,27 @@ describe('a push with no base', () => {
     await vi.waitFor(() => expect(puts()).toHaveLength(1))
     expect(puts()[0].baseRev).toBe(3)
     expect(puts()[0].state.workouts.map(w => w.id).sort()).toEqual(['gym', 'w1'])
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  // Reset everything on a copy whose marker is from before the update: the reset armed for this
+  // push must outlast the pull that writes the base, or it would go as an ordinary push and the
+  // merge would bring the wiped entries back (the no-base branch returns before forceNext is read).
+  it('a reset on a copy with an unstamped marker still replaces the server copy, once', async () => {
+    const profile = { ...clone(DEF), _ts: 100, workouts: [workout('w1'), workout('w2', '2026-09-02')] }
+    saved(profile, { owner: 'u1', sync: { rev: 3, ts: 100 } })
+    await load()
+    useStore.setState({ user: { id: 'u1' }, ready: true })
+    api.mockImplementation(async (path, o) => (o?.method === 'PUT' ? { ok: true, rev: 4 } : { state: { ...clone(profile), _rev: 3 }, rev: 3 }))
+
+    await useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await vi.waitFor(() => expect(puts()).toHaveLength(1))
+    await new Promise(r => setTimeout(r, 20))   // and nothing after it
+
+    expect(puts()).toHaveLength(1)
+    expect(puts()[0].baseRev).toBeUndefined()
+    expect(puts()[0].state.workouts).toEqual([])
     expect(warn).not.toHaveBeenCalled()
   })
 
