@@ -376,7 +376,7 @@ close, to avoid reopening the keyboard.
 From `frontend/`, run the snapshot, event, settings and widget regressions:
 
 ```sh
-npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js
+npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx --maxWorkers=2
 ```
 
 These tests use local fixtures and a mocked native bridge; no credentials or
@@ -386,11 +386,21 @@ widget snapshots. For a direct module probe in Node, load these modules through
 Vite's `createServer({ server: { middlewareMode: true } }).ssrLoadModule(...)`;
 their imports depend on Vite transforms. Close the server in `finally`.
 
+`watch-sync.open.test.js` covers oversized-workout fallback, reload and failed
+snapshot persistence; `watch-sync.health-overflow.test.js` combines refusal with
+Health opt-out. The sign-out test checks removal of `gym_watch_last_sent`.
+Use synthetic localStorage only. For quota injection in happy-dom, spy on the
+`localStorage.setItem` instance method and assert that the injected failure runs.
+
 Measure the UTF-8 bytes of serialized snapshots against `SNAPSHOT_MAX_BYTES`,
-and compare the active workout before and after `fitSnapshot`. Per-field text
-limits do not guarantee the total budget for many-entry active workouts, even
-with accepted shared routines. Serialization tests cannot establish native
-delivery: pairing, locked-phone operation and transport failures require an
+and compare the active workout before and after `fitSnapshot`; `null` means
+refusal. For fallback probes, deliver a small workout before growing it and
+toggling Health, then compare the held sets and the phone's unchanged state.
+With no record in memory or storage, refusal sends nothing to avoid ending an
+unknown watch workout. Per-field text limits do not guarantee the total budget
+for many-entry active workouts, even with accepted shared routines.
+Serialization tests cannot establish native delivery: pairing, locked-phone
+operation and transport failures require an
 iPhone and Apple Watch.
 
 ## Known gaps
