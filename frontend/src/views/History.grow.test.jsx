@@ -3,7 +3,8 @@
 // 400-workout history used to render every row on each open. Coming back renders as many rows as
 // before, so the page can land where it was scrolled to.
 import React, { act } from 'react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 let DEF, useStore
@@ -41,10 +42,9 @@ describe('History grows as it is scrolled', () => {
   let History, PAGE
   beforeEach(async () => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
-    vi.resetModules()
     observers = []
     window.IntersectionObserver = FakeIO
-    ;({ DEF, useStore } = await import('../store/useStore.js'))
+    ;({ DEF, useStore } = await freshStore())
     ;({ default: History, HISTORY_PAGE: PAGE } = await import('./History.jsx'))
   })
   afterEach(() => {

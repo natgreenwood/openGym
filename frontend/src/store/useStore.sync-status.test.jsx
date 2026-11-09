@@ -13,6 +13,7 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast, stopRest, aban
 
 import { api } from '../lib/api.js'
 import { DEF, useStore } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const workout = (id, d = '2026-09-01') => ({ id, d, start: 1, entries: [] })
@@ -128,8 +129,7 @@ describe('the web boot', () => {
   // beforeEach wrote the owner. The file's store saw the owner key appear after it loaded, which a
   // boot takes for another tab signing in (it ends there), unless an earlier test had saved under it.
   let useStore
-  beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
-  afterEach(() => { useStore.setState({ user: null, ready: false }) })
+  beforeEach(async () => { ({ useStore } = await freshStore()) })
   const boot = async (me, user = USER) => {
     api.mockImplementation(async path => {
       if (path === '/api/config') return { allow_guest: true }

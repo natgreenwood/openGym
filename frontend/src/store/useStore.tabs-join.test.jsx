@@ -7,6 +7,7 @@
    wiped what the other tab owed. (QA 2026-10-06, also in v1.3.9.) Each "tab" is a fresh import of
    the store sharing one localStorage, as in the other tab tests. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -28,16 +29,14 @@ const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1'))
 
-let tabs = []
 let DEF
-// Tabs of earlier tests still listen on the same window; each test is another account, so they
-// take no part (a tab joins only copies of the account it last saw).
+// Tabs of earlier tests are closed after them (test-utils/fresh-store.js). Each test is another
+// account as well, so one left listening would take no part (a tab joins only copies of the
+// account it last saw).
 let OWNER = 'u0'
 async function openTab(user = { id: OWNER }) {
-  vi.resetModules()
-  const m = await import('./useStore.js')
+  const m = await freshStore()
   DEF = m.DEF
-  tabs.push(m.useStore)
   m.useStore.setState({ user, ready: true })
   return m.useStore
 }
@@ -76,10 +75,9 @@ beforeEach(async () => {
   localStorage.clear()
   OWNER = 'u' + (Number(OWNER.slice(1)) + 1)
   localStorage.setItem('gym_owner', OWNER)
-  tabs = []
   DEF = (await import('./useStore.js')).DEF
 })
-afterEach(() => { for (const t of tabs) t.setState({ user: null, ready: false }); localStorage.clear() })
+afterEach(() => { localStorage.clear() })
 
 describe('two tabs of one browser keep each other\'s changes', () => {
   it('offline: a workout finished in a tab that is then closed survives the other tab\'s next change, and reaches the server', async () => {

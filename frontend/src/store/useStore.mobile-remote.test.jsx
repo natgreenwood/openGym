@@ -13,6 +13,7 @@
    at BASE and Capacitor's local server for any other URL. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { syncFingerprint } from '../lib/sync-changes.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')   // lib/mobile.js: MOBILE = import.meta.env.VITE_MOBILE === '1'
@@ -137,23 +138,13 @@ function zombiePhone(local) {
   h.files.set('DATA/opengym-state.json', JSON.stringify(local))
 }
 
-// Every test boots its own store; the ones before it must not write into its files. Their
-// debounced mirror write and push are flushed the way a page being hidden flushes them, then
-// they are signed out so no poll of theirs runs later.
-let stores = []
-async function freshStore() {
-  vi.resetModules()
-  const { useStore } = await import('./useStore.js')
-  stores.push(useStore)
-  return useStore
-}
-
+// Every test boots its own store (test-utils/fresh-store.js); the ones before it must not write
+// into its files. Their debounced mirror write and push are flushed the way a page being hidden
+// flushes them, before freshStore's clean-up signs them out and takes their listeners off.
 beforeEach(() => { vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] }); installFetch(); h.refuse.clear() })
 afterEach(async () => {
   window.dispatchEvent(new Event('pagehide'))
   await sleep(20)
-  for (const s of stores) s.setState({ user: null, ready: false })
-  stores = []
   localStorage.clear()
   vi.useRealTimers()
 })
@@ -162,7 +153,7 @@ describe('boot when the server refuses the pairing token', () => {
   it('keeps the pairing, the account and the data, and says the server refuses this phone', async () => {
     pairedPhone()
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const st = useStore.getState()
 
@@ -175,7 +166,7 @@ describe('boot when the server refuses the pairing token', () => {
   it('a change made meanwhile goes to the paired server with the token, and stays owed', async () => {
     pairedPhone()
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     h.calls = []
 
@@ -192,7 +183,7 @@ describe('boot when the server refuses the pairing token', () => {
   it('a phone that last synced under an older version knows a change is owed, not how many', async () => {
     pairedPhone({ synced: false })
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().pushState()
@@ -202,13 +193,13 @@ describe('boot when the server refuses the pairing token', () => {
   it('the next cold start asks the server again, and heals by itself once it accepts the token', async () => {
     pairedPhone()
     h.server = refusing
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().pushState()
 
     const srv = serverWith(SERVER_STATE)   // the proxy in front was fixed
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(srv.puts.at(-1)).toMatchObject({ baseRev: 5 })
     expect(ids(srv.doc.workouts)).toEqual(['w1', 'w2'])
@@ -220,7 +211,7 @@ describe('boot when the server refuses the pairing token', () => {
   it('a 200 page that is not the server\'s answer is an error, not a sign-out', async () => {
     pairedPhone()
     h.server = () => res(200, INDEX_HTML, 'text/html')
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const st = useStore.getState()
     expect(st.user).toEqual(USER)
@@ -232,7 +223,7 @@ describe('boot when the server refuses the pairing token', () => {
   it('mid-session, a refused push and a refused pull say so instead of passing in silence', async () => {
     pairedPhone()
     serverWith(SERVER_STATE)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(useStore.getState().sync.status).toBe('ok')
 
@@ -250,7 +241,7 @@ describe('a phone an earlier version already unpaired', () => {
 
   it('is recognised at boot: its data is owed, nothing goes to the app\'s own asset server, and it asks to be paired again', async () => {
     zombiePhone(week())
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(useStore.getState().user).toEqual(USER)
     expect(useStore.getState().sync).toMatchObject({ status: 'auth', lastError: { status: 0, code: 'not-paired' }, server: null, pending: true })
@@ -266,7 +257,7 @@ describe('a phone an earlier version already unpaired', () => {
 
   it('pairing it again with the same account merges the week, the routine edits and the settings — no question asked', async () => {
     zombiePhone(week())
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     const srv = serverWith(SERVER_STATE)
     const ask = vi.fn(async () => false)
@@ -287,7 +278,7 @@ describe('a phone an earlier version already unpaired', () => {
 
   it('Disconnect does not wipe the week the server never saw', async () => {
     zombiePhone(week())
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     await sleep(900)                                      // the file mirror's debounce
 
@@ -307,7 +298,7 @@ describe('Disconnect anyway keeps the owed changes for the next pairing', () => 
   it('stashes them in storage and in a file, wipes the phone, and merges them back when paired to the same server and account', async () => {
     pairedPhone()
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().pushState()
@@ -341,14 +332,14 @@ describe('Disconnect anyway keeps the owed changes for the next pairing', () => 
   it('killed straight after, the next start is local and empty: the account\'s copy is in the stash, not back on the screen', async () => {
     pairedPhone()
     h.server = refusing
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().pushState()
     await sleep(900)
     expect(await useStore.getState().disconnectServer({ force: true })).toMatchObject({ stashed: true })
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(useStore.getState().user).toBeNull()
     expect(useStore.getState().S.workouts).toEqual([])
@@ -358,7 +349,7 @@ describe('Disconnect anyway keeps the owed changes for the next pairing', () => 
   it('a stash for another account stays where it is', async () => {
     pairedPhone()
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().disconnectServer({ force: true })
@@ -375,7 +366,7 @@ describe('another account paired on a phone that still owes the first', () => {
   it('keeps the first account\'s changes aside under its own server, and gives them back when it pairs again', async () => {
     pairedPhone()
     h.server = refusing
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) })
     await useStore.getState().pushState()
@@ -413,7 +404,7 @@ describe('remote-mode boot and the durable file mirror', () => {
     delete mirror._rev
     pairedPhone({ localStorage: false, mirror })
     const srv = serverWith({ ...SERVER_STATE, workouts: [...SERVER_STATE.workouts, workout('w-web', '2026-09-19')], _rev: 6 })
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     await sleep(900)
 
@@ -426,7 +417,7 @@ describe('remote-mode boot and the durable file mirror', () => {
   it('an ordinary start, mirror and storage in step, pulls as before and pushes nothing', async () => {
     pairedPhone()
     const srv = serverWith(SERVER_STATE)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(srv.puts).toHaveLength(0)
     expect(useStore.getState().sync).toMatchObject({ status: 'ok', pending: false })
@@ -437,7 +428,7 @@ describe('remote-mode boot and the durable file mirror', () => {
     delete mirror._rev
     pairedPhone({ mirror })
     const srv = serverWith({ ...SERVER_STATE, workouts: [...SERVER_STATE.workouts, workout('w-web', '2026-09-19')], _rev: 6 })
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
 
     expect(ids(srv.doc.workouts)).toEqual(['w1', 'w-web', 'w2'])
@@ -463,7 +454,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
   const andiLogged = async () => {
     pairedPhone()
     serverWith(SERVER_STATE)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     useStore.getState().update(s => { s.workouts.push(workout('a-secret', '2026-09-21')) })
     await useStore.getState().pushState()
@@ -478,7 +469,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     await useStore.getState().connectToServer('gym.example.com', 'ABCD2345', vi.fn(async () => false))
     expect(ids(useStore.getState().S.workouts)).toEqual(['b1'])
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(ids(useStore.getState().S.workouts)).toEqual(['b1'])
     expect(ids(bea.doc.workouts)).toEqual(['b1'])
@@ -493,7 +484,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     await sleep(900)
     expect(ids(readFile('opengym-state.json').workouts)).toEqual(['w1', 'a-secret'])
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(ids(useStore.getState().S.workouts)).toEqual(['b1'])
     expect(ids(bea.doc.workouts)).toEqual(['b1'])
@@ -507,7 +498,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     localStorage.setItem('gym_state_v1', JSON.stringify(local))
     h.files.set('DATA/opengym-remote.json', JSON.stringify({ mode: 'local' }))
     h.files.set('DATA/opengym-state.json', JSON.stringify(local))
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
     const srv = serverWith(SERVER_STATE)
     const ask = vi.fn(async () => false)
@@ -515,7 +506,7 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     expect(ask).toHaveBeenCalled()
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1'])
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1'])
     expect(ids(srv.doc.workouts)).toEqual(['w1'])
@@ -535,11 +526,11 @@ describe('the file mirror never brings back a copy that is not this account\'s l
 
   it('a copy adopted from the server with an older clock stays adopted after a kill straight after', async () => {
     const srv = clockAhead()
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w-other'])
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w-other'])
     expect(ids(srv.doc.workouts)).toEqual(['w1', 'w-other'])
@@ -550,10 +541,10 @@ describe('the file mirror never brings back a copy that is not this account\'s l
     const srv = clockAhead()
     h.refuse.add('opengym-state.json')
     h.refuse.add('opengym-state-owner.json')
-    let useStore = await freshStore()
+    let { useStore } = await freshStore()
     await useStore.getState().boot()
 
-    useStore = await freshStore()
+    ;({ useStore } = await freshStore())
     await useStore.getState().boot()
     expect(ids(srv.doc.workouts)).toEqual(['w1', 'w-other'])
     expect(ids(useStore.getState().S.workouts)).toEqual(['w1', 'w-other'])
@@ -565,7 +556,7 @@ describe('a token the server renews', () => {
     pairedPhone()
     const srv = serverWith(SERVER_STATE)
     h.server = (path, method, init) => (path === '/api/me' ? json(200, { user: USER, token: 'TOKEN-RENEWED' }) : srv.handle(path, method, init))
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
 
     expect(readFile('opengym-remote.json')).toEqual({ mode: 'remote', base: BASE, token: 'TOKEN-RENEWED', user: USER })
@@ -578,7 +569,7 @@ describe('a token the server renews', () => {
   it('an answer without one leaves the pairing as it was', async () => {
     pairedPhone()
     serverWith(SERVER_STATE)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(readFile('opengym-remote.json')).toMatchObject({ token: 'TOKEN-OLD' })
     expect(serverCalls().every(c => c.auth === 'Bearer TOKEN-OLD')).toBe(true)
@@ -589,7 +580,7 @@ describe('a request that never answers', () => {
   it('gives up after its timeout: the change stays owed, the phone says it is offline, and the next push goes out', async () => {
     pairedPhone()
     const srv = serverWith(SERVER_STATE)
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     h.server = () => new Promise(() => {})   // a black-holed connection: no answer, no error
     useStore.getState().update(s => { s.workouts.push(workout('w2', '2026-09-15')) }, false)
@@ -609,7 +600,7 @@ describe('a request that never answers', () => {
 describe('the first-start permission steps (views/PermissionSteps.jsx)', () => {
   const firstLaunch = async () => {
     h.files.clear(); localStorage.clear()
-    const useStore = await freshStore()
+    const { useStore } = await freshStore()
     await useStore.getState().boot()
     expect(useStore.getState().needsMobileOnboarding).toBe(true)
     expect(useStore.getState().permSteps).toBe(false)

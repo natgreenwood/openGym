@@ -4,7 +4,7 @@
 // `shares` etag moved; a share that has gone leaves the schedule through the same delete as your
 // own routines, while one that is only not available keeps its days; removing one asks the server
 // and takes it off your plan; a sign-out wipes the lists.
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const ui = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
@@ -12,6 +12,7 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: ui.toast, stop
 
 import { api } from '../lib/api.js'
 import { DEF, SHARED_KEY, useStore } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const USER = { id: 'u2', name: 'Jo' }
@@ -20,11 +21,10 @@ const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const LEG = { id: 'r9', name: 'Leg Day', ex: [{ id: '0025', sets: 5, reps: 5, weight: 100 }] }
 const accepted = (id, extra = {}) => ({ id, state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h' + id, routine: LEG, ...extra })
 
-// A store a test loads for itself (a new start, a page that has not heard from the server) keeps
+// A store a test loads for itself (a new start, a page that has not heard from the server) kept
 // listening after the test: signed in, the next test's `online` event made it load the lists too.
-let pages = []
-const load = async () => { vi.resetModules(); const { useStore: page } = await import('./useStore.js'); pages.push(page); return page }
-afterEach(() => { for (const page of pages) page.setState({ user: null, ready: false }); pages = [] })
+// freshStore's clean-up (test-utils/fresh-store.js) signs it out and takes its listeners off.
+const load = async () => (await freshStore()).useStore
 
 let net
 beforeEach(() => {
