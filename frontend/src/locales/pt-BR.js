@@ -1205,6 +1205,7 @@ export const PT_BR_OVERRIDES = {
   'Sets, routines and the loop: left removes, right copies': 'Séries, rotinas e o ciclo: esquerda remove, direita copia',
   'Psst: swipe a set. Left deletes, right copies.': 'Psiu: deslize uma série. Esquerda exclui, direita copia.',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Outro dispositivo sincronizou durante a importação, então as alterações dele ficaram junto com o backup.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Outro dispositivo sincronizou durante a redefinição, então o que ele adicionou desde então foi mantido.',
   'Save as a backup file': 'Salvar como arquivo de backup',
   'Add this device\'s plan to your profile?': 'Adicionar o plano deste dispositivo ao seu perfil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Seu plano, notas ou cartões da academia neste dispositivo foram criados sem login. Adicione-os ao seu perfil ou mantenha o perfil exatamente como está no servidor.',

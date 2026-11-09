@@ -1963,6 +1963,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'শুনুন: একটি সেট সোয়াইপ করুন। বাঁয়ে মুছবে, ডানে কপি হবে।',
   'Options: copy, remove': 'বিকল্প: কপি, সরান',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'আপনি ইমপোর্ট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তার পরিবর্তনগুলো ব্যাকআপের পাশাপাশি রাখা হয়েছে।',
+  'Another device synced while you were resetting, so what it added since was kept.': 'আপনি রিসেট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তারপর থেকে সেটি যা যোগ করেছে তা রাখা হয়েছে।',
   'Save as a backup file': 'ব্যাকআপ ফাইল হিসেবে সেভ করুন',
   'Add this device\'s plan to your profile?': 'এই ডিভাইসের প্ল্যান আপনার প্রোফাইলে যোগ করবেন?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'এই ডিভাইসে আপনার প্ল্যান, নোট বা জিম কার্ড সাইন আউট থাকা অবস্থায় সেট আপ করা হয়েছিল। সেগুলো আপনার প্রোফাইলে যোগ করুন, অথবা প্রোফাইলটি সার্ভারে যেমন আছে ঠিক তেমন রাখুন।',

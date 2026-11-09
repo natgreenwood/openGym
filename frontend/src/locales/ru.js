@@ -1925,6 +1925,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Псс: смахните подход. Влево удаляет, вправо копирует.',
   'Options: copy, remove': 'Действия: копировать, удалить',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Другое устройство синхронизировалось во время импорта, поэтому его изменения сохранены рядом с копией.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Другое устройство синхронизировалось во время сброса, поэтому то, что оно добавило с тех пор, сохранено.',
   'Save as a backup file': 'Сохранить как файл копии',
   'Add this device\'s plan to your profile?': 'Добавить план с этого устройства в профиль?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'План, заметки или карты зала на этом устройстве созданы без входа. Добавьте их в профиль или оставьте профиль ровно таким, как на сервере.',

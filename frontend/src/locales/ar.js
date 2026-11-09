@@ -1976,6 +1976,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'نصيحة: اسحب مجموعة. لليمين حذف، لليسار نسخ.',
   'Options: copy, remove': 'خيارات: نسخ، إزالة',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'زامن جهاز آخر أثناء الاستيراد، فاحتفظنا بتغييراته إلى جانب النسخة الاحتياطية.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'زامن جهاز آخر أثناء إعادة التعيين، فاحتفظنا بما أضافه منذ ذلك الحين.',
   'Save as a backup file': 'حفظ كملف نسخة احتياطية',
   'Add this device\'s plan to your profile?': 'إضافة خطة هذا الجهاز إلى ملفك؟',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'أُعدّت خطتك أو ملاحظاتك أو بطاقات النادي على هذا الجهاز أثناء تسجيل الخروج. أضفها إلى ملفك، أو أبقِ الملف كما هو على الخادم.',

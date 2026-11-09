@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: bir seti kaydır. Sola silir, sağa kopyalar.',
   'Options: copy, remove': 'Seçenekler: kopyala, kaldır',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'İçe aktarırken başka bir cihaz eşitlendi, onun değişiklikleri de yedeğin yanında tutuldu.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Sıfırlarken başka bir cihaz eşitlendi, o zamandan beri eklediği şeyler tutuldu.',
   'Save as a backup file': 'Yedek dosyası olarak kaydet',
   'Add this device\'s plan to your profile?': 'Bu cihazdaki plan profiline eklensin mi?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Bu cihazdaki planın, notların veya salon kartların oturum açılmadan oluşturuldu. Bunları profiline ekle ya da profili sunucudaki hâliyle bırak.',

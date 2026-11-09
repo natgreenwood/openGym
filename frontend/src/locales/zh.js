@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': '悄悄告诉你：滑动一组。左滑删除，右滑复制。',
   'Options: copy, remove': '选项：复制、删除',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '导入时另一台设备同步了，所以它的更改也和备份一起保留了。',
+  'Another device synced while you were resetting, so what it added since was kept.': '重置时另一台设备同步了，所以它在此之后添加的内容保留了下来。',
   'Save as a backup file': '保存为备份文件',
   'Add this device\'s plan to your profile?': '把此设备上的计划加入你的个人资料？',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '此设备在未登录时设置了计划、备注或健身房卡。把它们加入你的个人资料，或保持个人资料与服务器上的完全一致。',

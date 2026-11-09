@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'सुनिए: किसी सेट को स्वाइप करें। बाएँ हटाता है, दाएँ कॉपी करता है।',
   'Options: copy, remove': 'विकल्प: कॉपी, हटाएँ',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'आयात के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसके बदलाव बैकअप के साथ रखे गए।',
+  'Another device synced while you were resetting, so what it added since was kept.': 'रीसेट के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसने तब से जो जोड़ा वह रखा गया।',
   'Save as a backup file': 'बैकअप फ़ाइल के रूप में सहेजें',
   'Add this device\'s plan to your profile?': 'इस डिवाइस का प्लान अपनी प्रोफ़ाइल में जोड़ें?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'इस डिवाइस पर आपका प्लान, नोट्स या जिम कार्ड बिना साइन इन किए बनाए गए। इन्हें अपनी प्रोफ़ाइल में जोड़ें, या प्रोफ़ाइल को ठीक वैसा ही रखें जैसा सर्वर पर है।',
