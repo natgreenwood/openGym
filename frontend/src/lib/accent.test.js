@@ -4,6 +4,7 @@ import { ACCENTS } from './format.js'
 import {
   cleanHex, sanitizeAccent, accentKey, accentValue, contrast, inkOn, readableIn, adjustedIn,
   customAccentVars, accentPair, applyAccent, applyTintFallback, THEMES, isGrey, inkOnBoth, mix, GREY_TEXT, GREY_GAP,
+  inkOnTint, luminance,
 } from './accent.js'
 import { mergeStates, stampChange } from './sync-merge.js'
 
@@ -130,7 +131,7 @@ describe('readable on the theme', () => {
 
 describe('CSS for the own colour', () => {
   it('derives the accent, its pressed shade and its text', () => {
-    expect(customAccentVars('#0a84ff', 'dark')).toEqual({ '--acc': '#0a84ff', '--acc-2': '#0863bf', '--on-acc': '#000000', '--knob-ring': 'transparent' })
+    expect(customAccentVars('#0a84ff', 'dark')).toEqual({ '--acc': '#0a84ff', '--acc-2': '#0863bf', '--on-acc': '#000000', '--acc-ink': '#5ea4ff', '--knob-ring': 'transparent' })
     const v = customAccentVars('#000033', 'dark')
     expect(v['--acc']).toBe(readableIn('#000033', 'dark'))
     expect(v['--on-acc']).toBe(inkOn(v['--acc']))
@@ -170,12 +171,31 @@ describe('CSS for the own colour', () => {
     expect(el.dataset.accent).toBe('custom')
     expect(el.style.getPropertyValue('--acc')).toBe('#ff00aa')
     expect(el.style.getPropertyValue('--on-acc')).toBe(inkOn('#ff00aa'))
+    expect(el.style.getPropertyValue('--acc-ink')).toBe(inkOnTint('#ff00aa', 'light'))
     applyAccent(el, 'sky', 'light')
     expect(el.dataset.accent).toBe('sky')
     expect(el.style.getPropertyValue('--acc')).toBe('')
+    expect(el.style.getPropertyValue('--acc-ink')).toBe('')
     expect(el.style.getPropertyValue('--knob-ring')).toBe('')
     applyAccent(el, 'url(x)', 'dark')
     expect(el.dataset.accent).toBe('lime')
+  })
+})
+
+// The text on the user's colour's own tint (NATG-488). That it reads at 4.5:1 over the whole sRGB
+// cube is a11y-contrast-transparency.test.js's; here, which way it moves.
+describe('the text on the own colour\'s tint', () => {
+  it('keeps the accent where it already reads', () => {
+    expect(inkOnTint('#003a8c', 'light')).toBe('#003a8c')
+    expect(inkOnTint('#ffd60a', 'dark')).toBe('#ffd60a')
+  })
+  it('goes darker in light theme and lighter in dark theme', () => {
+    for (const c of ['#34c759', '#ff9500', '#ff00aa', '#30b0c7']) {
+      expect(luminance(inkOnTint(c, 'light')), c).toBeLessThan(luminance(c))
+    }
+    for (const c of ['#0a84ff', '#5e5ce6', '#ff375f', '#000033']) {
+      expect(luminance(inkOnTint(c, 'dark')), c).toBeGreaterThan(luminance(c))
+    }
   })
 })
 

@@ -152,6 +152,68 @@ export function readableIn(hex, theme) {
   return th.toward
 }
 
+// OKLCH, for the text on the accent's tint: its lightness follows what the eye sees, so the
+// darker or lighter shade keeps the accent's hue and colourfulness instead of drifting the way
+// HSL's yellows and blues do.
+const toLinear = v => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+const fromLinear = v => v <= 0.0031308 ? v * 12.92 : 1.055 * v ** (1 / 2.4) - 0.055
+function toOklch(hex) {
+  const [r, g, b] = rgb(hex).map(v => toLinear(v / 255))
+  const l = Math.cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  const m = Math.cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  const s = Math.cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  const L = 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s
+  const A = 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s
+  const B = 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s
+  return [L, Math.hypot(A, B), Math.atan2(B, A)]
+}
+// Linear sRGB of an OKLCH colour; channels outside 0–1 mean it is out of gamut.
+function oklchLinear([L, C, h]) {
+  const A = C * Math.cos(h), B = C * Math.sin(h)
+  const l = (L + 0.3963377774 * A + 0.2158037573 * B) ** 3
+  const m = (L - 0.1055613458 * A - 0.0638541728 * B) ** 3
+  const s = (L - 0.0894841775 * A - 1.2914855480 * B) ** 3
+  return [
+    4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+    -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+    -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+  ]
+}
+// The colour at that lightness and hue, its chroma cut back just far enough to be in sRGB.
+function fromOklch([L, C, h]) {
+  const fits = c => oklchLinear([L, c, h]).every(v => v >= -1e-6 && v <= 1 + 1e-6)
+  if (!fits(C)) {
+    let lo = 0, hi = C
+    for (let i = 0; i < 20; i++) { const mid = (lo + hi) / 2; if (fits(mid)) lo = mid; else hi = mid }
+    C = lo
+  }
+  return toHex(oklchLinear([L, C, h]).map(v => fromLinear(Math.min(1, Math.max(0, v))) * 255))
+}
+
+// Text on --acc-soft has to read at 4.5:1 on the darkest tint in light theme and the lightest in
+// dark theme: the accent at 16% over --surface-2 (index.css), the way color-mix() lays it over.
+const INK_ON = { light: '#ececef', dark: '#2c2c2e' }
+export const INK_MIN = 4.5
+export const SOFT = 0.16
+
+/**
+ * The colour for text on the accent's own tint (index.css --acc-ink) when the accent is the
+ * user's: `acc` itself when it already reads at 4.5:1 there, otherwise made darker (light theme)
+ * or lighter (dark theme) in small steps of OKLCH lightness at the same hue until it does. Black
+ * and white always do, so it never fails (a11y-contrast-transparency.test.js, whole sRGB cube).
+ */
+export function inkOnTint(acc, theme) {
+  const light = theme === 'light'
+  const tint = mix(INK_ON[light ? 'light' : 'dark'], acc, SOFT)
+  if (contrast(acc, tint) >= INK_MIN) return acc
+  const [L, C, h] = toOklch(acc)
+  for (let i = 1; i <= 100; i++) {
+    const c = fromOklch([light ? Math.max(0, L - i * 0.01) : Math.min(1, L + i * 0.01), C, h])
+    if (contrast(c, tint) >= INK_MIN) return c
+  }
+  return light ? '#000000' : '#ffffff'
+}
+
 /** Whether `hex` is drawn differently from itself in `theme` (Settings says so). */
 export const adjustedIn = (hex, theme) => readableIn(hex, theme) !== hex
 
@@ -175,7 +237,8 @@ const KNOB_RING = 'rgba(0,0,0,.28)'
 
 /**
  * The CSS custom properties for the user's colour in `theme`, the same set a preset defines in
- * index.css: the accent, its pressed shade, the text on it, and the switch knob's ring. The soft
+ * index.css: the accent, its pressed shade, the text on it, the text on its tint, and the switch
+ * knob's ring. The soft
  * and line tints are mixed from --acc in index.css and follow on their own. null for anything
  * but a valid hex.
  */
@@ -185,7 +248,7 @@ export function customAccentVars(hex, theme) {
   const acc = readableIn(c, theme)
   const acc2 = mix(acc, '#000000', 0.25)
   return {
-    '--acc': acc, '--acc-2': acc2, '--on-acc': inkOnBoth(acc, acc2),
+    '--acc': acc, '--acc-2': acc2, '--on-acc': inkOnBoth(acc, acc2), '--acc-ink': inkOnTint(acc, theme),
     '--knob-ring': contrast('#ffffff', acc) < 1.5 ? KNOB_RING : 'transparent',
   }
 }
@@ -198,7 +261,7 @@ export function accentPair(v) {
   return { accent: ACCENTS[k], ink: ACCENT_INK[k] }
 }
 
-const CUSTOM_VARS = ['--acc', '--acc-2', '--on-acc', '--knob-ring']
+const CUSTOM_VARS = ['--acc', '--acc-2', '--on-acc', '--acc-ink', '--knob-ring']
 
 /**
  * Puts the accent on the page root: a preset by `data-accent` (index.css does the rest), the
