@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 
 const read = (f) => readFileSync(resolve(process.cwd(), 'src', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
@@ -205,5 +205,67 @@ describe('Icon-only controls (WCAG 1.4.11)', () => {
     const decls = rule(read(file), sel)
     expect(decls).toContain('var(--label-2)')
     expect(decls).not.toContain('--label-3')
+  })
+})
+
+describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  const dark = rule(css, ':root')
+  const light = rule(css, ':root[data-theme="light"]')
+  const presets = [...css.matchAll(/:root\[data-accent="(\w+)"\]\s*\{\s*--acc:var\(--(\w+)\);\s*--acc-2:(#\w+)/g)]
+  // The surfaces a ring can sit on. Light leaves out --surface-3: no focusable element draws its
+  // ring there (Orange would be 2.97:1), and QA flags one if it turns up.
+  const surfaces = {
+    dark: ['--bg', '--bg-el', '--surface', '--surface-2', '--surface-3'],
+    light: ['--bg', '--bg-el', '--surface', '--surface-2'],
+  }
+
+  it('the ring is the accent in dark and its darker --acc-2 in light', () => {
+    expect(token(dark, '--focus-ring')).toBe('var(--acc)')
+    expect(token(light, '--focus-ring')).toBe('var(--acc-2)')
+  })
+
+  it('every preset draws its ring at 3:1 or better in both themes, Increase Contrast included', () => {
+    expect(presets.length).toBe(8)
+    for (const [, name, colour, acc2] of presets) {
+      for (const palette of [dark, rule(hc, ':root')]) {
+        const ring = hex(token(palette, `--${colour}`))
+        for (const s of surfaces.dark) expect(ratio(ring, hex(token(dark, s))), `${name} dark on ${s}`).toBeGreaterThanOrEqual(3)
+      }
+      for (const s of surfaces.light) expect(ratio(hex(acc2), hex(token(light, s))), `${name} light on ${s}`).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it('the duration wheel ring reads at 3:1 on its band in both themes', () => {
+    // .dw-band is --label at 10% over the sheet; the ring is --label itself, whatever the accent.
+    for (const [t, base] of [['dark', dark], ['light', light]]) {
+      const ink = hex(token(base, '--label'))
+      for (const s of surfaces[t]) {
+        const band = over({ rgb: ink, a: 0.1 }, hex(token(base, s)))
+        expect(ratio(ink, band), `${t} on ${s}`).toBeGreaterThanOrEqual(3)
+      }
+    }
+  })
+
+  it.each([
+    ['index.css', ':focus-visible', '--focus-ring'],
+    ['index.css', '.share-person:focus-visible', '--focus-ring'],
+    ['index.css', '.shared-list .item:focus-visible', '--focus-ring'],
+    ['index.css', '.field:focus,.input:focus', '--focus-ring'],
+    ['coach.css', '.composer textarea:focus', '--focus-ring'],
+    ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
+    ['index.css', '.dw-col:focus-visible::after', '--label'],
+  ])('%s %s draws in %s', (file, sel, colour) => {
+    expect(rule(read(file), sel)).toContain(`var(${colour})`)
+  })
+
+  it('no stylesheet draws a focus indicator in the raw accent', () => {
+    const sheets = readdirSync(resolve(process.cwd(), 'src'), { recursive: true }).filter((f) => f.endsWith('.css'))
+    const focus = sheets.flatMap((f) => [...read(f).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .filter((m) => m[1].includes(':focus'))
+      .map((m) => [`${f}: ${m[1].trim()}`, m[2]]))
+    expect(focus.length).toBeGreaterThan(0)
+    for (const [where, decls] of focus) expect(decls, where).not.toMatch(/var\(--acc\)/)
   })
 })
