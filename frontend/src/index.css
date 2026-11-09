@@ -116,6 +116,9 @@
 :root[data-theme="light"][data-accent="violet"],
 :root[data-theme="light"][data-accent="pink"],
 :root[data-theme="light"][data-accent="red"]   { --on-acc:#fff }
+/* Orange --acc-2 is 2.97:1 on --surface-3 and on the translucent search fill over --bg, so its
+   focus ring alone goes 4 points of lightness darker: 3.4:1 or better on every light surface. */
+:root[data-theme="light"][data-accent="orange"]{--focus-ring:#b36000}
 
 /* Increase Contrast (iOS, macOS) and the other platforms' high-contrast settings. Apple's HIG
    asks custom colours to supply a "significantly more differentiated increased contrast option";
