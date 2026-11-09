@@ -11,9 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { localTZ } from '../lib/format.js'
 import { sharedPointer } from '../lib/routine-lookup.js'
 
-const h = vi.hoisted(() => ({ api: null, toasts: [] }))
+// `onStop`: run when a sign-out stops the timers, after its settle() and before its logout.
+const h = vi.hoisted(() => ({ api: null, toasts: [], onStop: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
-vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: m => h.toasts.push(m), stopRest: () => {}, abandonWork: () => {} }) } }))
+vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: m => h.toasts.push(m), stopRest: () => h.onStop?.(), abandonWork: () => {} }) } }))
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const w = (id, d = '2026-09-01') => ({ id, d, start: 1, end: 2, entries: [] })
@@ -1412,5 +1413,147 @@ describe('a reset or import followed, before its push, by this tab signing in to
     await act(A, () => A.getState().pushState())
     expect(puts.map(p => p.baseRev)).toEqual([null])
     expect(ids(srv.doc)).toEqual([])
+  })
+})
+
+/* NATG-581. Tab A signs out as Xavi, or signs out everywhere, and waits (here on a pull still on
+   its way); meanwhile tab B signs in as Yan. The logout A then sent went out under Yan's session
+   and took Yan's owner key with it: Yan was signed out without a word, and by "everywhere" on
+   every device. A sign-out overtaken by a different account now changes nothing: no logout, the
+   owner key stays Yan's, and the result is { cancelled: true }. Tab A has handed over to Yan by
+   the time it returns. An owner gone to nobody (B signed Xavi out) is not another account, and a
+   sign-out started once A follows Yan signs Yan out, both as before. */
+describe('a sign-out overtaken by another tab signing in as a different account', () => {
+  const yan = () => 'Y-' + OWNER
+  // Two tabs signed in as Xavi at revision 1, and the browser's session as the server sees it:
+  // Xavi's, Yan's once B signs in, nobody's after a logout. `logouts`: each one, with whose
+  // session it went out under.
+  const setup = async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    localStorage.setItem('gym_owner_name', 'Xavi')
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const net = { session: OWNER, logouts: [] }
+    const answer = h.api
+    h.api = async (path, opts = {}) => {
+      if (opts.method === 'POST' && path.startsWith('/api/logout')) { net.logouts.push({ path, who: net.session }); net.session = null }
+      return answer(path, opts)
+    }
+    return { srv, net, A, B, tabA: tabs.find(x => x.store === A), tabB: tabs.find(x => x.store === B) }
+  }
+  // B signs in as Yan (its sign-in sets the user; the profile question comes after).
+  const yanSignsIn = (B, srv, net) => {
+    net.session = yan()
+    srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }
+    B.getState().setUser({ id: yan(), name: 'Yan' }, { adopt: true })
+  }
+  const nothingHappened = ({ srv, net, A }, r) => {
+    expect(r).toEqual({ cancelled: true })
+    expect(net.logouts).toEqual([])
+    expect(net.session).toBe(yan())
+    expect(localStorage.getItem('gym_owner')).toBe(yan())
+    expect(localStorage.getItem('gym_owner_name')).toBe('Yan')
+    expect(A.getState().user).toBeNull()   // handed over: nothing of Xavi is left in tab A
+    expect(ids(srv.doc)).toEqual(['yW1'])
+    expect(srv.doc._rev).toBe(4)
+  }
+  // A's sign-out waits on A's pull; B signs in as Yan before the pull's answer lands. `heard`:
+  // whether A's storage event for the new owner has run by then, or is still queued.
+  const overtakenWhileWaiting = async (t, action, heard) => {
+    const { srv, net, A, B, tabA } = t
+    const held = hold('GET')
+    const pull = A.getState().pullState()
+    await held.asked
+    if (!heard) tabA.busy++
+    try {
+      writer = tabA
+      const leaving = A.getState()[action]()   // waits for the pull
+      writer = null
+      await act(B, () => yanSignsIn(B, srv, net))
+      expect(A.getState().user?.id ?? null).toBe(heard ? null : OWNER)
+      expect(net.logouts).toEqual([])
+      writer = tabA
+      held.release()
+      await pull
+      return await leaving
+    } finally { writer = null; if (!heard) tabA.busy--; pump() }
+  }
+
+  for (const action of ['signOut', 'signOutAll']) {
+    for (const heard of [false, true]) {
+      it(`${action} waiting on a pull, B signs in as Yan ${heard ? 'and A has heard' : 'before A has heard'}: cancelled, Yan stays signed in`, async () => {
+        const t = await setup()
+        const r = await overtakenWhileWaiting(t, action, heard)
+        nothingHappened(t, r)
+        // Tab A then follows Yan, as it does whenever another tab signs someone in.
+        await act(t.B, () => t.B.getState().adoptProfile(async () => false))
+        expect(t.A.getState().user?.id).toBe(yan())
+        expect(ids(t.A.getState().S)).toEqual(['yW1'])
+      })
+    }
+
+    // The check runs right before the logout, not only after settle(): here B signs in once the
+    // pull has settled, while A stops its timers.
+    it(`${action}: B signs in as Yan after the sign-out has settled and before its logout goes: cancelled`, async () => {
+      const t = await setup()
+      const { srv, net, A, B, tabB } = t
+      h.onStop = () => {
+        const prev = writer
+        writer = tabB
+        try { yanSignsIn(B, srv, net) } finally { writer = prev }
+      }
+      let r
+      try { r = await act(A, () => A.getState()[action]()) } finally { h.onStop = null }
+      nothingHappened(t, r)
+    })
+
+    // AC5: started after the switch, once tab A follows Yan, it is Yan's own sign-out.
+    it(`${action} started after B signed in as Yan, once A follows Yan, signs Yan out as before`, async () => {
+      const { srv, net, A, B } = await setup()
+      await act(B, () => yanSignsIn(B, srv, net))
+      await act(B, () => B.getState().adoptProfile(async () => false))
+      expect(A.getState().user?.id).toBe(yan())
+      const r = await act(A, () => A.getState()[action]())
+      expect(r).toEqual({ owed: false })
+      expect(net.logouts).toEqual([{ path: action === 'signOut' ? '/api/logout' : '/api/logout/all', who: yan() }])
+      expect(localStorage.getItem('gym_owner')).toBeNull()
+      expect(A.getState().user).toBeNull()
+    })
+
+    // Not another account: B signed Xavi out while A waited. A's sign-out goes on as before.
+    it(`${action} waiting on a pull, B signs Xavi out meanwhile: not cancelled, it finishes as before`, async () => {
+      const { net, A, B, tabA } = await setup()
+      const held = hold('GET')
+      const pull = A.getState().pullState()
+      await held.asked
+      let r
+      try {
+        writer = tabA
+        const leaving = A.getState()[action]()
+        writer = null
+        await act(B, () => B.getState().signOut())
+        expect(localStorage.getItem('gym_owner')).toBeNull()
+        writer = tabA
+        held.release()
+        await pull
+        r = await leaving
+      } finally { writer = null; pump() }
+      expect(r).toEqual({ owed: false })
+      expect(net.logouts.map(x => x.path)).toEqual(['/api/logout', action === 'signOut' ? '/api/logout' : '/api/logout/all'])
+      expect(localStorage.getItem('gym_owner')).toBeNull()
+      expect(A.getState().user).toBeNull()
+    })
+  }
+
+  // AC4: the phone's disconnect hands the cancelled result back and stays paired: no switch to
+  // local-only (setGuest), no forgetting the server.
+  it('disconnectServer overtaken the same way: cancelled, and nothing switches to local-only', async () => {
+    const t = await setup()
+    const r = await overtakenWhileWaiting(t, 'disconnectServer', false)
+    nothingHappened(t, r)
+    expect(localStorage.getItem('gym_guest')).toBeNull()
   })
 })
