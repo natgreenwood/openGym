@@ -757,6 +757,93 @@ describe('focus in and out of a sheet', () => {
     expect(active()).not.toBe(field)
   })
 
+  // NATG-605: a button in a sheet that closes it and opens another in the same tap ("Edit" in a
+  // menu) is the new sheet's opener, and it has gone by the time that sheet closes. The page control
+  // that opened the first sheet takes focus back instead.
+  describe('when a sheet closes and opens another in the same tap', () => {
+    const menu = sheet('menu', { render: withButton('edit', 'Edit') })
+
+    it('returns focus to the page control that opened the first sheet', async () => {
+      document.getElementById('page-btn').focus()
+      await setSheets([menu])
+      document.getElementById('edit').focus()
+      await setSheets([sheet('editor')])
+      expect(active()).toBe(box('.sheet'))
+
+      await act(async () => { mocks.state.closeSheet('editor') })
+      expect(active()).toBe(document.getElementById('page-btn'))
+    })
+
+    it('still finds the page control after several replacements in a row', async () => {
+      document.getElementById('page-btn').focus()
+      await setSheets([menu])
+      document.getElementById('edit').focus()
+      await setSheets([sheet('editor', { render: withButton('delete', 'Delete') })])
+      document.getElementById('delete').focus()
+      await setSheets([{ ...sheet('confirm'), kind: 'center' }])
+      expect(active()).toBe(box('.center'))
+
+      await act(async () => { mocks.state.closeSheet('confirm') })
+      expect(active()).toBe(document.getElementById('page-btn'))
+    })
+
+    it('returns focus into the sheet underneath when that is where the first sheet was opened', async () => {
+      const under = sheet('under', { render: withButton('in-under', 'Options') })
+      document.getElementById('page-btn').focus()
+      await setSheets([under])
+      document.getElementById('in-under').focus()
+      await setSheets([under, menu])
+      document.getElementById('edit').focus()
+      await setSheets([under, sheet('editor')])
+
+      await act(async () => { mocks.state.closeSheet('editor') })
+      expect(active()).toBe(document.getElementById('in-under'))
+    })
+
+    it('falls back to the sheet now on top when the first sheet\'s opener has gone too', async () => {
+      const under = sheet('under', { render: withButton('in-under', 'Options') })
+      await setSheets([under])
+      document.getElementById('in-under').focus()
+      await setSheets([under, menu])
+      document.getElementById('edit').focus()
+      const editor = sheet('editor')
+      await setSheets([under, editor])
+      // the sheet underneath re-renders without the button that opened the menu
+      await setSheets([{ ...under, render: () => h('p', null, 'gone') }, editor])
+      expect(document.getElementById('in-under')).toBe(null)
+
+      await act(async () => { mocks.state.closeSheet('editor') })
+      expect(active()).toBe(document.querySelector('.sheet'))
+      expect(document.querySelectorAll('.sheet').length).toBe(1)
+    })
+
+    it('closes without an error when the first sheet\'s opener has gone and no sheet is left', async () => {
+      const opener = document.createElement('button')
+      document.body.appendChild(opener)
+      opener.focus()
+      await setSheets([menu])
+      document.getElementById('edit').focus()
+      await setSheets([sheet('editor')])
+      opener.remove()
+
+      await act(async () => { mocks.state.closeSheet('editor') })
+      expect(document.querySelector('#modal-root')).toBe(null)
+      expect(active()).toBe(document.body)
+    })
+
+    it('does not give focus back to a text field on the page that opened the first sheet', async () => {
+      const field = document.createElement('input')
+      document.getElementById('app').appendChild(field)
+      field.focus()
+      await setSheets([menu])
+      document.getElementById('edit').focus()
+      await setSheets([sheet('editor')])
+
+      await act(async () => { mocks.state.closeSheet('editor') })
+      expect(active()).not.toBe(field)
+    })
+  })
+
   it('leaves a full-screen viewer to its own focus handling', async () => {
     const render = () => h('div', { className: 'mviewer', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Photo', tabIndex: -1 })
     document.getElementById('page-btn').focus()
