@@ -1474,3 +1474,32 @@ describe('a signed-out tab while the other tab finishes signing in to another ac
     })
   }
 })
+
+// The handover above ends once the tab follows the sign-in. A tab already signed in as the account
+// the owner moved to has nothing to follow (followSignIn wants a tab with no user): its handover
+// ends as it takes that account's copy, or it went on refusing every save it was asked for.
+describe('a tab already signed in as the account the other tab makes the owner', () => {
+  it('takes the account\'s copy and goes on saving and pushing its own changes', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server(null)
+    const xavi = { id: OWNER, name: 'Xavi' }
+    // Loaded with the account's user but no owner recorded beside the copy (a guest's copy).
+    localStorage.setItem('gym_state_v1', JSON.stringify({ ...clone(DEF), _ts: Date.now(), workouts: [w('gW1', '2026-09-04')] }))
+    localStorage.setItem('gym_user', JSON.stringify(xavi))
+    const A = await openTab(xavi)
+    const B = await openTab(null)
+
+    // Register in tab 2 (views/Login.jsx): the copy becomes Xavi's, saved under him, then pushed.
+    await act(B, () => B.getState().setUser(xavi))
+    await act(B, () => B.getState().pushState())
+    expect(A.getState().user?.id).toBe(OWNER)
+    expect(ids(A.getState().S)).toEqual(['gW1'])
+
+    await act(A, () => A.getState().update(s => { s.restSec = 45 }))
+    expect(saved().restSec).toBe(45)
+    expect(JSON.parse(localStorage.getItem('gym_stash') || '{}')).toEqual({})
+    await act(A, () => A.getState().pushState())
+    expect(srv.doc.restSec).toBe(45)
+    expect(ids(srv.doc)).toEqual(['gW1'])
+  })
+})
