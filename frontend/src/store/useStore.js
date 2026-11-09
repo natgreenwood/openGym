@@ -2314,7 +2314,9 @@ export const useStore = create((set, get) => {
       // stays held, and the next check or "Sync now" runs it again; a bare call has nothing to
       // hold for and lets go.
       adopting = runAdopt(ask, opts)
-        .then(r => { claimSaved(); return r })
+        // A refused merge (NATG-556) claims nothing: saved again here, the other account's copy
+        // would be tagged as this one's.
+        .then(r => { if (!r?.refused) claimSaved(); return r })
         .catch(e => { if (!adoptOwed()) releaseAdopt(); throw e })
         .finally(() => { adopting = null })
       return adopting
