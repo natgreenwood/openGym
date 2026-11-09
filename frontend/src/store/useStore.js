@@ -1694,8 +1694,8 @@ export const useStore = create((set, get) => {
       return false
     },
     // A backup in place of this copy. With `mergeWith` — importConflict's answer — the server's copy
-    // is merged in instead of replaced (with this device's changes not yet on it, when there are
-    // any): the backup's settings and plan, every entry of all of them (mergeStates with the backup
+    // is merged in instead of replaced, together with this device's copy as it is when the user
+    // answers: the backup's settings and plan, every entry of all of them (mergeStates with the backup
     // preferred, in the backup's unit), pushed against that revision like any other change, so a
     // workout logged meanwhile elsewhere, or here, is not lost either.
     //
@@ -1745,7 +1745,10 @@ export const useStore = create((set, get) => {
         get().replaceState(next, !!uid, { baseRev: at?.rev ?? null, baseWid: at?.wid })
         return true
       }
-      const others = mergeWith.local ? mergeStates(cur, mergeWith.state) : mergeWith.state
+      // This device's copy as it is now, not only when it owed the server something at check time:
+      // what reached it since the check (another import's workouts, a sync) is otherwise left out of
+      // a copy that is persisted whole, and gone (NATG-562).
+      const others = mergeStates(cur, mergeWith.state)
       // The merge keeps the backup's reset stamp (prefer); a later one this copy or the server's
       // holds stays, as it does on a replace.
       const merged = keepReset(others, keepReset(cur, Object.assign(clone(DEF), mergeStates(next, others, { prefer: 'a' }))))
