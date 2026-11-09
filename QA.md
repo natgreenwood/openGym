@@ -113,6 +113,32 @@ Cover the `doPush` send guard alone, together with each of the 409, `pushAgain`
 and debounce guards, and each of those three guards alone. Also check the
 post-GET `pullState` guard, because held GET answers use the same helper.
 
+## Account-stamped sync bases
+
+From `frontend/`, check marker upgrades, foreign-base refusals, first sync,
+revisionless servers, reset and the connection banner together:
+
+```sh
+npm test -- --maxWorkers=2 src/store/useStore.base-account.test.jsx src/store/useStore.restore.test.jsx src/store/useStore.sync.test.jsx src/components/SyncBanner.test.jsx --reporter=verbose
+```
+
+Normal `gym_sync` fixtures need a `uid` matching `gym_owner`. An unstamped or
+foreign marker loaded at startup is deliberately treated as no base. To test a
+retained foreign base instead, load a fresh store with matching owner/marker
+first, then change the signed-in account while retaining that copy. The base
+belongs to the copy in memory; changing storage alone does not change it.
+
+Browser checks can intercept `/api/*` with synthetic accounts. Exercise pulls
+against empty, revisionless and newer server copies, both clean and dirty;
+push and adoption must also refuse a retained foreign base. Compare the copy,
+`gym_state_v1`, `gym_state_wid`, `gym_state_owner`, `gym_sync`, `gym_dirty`,
+`gym_synced_at` and `gym_synced_fp` before and after. A delayed 409 tests merge's
+own guard: send from a valid current-account copy, restore the retained foreign
+copy before releasing the response, and check no retry PUT follows. The banner
+must show the account-mismatch wording without account IDs, including at 320px.
+These intercepted checks do not establish live-session isolation or native
+device behavior.
+
 ## Account sync and sign-out
 
 From `frontend/`, check account ownership, reset propagation, backup replacement
