@@ -126,19 +126,32 @@ const recordPuts = puts => {
 }
 // `hold(method, path)`: the next such request, to whichever server h.api is now, is answered as it
 // arrives (refused, 409 and all, as the server would), and that answer held until `release()`, as
-// QA's route held the real one. `asked` resolves once it has arrived.
+// QA's route held the real one. `asked` resolves once it has arrived. `release()` fails the test
+// unless that very request is out and its answer not yet back: a hold that stopped holding would
+// let the tests pass without the race they are about (NATG-594).
 const hold = (method, path = '/api/data') => {
   const answer = h.api
   const g = {}
+  const name = `hold('${method}', '${path}')`
+  let arrived = null, answered = false
   g.asked = new Promise(r => { g.ask = r })
-  const released = new Promise(r => { g.release = r })
+  let letGo
+  const released = new Promise(r => { letGo = r })
+  g.release = () => {
+    expect(arrived, `${name}: released before its request arrived`).not.toBeNull()
+    expect(arrived, `${name}: held the wrong request`).toBe(method + ' ' + path)
+    expect(answered, `${name}: its answer was back before release()`).toBe(false)
+    letGo()
+  }
   h.api = async (p, opts = {}) => {
     if ((opts.method || 'GET') === method && p === path) {
       h.api = answer
+      arrived = (opts.method || 'GET') + ' ' + p
       let res, err = null
       try { res = await answer(p, opts) } catch (e) { err = e }
       g.ask()
       await released
+      answered = true
       if (err) throw err
       return res
     }
