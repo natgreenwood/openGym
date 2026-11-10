@@ -1925,6 +1925,8 @@ export default {
   'Options: copy, remove': 'Lehetőségek: másolás, eltávolítás',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Egy másik eszköz szinkronizált importálás közben, így a változásai megmaradtak a mentés mellett.',
   'Another device synced while you were resetting, so what it added since was kept.': 'Egy másik eszköz szinkronizált visszaállítás közben, így megmaradt, amit azóta hozzáadott.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'A szerver nem volt elérhető, ezért csak ez az eszköz lett visszaállítva. Ha újra online leszel, a szerveren lévő adatok újra össze lesznek fésülve. Akkor állítsd vissza újra a törléshez.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'A szerver nem volt elérhető, ezért a biztonsági mentés csak ennek az eszköznek az adatait cserélte le. Ha újra online leszel, a szerveren lévő adatok össze lesznek fésülve. Akkor importáld újra a cseréhez.',
   'Save as a backup file': 'Mentés biztonsági fájlként',
   'Add this device\'s plan to your profile?': 'Hozzáadod az eszközön lévő tervet a profilodhoz?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Az eszközön lévő terved, jegyzeteid vagy kártyáid bejelentkezés nélkül készültek. Add hozzá őket a profilodhoz, vagy hagyd a profilt pontosan úgy, ahogy a szerveren van.',

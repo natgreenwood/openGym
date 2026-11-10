@@ -1922,6 +1922,8 @@ export default {
   'Options: copy, remove': '옵션: 복사, 삭제',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '가져오는 동안 다른 기기가 동기화해서, 그 변경 사항도 백업과 함께 남겨 뒀어요.',
   'Another device synced while you were resetting, so what it added since was kept.': '초기화하는 동안 다른 기기가 동기화해서, 그 뒤로 그 기기가 추가한 내용은 남겨 뒀어요.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': '서버에 연결할 수 없어 이 기기만 초기화되었습니다. 다시 온라인이 되면 서버에 있는 내용이 다시 병합됩니다. 그때 다시 초기화하면 지워집니다.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': '서버에 연결할 수 없어 백업이 이 기기의 데이터만 바꿨습니다. 다시 온라인이 되면 서버에 있는 내용이 병합됩니다. 그때 다시 가져오면 바뀝니다.',
   'Save as a backup file': '백업 파일로 저장',
   'Add this device\'s plan to your profile?': '이 기기의 계획을 프로필에 추가할까요?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '로그인하지 않은 상태에서 이 기기에 계획, 메모 또는 헬스장 카드가 만들어졌습니다. 프로필에 추가하거나 서버에 있는 프로필을 그대로 유지하세요.',

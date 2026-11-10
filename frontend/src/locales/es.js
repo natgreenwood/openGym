@@ -1922,6 +1922,8 @@ export default {
   'Options: copy, remove': 'Opciones: copiar, quitar',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Otro dispositivo se sincronizó mientras importabas, así que sus cambios se quedan junto a la copia.',
   'Another device synced while you were resetting, so what it added since was kept.': 'Otro dispositivo se sincronizó mientras restablecías, así que se conservó lo que añadió desde entonces.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'No se pudo contactar con el servidor, así que solo se restableció este dispositivo. Cuando vuelvas a estar en línea, lo que tenga el servidor se volverá a combinar. Restablece de nuevo entonces para borrarlo.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'No se pudo contactar con el servidor, así que la copia de seguridad solo reemplazó los datos de este dispositivo. Cuando vuelvas a estar en línea, lo que tenga el servidor se combinará. Importa de nuevo entonces para reemplazarlo.',
   'Save as a backup file': 'Guardar como archivo de copia',
   'Add this device\'s plan to your profile?': '¿Añadir el plan de este dispositivo a tu perfil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Tu plan, notas o tarjetas del gimnasio en este dispositivo se crearon sin iniciar sesión. Añádelos a tu perfil o deja el perfil exactamente como está en el servidor.',

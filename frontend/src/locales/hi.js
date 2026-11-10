@@ -1922,6 +1922,8 @@ export default {
   'Options: copy, remove': 'विकल्प: कॉपी, हटाएँ',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'आयात के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसके बदलाव बैकअप के साथ रखे गए।',
   'Another device synced while you were resetting, so what it added since was kept.': 'रीसेट के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसने तब से जो जोड़ा वह रखा गया।',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'सर्वर तक नहीं पहुँचा जा सका, इसलिए सिर्फ़ यह डिवाइस रीसेट हुआ। फिर से ऑनलाइन होने पर सर्वर पर जो है वह वापस मर्ज हो जाएगा। उसे हटाने के लिए तब फिर से रीसेट करें।',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'सर्वर तक नहीं पहुँचा जा सका, इसलिए बैकअप ने सिर्फ़ इस डिवाइस का डेटा बदला। फिर से ऑनलाइन होने पर सर्वर पर जो है वह मर्ज हो जाएगा। उसे बदलने के लिए तब फिर से आयात करें।',
   'Save as a backup file': 'बैकअप फ़ाइल के रूप में सहेजें',
   'Add this device\'s plan to your profile?': 'इस डिवाइस का प्लान अपनी प्रोफ़ाइल में जोड़ें?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'इस डिवाइस पर आपका प्लान, नोट्स या जिम कार्ड बिना साइन इन किए बनाए गए। इन्हें अपनी प्रोफ़ाइल में जोड़ें, या प्रोफ़ाइल को ठीक वैसा ही रखें जैसा सर्वर पर है।',

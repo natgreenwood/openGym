@@ -1943,6 +1943,8 @@ export default {
   'Options: copy, remove': 'Alternativ: kopiera, ta bort',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'En annan enhet synkade medan du importerade, så dess ändringar behölls bredvid backupen.',
   'Another device synced while you were resetting, so what it added since was kept.': 'En annan enhet synkade medan du återställde, så det den lagt till sedan dess behölls.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'Servern gick inte att nå, så bara den här enheten återställdes. När du är ansluten igen slås det som finns på servern ihop med enheten igen. Återställ då en gång till för att rensa det.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'Servern gick inte att nå, så säkerhetskopian ersatte bara den här enhetens data. När du är ansluten igen slås det som finns på servern ihop med den. Importera då en gång till för att ersätta det.',
   'Save as a backup file': 'Spara som backupfil',
   'Add this device\'s plan to your profile?': 'Lägga till enhetens plan i din profil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Din plan, dina anteckningar eller gymkort på den här enheten skapades medan du var utloggad. Lägg till dem i din profil, eller behåll profilen exakt som den är på servern.',

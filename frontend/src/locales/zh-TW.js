@@ -1915,6 +1915,8 @@ export default {
   'Options: copy, remove': '選項：複製、刪除',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '匯入時另一台裝置同步了，所以它的變更也和備份一起保留了。',
   'Another device synced while you were resetting, so what it added since was kept.': '重設時另一台裝置同步了，所以它在此之後新增的內容保留了下來。',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': '無法連上伺服器，因此只重設了這台裝置。重新連線後，伺服器上的內容會再合併回來。屆時再重設一次即可清除。',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': '無法連上伺服器，因此備份只取代了這台裝置上的資料。重新連線後，伺服器上的內容會合併進來。屆時再匯入一次即可取代。',
   'Save as a backup file': '儲存為備份檔案',
   'Add this device\'s plan to your profile?': '是否將此裝置上的計畫加入你的個人檔案？',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '此裝置在未登入狀態下設定了計畫、備註或健身房卡。是否將其加入你的個人檔案，或是維持伺服器上的原本紀錄？',

@@ -1922,6 +1922,8 @@ export default {
   'Options: copy, remove': 'Seçenekler: kopyala, kaldır',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'İçe aktarırken başka bir cihaz eşitlendi, onun değişiklikleri de yedeğin yanında tutuldu.',
   'Another device synced while you were resetting, so what it added since was kept.': 'Sıfırlarken başka bir cihaz eşitlendi, o zamandan beri eklediği şeyler tutuldu.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'Sunucuya ulaşılamadı, bu yüzden yalnızca bu cihaz sıfırlandı. Yeniden çevrimiçi olduğunda sunucudakiler tekrar birleştirilecek. Temizlemek için o zaman yeniden sıfırla.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'Sunucuya ulaşılamadı, bu yüzden yedek yalnızca bu cihazdaki verilerin yerini aldı. Yeniden çevrimiçi olduğunda sunucudakiler birleştirilecek. Değiştirmek için o zaman yeniden içe aktar.',
   'Save as a backup file': 'Yedek dosyası olarak kaydet',
   'Add this device\'s plan to your profile?': 'Bu cihazdaki plan profiline eklensin mi?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Bu cihazdaki planın, notların veya salon kartların oturum açılmadan oluşturuldu. Bunları profiline ekle ya da profili sunucudaki hâliyle bırak.',

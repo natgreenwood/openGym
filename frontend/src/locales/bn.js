@@ -1964,6 +1964,8 @@ export default {
   'Options: copy, remove': 'বিকল্প: কপি, সরান',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'আপনি ইমপোর্ট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তার পরিবর্তনগুলো ব্যাকআপের পাশাপাশি রাখা হয়েছে।',
   'Another device synced while you were resetting, so what it added since was kept.': 'আপনি রিসেট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তারপর থেকে সেটি যা যোগ করেছে তা রাখা হয়েছে।',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'সার্ভারে পৌঁছানো যায়নি, তাই শুধু এই ডিভাইসটি রিসেট হয়েছে। আবার অনলাইনে এলে সার্ভারে যা আছে তা আবার মার্জ হবে। তখন মুছতে আবার রিসেট করুন।',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'সার্ভারে পৌঁছানো যায়নি, তাই ব্যাকআপ শুধু এই ডিভাইসের ডেটা প্রতিস্থাপন করেছে। আবার অনলাইনে এলে সার্ভারে যা আছে তা মার্জ হবে। তখন প্রতিস্থাপন করতে আবার ইমপোর্ট করুন।',
   'Save as a backup file': 'ব্যাকআপ ফাইল হিসেবে সেভ করুন',
   'Add this device\'s plan to your profile?': 'এই ডিভাইসের প্ল্যান আপনার প্রোফাইলে যোগ করবেন?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'এই ডিভাইসে আপনার প্ল্যান, নোট বা জিম কার্ড সাইন আউট থাকা অবস্থায় সেট আপ করা হয়েছিল। সেগুলো আপনার প্রোফাইলে যোগ করুন, অথবা প্রোফাইলটি সার্ভারে যেমন আছে ঠিক তেমন রাখুন।',
