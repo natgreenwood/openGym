@@ -597,6 +597,8 @@ export function sinceReset(S, at, ids) {
   delete out.edited
   delete out.undone
   delete out.unitSet
+  // What was kept of removed entries goes with the reset too: it is content from before it.
+  delete out.tombs
   return out
 }
 
@@ -642,6 +644,14 @@ export function stampDeletions(prev, next, now = Date.now()) {
   if (!next || typeof next !== 'object') return next
   const del = isMap(next.deleted) ? next.deleted : {}
   let touched = false
+  // What a removal here keeps of the entry (`tombs` below), into a copy of the map made on the first
+  // write: until then it may still be the previous copy's.
+  let tombs = null
+  const keep = (f, k, x) => {
+    if (!tombs) tombs = isMap(next.tombs) ? { ...next.tombs } : {}
+    tombs[f] = { ...(isMap(tombs[f]) ? tombs[f] : {}) }
+    foldTomb(tombs, f, k, x)
+  }
   for (const [f, key] of Object.entries(DEL_LISTS)) {
     const before = list(prev?.[f]), after = list(next[f])
     if (before === after) continue
@@ -654,7 +664,11 @@ export function stampDeletions(prev, next, now = Date.now()) {
       const k = String(key(x))
       // Never stamped before the entry's own time: a removal is always after what it removed,
       // whatever this device's clock says (stampChange).
-      if (!have.has(k)) { m[k] = Math.max(now, time(x) + 1); changed = true }
+      if (!have.has(k)) {
+        m[k] = Math.max(now, time(x) + 1)
+        changed = true
+        if (TOMB_LISTS[f]) keep(f, k, x)
+      }
     }
     // Added back: only a key this change brought in, not every key the copy merely still holds.
     // A copy keeps an entry whose removal it has on record when that entry was edited after the
@@ -670,6 +684,9 @@ export function stampDeletions(prev, next, now = Date.now()) {
     if (changed) { del[f] = capStamps(m); touched = true }
   }
   if (touched) next.deleted = del
+  // Kept content past its time or past the cap goes here, never in the merge (see `tombs`).
+  const t = pruneTombs(tombs || next.tombs, del, now)
+  if (t !== next.tombs) { if (isMap(t) && Object.keys(t).length) next.tombs = t; else delete next.tombs }
   return next
 }
 
@@ -695,9 +712,10 @@ export function mergeDeletions(a, b) {
 
 /**
  * `S` without the entries `deleted` says were removed after they were last edited. Returns the
- * removed workouts too (their kept loads need a second look). Mutates `S`.
+ * removed workouts too (their kept loads need a second look). Each entry removed of a list that
+ * keeps the content of removed entries goes into `tombs` (see below). Mutates `S` and `tombs`.
  */
-function applyDeletions(S, deleted) {
+function applyDeletions(S, deleted, tombs = null) {
   const gone = []
   if (!deleted) return gone
   for (const [f, key] of Object.entries(DEL_LISTS)) {
@@ -706,13 +724,156 @@ function applyDeletions(S, deleted) {
     const time = DEL_TIME[f] || (() => 0)
     S[f] = S[f].filter(x => {
       if (x == null) return true
-      const at = Number(m[String(key(x))]) || 0
+      const k = String(key(x))
+      const at = Number(m[k]) || 0
       const drop = at > 0 && at >= time(x)
       if (drop && f === 'workouts') gone.push(x)
+      if (drop && tombs && TOMB_LISTS[f]) foldTomb(tombs, f, k, x)
       return !drop
     })
   }
   return gone
+}
+
+// ---- The content of removed entries (`tombs`) -----------------------------------------------
+//
+//   S.tombs = { workouts: { <key>: <entry> }, routines: {…}, customEx, gymCards, equipProfiles }
+//
+// A removal used to keep nothing of what it removed but its time. When one copy removed an entry,
+// another had edited a field of it before the removal, and a third edited it after (which keeps it,
+// see above), the edit made before the removal was in the result or not depending on which two
+// copies met first: met first with the removal, it was dropped with the entry, and nothing was left
+// to bring it back when the later edit restored the entry (NATG-561). So the version an entry is
+// removed with is kept here, as far as it can still matter: its stamped fields (`_f`, with `_u`)
+// and, of a workout, its photos and videos, whose list is a union rather than a stamped field. An
+// entry edited after its removal is merged with what is kept (mergeEntry), so it comes back with
+// the latest value of every field from every copy, in whichever order the copies met.
+//
+// What is kept for a key is the join of every removed version of it (mergeEntry, the media as a
+// union), and a key is either here or in its list, never both. That makes the merge of `tombs`
+// as order-free as mergeEntry itself. Bounded twice: in the merge, the newest TOMB_MAX removals per
+// list (by the removal's stamp, then key, so every copy drops the same ones); outside it, when a
+// change is stamped (stampDeletions) or the server stores a copy, whatever was removed more than
+// TOMB_KEEP_MS ago. An age is never judged inside the merge: it depends on the device's clock,
+// and would make the result depend on the order again. A copy that has not pruned yet brings a
+// pruned one back until it does; past either bound an entry falls back to what removals did
+// before. "Reset everything" keeps none of it (sinceReset), and backups leave it out
+// (lib/backup-media.js exportableState). Nothing shows it: the merge alone reads it.
+export const TOMB_LISTS = { workouts: workoutKey, routines: x => x?.id, customEx: x => x?.id, gymCards: x => x?.id, equipProfiles: x => x?.id }
+export const TOMB_MAX = 200
+export const TOMB_KEEP_MS = 30 * 86400000
+const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null)
+
+// What is kept of `x`, a version of an entry of list `f`, or null when nothing of it can matter.
+// The edit time stays out: it only tells which version's unstamped fields win, and none are kept.
+function tombOf(f, x) {
+  if (!isMap(x)) return null
+  const t = {}
+  if (x.id != null) t.id = x.id
+  const stamped = Object.keys(isMap(x._f) ? x._f : {}).filter(k => !ENTRY_META.has(k))
+  if (stamped.length) t._f = clone(x._f)
+  if (isMap(x._u)) t._u = clone(x._u)
+  for (const k of stamped) if (k in x) t[k] = clone(x[k])
+  if (f === 'workouts' && 'media' in x) {
+    // A union by hash, in hash order: the same list whichever versions met first.
+    const by = new Map()
+    for (const m of list(x.media)) { const h = mediaHash(m); if (h && !by.has(h)) by.set(h, clone(m)) }
+    if (by.size) t.media = [...by.keys()].sort().map(h => by.get(h)); else delete t.media
+  }
+  return stamped.length || t.media ? t : null
+}
+// The join of two kept versions of one key (either may be a whole entry or missing), or null.
+function joinTomb(f, a, b) {
+  if (!isMap(a)) return tombOf(f, b)
+  if (!isMap(b)) return tombOf(f, a)
+  const t = mergeEntry(a, b)
+  if (f === 'workouts') t.media = [...list(a.media), ...list(b.media)]
+  return tombOf(f, t)
+}
+function foldTomb(tombs, f, k, x) {
+  const m = isMap(tombs[f]) ? tombs[f] : (tombs[f] = {})
+  const t = joinTomb(f, m[k], x)
+  if (t) m[k] = t; else delete m[k]
+}
+// The newest TOMB_MAX of each list by the stamp of their removal in `deleted`, then by key.
+function capTombs(tombs, deleted) {
+  for (const f of Object.keys(TOMB_LISTS)) {
+    const m = tombs[f]
+    if (!isMap(m)) continue
+    const ks = Object.keys(m)
+    if (!ks.length) { delete tombs[f]; continue }
+    if (ks.length <= TOMB_MAX) continue
+    const at = k => Math.abs(Number(deleted?.[f]?.[k]) || 0)
+    ks.sort((x, y) => at(y) - at(x) || (x < y ? -1 : x > y ? 1 : 0))
+    for (const k of ks.slice(TOMB_MAX)) delete m[k]
+  }
+  return tombs
+}
+/**
+ * Both copies' kept content (`tombs`), joined key by key and capped against `deleted` (see above).
+ * Anything that is not a map of maps of entries counts as nothing. Returns a new object.
+ */
+export const mergeTombs = (a, b, deleted) => capTombs(joinTombs(a, b), deleted)
+function joinTombs(a, b) {
+  const out = {}
+  for (const f of Object.keys(TOMB_LISTS)) {
+    const m = {}
+    for (const side of [a, b]) {
+      const src = isMap(side) && isMap(side[f]) ? side[f] : {}
+      for (const [k, t] of Object.entries(src)) {
+        if (k === '__proto__' || !isMap(t)) continue
+        const j = joinTomb(f, m[k], t)
+        if (j) m[k] = j; else delete m[k]
+      }
+    }
+    if (Object.keys(m).length) out[f] = m
+  }
+  return out
+}
+/**
+ * `tombs` without the content of entries removed more than TOMB_KEEP_MS before `now` by `deleted`
+ * (or with no removal on record), and with at most TOMB_MAX per list, as capTombs keeps them. The
+ * same object when nothing goes, a new one otherwise; a value that is not a map is nothing (null).
+ */
+export function pruneTombs(tombs, deleted, now) {
+  if (tombs === undefined) return tombs
+  if (!isMap(tombs)) return null
+  let changed = false
+  const out = {}
+  for (const f of Object.keys(tombs)) {
+    const m = tombs[f], all = isMap(m) ? Object.keys(m) : []
+    if (!TOMB_LISTS[f] || !all.length) { changed = true; continue }
+    const at = k => Math.abs(Number(isMap(deleted?.[f]) ? deleted[f][k] : 0) || 0)
+    let ks = all.filter(k => at(k) > 0 && now - at(k) <= TOMB_KEEP_MS)
+    if (ks.length > TOMB_MAX) ks = ks.sort((x, y) => at(y) - at(x) || (x < y ? -1 : x > y ? 1 : 0)).slice(0, TOMB_MAX)
+    if (ks.length === all.length) { out[f] = m; continue }
+    changed = true
+    if (ks.length) out[f] = Object.fromEntries(ks.map(k => [k, m[k]]))
+  }
+  return changed ? out : tombs
+}
+// An entry of list `f` that is in its list and kept content of it too (edited after its removal,
+// or added back): the two merged. Kept content has no edit time, so the entry's own unstamped
+// fields stay as they are.
+function restoreEntry(f, x, t) {
+  const out = mergeEntry(x, t)
+  if (f === 'workouts') mergeWorkoutMedia(out, t)
+  return out
+}
+// Every entry of `S` with kept content of its key: merged with it, and the content let go of.
+function restoreTombs(S, tombs) {
+  for (const [f, key] of Object.entries(TOMB_LISTS)) {
+    const m = tombs[f]
+    if (!isMap(m) || !Array.isArray(S[f])) continue
+    S[f] = S[f].map(x => {
+      if (!isMap(x)) return x
+      const k = String(key(x))
+      if (!isMap(m[k])) return x
+      const t = m[k]
+      delete m[k]
+      return restoreEntry(f, x, t)
+    })
+  }
 }
 
 // ---- Edit stamps (`edited`) -----------------------------------------------------------------
@@ -726,7 +887,7 @@ function applyDeletions(S, deleted) {
 // a rotation pass refilled on the phone survives a setting flipped on the desktop. Fields with a
 // merge of their own are not stamped here; a field nobody stamped follows the newer copy, as before.
 const OWN_MERGE = new Set([
-  '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'edited', 'undone', 'routineOrder',
+  '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'tombs', 'edited', 'undone', 'routineOrder',
   'workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards', 'bodyweight', 'measurements', 'favEx',
   'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'dayNotes', 'dayPhotos',
 ])
@@ -944,7 +1105,12 @@ export function mergeStates(a0, b0, { prefer } = {}) {
   // entries, and keyed by day (weigh-ins) or exercise (favourites) they also named the account's
   // weigh-in of that day and its favourite, which the guest never had.
   const deleted = prefer ? mergeDeletions(prefer === 'a' ? a.deleted : b.deleted, null) : mergeDeletions(a.deleted, b.deleted)
-  for (const w of applyDeletions(out, deleted)) {
+  // The content of removed entries (`tombs` above), of both copies, with what is removed here
+  // folded in. With `prefer` too: what either side kept is still the same account's, and a backup
+  // brought in with "Merge them in" carries none of its own (importBackup). Only without it is an
+  // entry that is back merged with what was kept of it: sign-in keeps the preferred side's version.
+  const tombs = joinTombs(a.tombs, b.tombs)
+  for (const w of applyDeletions(out, deleted, tombs)) {
     const k = String(workoutKey(w))
     const by = [n, o].filter(S => Number(S.deleted?.workouts?.[k]) > 0).map(S => S.exWeights)
     for (const e of list(w.entries)) {
@@ -953,6 +1119,12 @@ export function mergeStates(a0, b0, { prefer } = {}) {
       for (const src of by) editedBy.get(e.id).add(src)
     }
   }
+  if (!prefer) {
+    restoreTombs(out, tombs)
+    out.workouts.sort(byDayStart)
+  }
+  capTombs(tombs, deleted)
+  if (Object.keys(tombs).length) out.tombs = tombs; else delete out.tombs
   out.exWeights = clone(mergeExWeights(n.exWeights, o.exWeights))
   for (const [id, sources] of editedBy) {
     const kept = correctedExWeight(id, out.workouts, sources)
@@ -1078,6 +1250,9 @@ export function stampReplace(next, others = [], now = Date.now()) {
   for (const f of ['workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards']) {
     const versions = new Map()
     for (const o of others) for (const x of list(o?.[f])) if (x && typeof x === 'object' && x.id != null) versions.set(x.id, [...(versions.get(x.id) || []), x])
+    // What either copy kept of a removed entry (`tombs`) is a version too: the backup's must win
+    // over it as well when an edit made after the removal brings it back on another device.
+    for (const o of others) for (const x of Object.values(isMap(o?.tombs?.[f]) ? o.tombs[f] : {})) if (isMap(x) && x.id != null) versions.set(x.id, [...(versions.get(x.id) || []), x])
     for (const x of list(next[f])) {
       if (!x || typeof x !== 'object' || x.id == null || !versions.has(x.id)) continue
       const fields = isMap(x._f) ? { ...x._f } : {}
