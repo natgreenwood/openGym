@@ -87,6 +87,18 @@ storage listener. Only tests call `disposeStore`; the app never does. The helper
 requires Vitest's default per-file isolation. A store loaded in `beforeAll` is
 released after the first test.
 
+Read `DEF` and `hasData` from `src/store/defaults.js` when no store is needed.
+That module can load without browser globals, listeners or timers; importing
+`useStore.js` just to read them creates an extra store outside the helper's
+cleanup. Existing application imports from `useStore.js` still work.
+
+For tests that load their first store inside a test or hook, import
+`warmStoreImports` from `src/test-utils/warm-store.js` and call
+`await warmStoreImports()` at collection time, before the hooks and tests.
+It transforms the heavy dependencies without loading a store or adding
+window/document listeners. Keep the dependency list in that helper. Its
+regression test is `src/test-utils/warm-store.test.js`.
+
 Seed owner-sensitive storage before calling the helper. Import modules that must
 share its instances, such as `media-store.js` and `media-owed.js`, afterwards.
 Keep test-owned pagehide flushes in the file's `afterEach`; they run before the
