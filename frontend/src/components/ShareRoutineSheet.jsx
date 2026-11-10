@@ -2,7 +2,7 @@ import { useEffect, useId, useRef, useState } from 'react'
 import { api } from '../lib/api.js'
 import { t, tn } from '../lib/i18n.js'
 import { filterPeople, initials, shareError } from '../lib/shares.js'
-import { withinLimits } from '../lib/shared-routines.js'
+import { judgeRoutine } from '../lib/shared-routines.js'
 import Icon from './Icon.jsx'
 import { Button, SearchField } from './ui.jsx'
 
@@ -96,19 +96,24 @@ export default function ShareRoutineSheet({ routine, already, close, onShared, r
 
   const shown = people ? filterPeople(people, q) : []
   const full = picked.size >= MAX_PICK
-  // A routine past lib/limits.js can still be shared, but the people it reaches are shown it as
-  // not available (lib/shared-routines.js judgeRoutine), so the sharer is told first (NATG-503).
+  // A routine past lib/limits.js, or one with a field the app can't read, can still be shared, but
+  // the people it reaches are shown it as not available (lib/shared-routines.js judgeRoutine), so
+  // the sharer is told first (NATG-503). The body gives judgeRoutine's reason: only a too-large
+  // routine has a remedy to offer, an unreadable one may have none in the app (NATG-609).
   // Part of the dialog's description, so it is read when the sheet opens with focus in search.
-  const oversized = !withinLimits(routine)
+  const verdict = judgeRoutine(routine)
+  const unavailable = verdict !== 'ok'
   const noticeId = titleId + '-limits'
-  return <div role="dialog" aria-labelledby={titleId} aria-describedby={oversized ? noticeId : undefined}>
+  return <div role="dialog" aria-labelledby={titleId} aria-describedby={unavailable ? noticeId : undefined}>
     <h3 id={titleId} style={{ marginBottom: 6 }}>{t('Share {0}', routine.name)}</h3>
     <div className="muted share-lead">{t('Pick who gets it. They’ll find it in Plan › Shared once they accept.')}</div>
-    {oversized && <div className="shared-notice warn" id={noticeId} style={{ marginBottom: 14 }}>
+    {unavailable && <div className="shared-notice warn" id={noticeId} style={{ marginBottom: 14 }}>
       <Icon name="warning" />
       <div>
         <b>{t('People you share this with won’t be able to open it')}</b>
-        <span>{t('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')}</span>
+        <span>{verdict === 'too-large'
+          ? t('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')
+          : t('Something in it can’t be read in a shared routine. You can still share it.')}</span>
       </div>
     </div>}
     <SearchField ref={searchRef} value={q} placeholder={t('Search people')} aria-label={t('Search people')}

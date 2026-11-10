@@ -2721,6 +2721,7 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} gyakorlatban több volt, mint amennyit az app enged. Legfeljebb {1} sorozattal vagy intervallummal, {2} droppal és {3} rest-pause ismétléssel kerülnek be.',
   'People you share this with won’t be able to open it': 'Akikkel megosztod, nem fogják tudni megnyitni',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Túl nagy egy megosztott rutinhoz. Ettől még megoszthatod. Ha kevesebb sorozat vagy gyakorlat lesz benne, meg tudják nyitni.',
+  'Something in it can’t be read in a shared routine. You can still share it.': 'Valami benne nem olvasható egy megosztott rutinban. Ettől még megoszthatod.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'Akikkel megosztottad, nem fogják tudni megnyitni',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Túl nagy egy megosztott rutinhoz. Rövidítsd le a gyakorlatok jegyzeteit, vagy távolíts el néhány gyakorlatot, és meg tudják majd nyitni.',

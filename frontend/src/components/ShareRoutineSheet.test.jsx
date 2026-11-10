@@ -191,6 +191,7 @@ describe('ShareRoutineSheet: a routine too large to open', () => {
     const n = notice()
     expect(n).toBeTruthy()
     expect(n.textContent).toContain('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')
+    expect(n.textContent).not.toContain('can’t be read')
     expect(host.querySelector('[role="dialog"]').getAttribute('aria-describedby')).toBe(n.id)
     // placed between the lead and the search field
     expect(n.previousElementSibling.classList.contains('share-lead')).toBe(true)
@@ -242,5 +243,65 @@ describe('ShareRoutineSheet: a routine too large to open', () => {
     expect(notice()).toBeUndefined()
     expect(host.querySelector('.shared-notice')).toBeNull()
     expect(host.querySelector('[role="dialog"]').getAttribute('aria-describedby')).toBeNull()
+  })
+})
+
+// NATG-609: a routine judgeRoutine calls 'unreadable' (a field the app doesn't read as that type,
+// here a count stored as text) is unavailable to the people it reaches too, but not because of its
+// size. The notice keeps its heading and gives a reason with no remedy, since the app can't always
+// repair one. Sharing it stays available.
+describe('ShareRoutineSheet: a routine that can’t be read where it is shared', () => {
+  const LEGACY = { id: 'r1', name: 'Legacy', ex: [{ id: '0009', sets: '3' }] }
+  const HUGE = { id: 'r2', name: 'Push Day', ex: [{ id: '0025', sets: 80, reps: 5, weight: 100 }] }
+  const TITLE = 'People you share this with won’t be able to open it'
+  const UNREADABLE = 'Something in it can’t be read in a shared routine. You can still share it.'
+  const notice = () => [...host.querySelectorAll('.shared-notice.warn')].find(n => n.textContent.includes(TITLE))
+
+  it('AC2: keeps the heading and says something in it can’t be read, with no size reason or remedy', async () => {
+    await mount({ routine: LEGACY })
+    const n = notice()
+    expect(n).toBeTruthy()
+    expect(n.querySelector('b').textContent).toBe(TITLE)
+    expect(n.querySelector('span').textContent).toBe(UNREADABLE)
+    expect(n.textContent).not.toContain('too large')
+    expect(n.textContent).not.toContain('fewer sets or exercises')
+  })
+
+  it('AC1: a too-large routine keeps the size body, not this one', async () => {
+    await mount({ routine: HUGE })
+    expect(notice().querySelector('span').textContent).toBe('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')
+    expect(notice().textContent).not.toContain(UNREADABLE)
+  })
+
+  it('AC3: is part of the dialog’s description, between the lead and the search field', async () => {
+    await mount({ routine: LEGACY })
+    const n = notice()
+    expect(host.querySelector('[role="dialog"]').getAttribute('aria-describedby')).toBe(n.id)
+    expect(n.previousElementSibling.classList.contains('share-lead')).toBe(true)
+    expect(n.nextElementSibling.querySelector('input')).toBeTruthy()
+  })
+
+  it('AC3: still lets it be shared', async () => {
+    let sent = null
+    net.create = body => { sent = body; return Promise.resolve({ shares: [], etag: 'e' }) }
+    const { close, onShared } = await mount({ routine: LEGACY })
+    act(() => row('Alex').click())
+    expect(shareBtn().disabled).toBe(false)
+    await act(async () => { shareBtn().click(); await new Promise(r => setTimeout(r, 0)) })
+    expect(sent).toEqual({ routineId: 'r1', to: ['u2'] })
+    expect(close).toHaveBeenCalledOnce()
+    expect(onShared).toHaveBeenCalledWith(1)
+  })
+
+  it('shows while the people load and when they fail to load', async () => {
+    net.recipients = () => new Promise(() => {})
+    await mount({ routine: LEGACY })
+    expect(notice().querySelector('span').textContent).toBe(UNREADABLE)
+    act(() => root.unmount()); host.remove()
+
+    net.recipients = () => Promise.reject(new TypeError('Failed to fetch'))
+    await mount({ routine: LEGACY })
+    expect(host.textContent).toContain('Couldn’t load the people on this server')
+    expect(notice().querySelector('span').textContent).toBe(UNREADABLE)
   })
 })
