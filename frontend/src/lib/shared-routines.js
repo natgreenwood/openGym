@@ -130,7 +130,10 @@ const UNREADABLE = Object.freeze({ routine: null, reason: 'unreadable' })
 // which is why the only caller is shareOutcome.
 function evaluateShare(item, toUnit) {
   if (!isObj(item) || typeof item.id !== 'string' || !item.id || item.state !== 'accepted') return UNREADABLE
+  // Only the server's reasons the screens have words for; any other, or one this build doesn't
+  // know yet, reads as unreadable.
   if (item.unavailable === 'custom-exercise') return { routine: null, reason: 'custom-exercise' }
+  if (item.unavailable === 'too-large') return { routine: null, reason: 'too-large' }
   if (item.unavailable || !isObj(item.routine)) return UNREADABLE
   const to = toUnit === 'lb' ? 'lb' : 'kg'
   // The sharer's name is not in the hash (it isn't the routine's content): a rename of their
