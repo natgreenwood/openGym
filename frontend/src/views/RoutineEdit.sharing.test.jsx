@@ -76,7 +76,7 @@ describe('Sharing section: only while sharing is available (AC2)', () => {
     await mount()
     expect(host.querySelector('.sect-t').textContent).toBe('Sharing')
     expect(button('Share with people')).toBeTruthy()
-    expect(api).toHaveBeenCalledWith('/api/shares')
+    expect(api).toHaveBeenCalledWith('/api/shares', { expect: 'u1' })
     expect(host.textContent).toContain('They’ll find it in Plan › Shared once they accept.')
   })
 })
@@ -159,7 +159,7 @@ describe('shared-with list (AC5)', () => {
     api.mockClear()
     await act(async () => { dialog.onConfirm(); await new Promise(r => setTimeout(r, 0)) })
     expect(api).toHaveBeenCalledWith('/api/shares/s1', { method: 'DELETE' })
-    expect(api).toHaveBeenCalledWith('/api/shares')
+    expect(api).toHaveBeenCalledWith('/api/shares', { expect: 'u1' })
   })
 
   it('says so and offers a retry when the list cannot be loaded', async () => {

@@ -171,7 +171,7 @@ describe('owner events Settings hears of only after the key is back where it was
     let answer
     mocks.data = () => new Promise(r => { answer = r })
     await chooseFile()
-    expect(mocks.api).toHaveBeenCalledWith('/api/data')
+    expect(mocks.api).toHaveBeenCalledWith('/api/data', { expect: 'A' })
     historical('A', 'B')
     historical('B', 'A')
     await expectNothingImported(async () => {

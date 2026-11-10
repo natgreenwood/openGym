@@ -560,6 +560,10 @@ export const useStore = create((set, get) => {
   }
   const isNetworkError = e => e && e.status == null   // fetch itself failed, or gave up: no response at all
   const refused = e => e?.status === 401 || e?.code === 'not-paired'
+  // The server refused a request because the browser's session is no longer the account it was
+  // sent for (X-Expected-Account, NATG-558): another tab signed in meanwhile. Nothing was read or
+  // written. Not a sign-out and not offline; never merged, and never sent again for that account.
+  const mismatched = e => e?.status === 412 && e?.code === 'account-mismatch'
   // The server answered: whatever was wrong with the connection is over.
   const reached = (extra = {}) => setSync({ offline: false, auth: false, lastError: null, ...extra })
   // What a failed request says about the connection. A refused token and a phone without a
@@ -827,7 +831,7 @@ export const useStore = create((set, get) => {
     if (!base || owes()) return get().pullState()
     try {
       if (!answerIsFor(uid)) return
-      const { rev, wid, shares: sharesEtag } = await api('/api/data/rev')
+      const { rev, wid, shares: sharesEtag } = await api('/api/data/rev', { expect: uid })
       if (!answerIsFor(uid)) return
       // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
       // shared with you): loaded before the document, so a pointer the document gains from
@@ -838,7 +842,8 @@ export const useStore = create((set, get) => {
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
       if (!answerIsFor(uid)) return
-      if (isNetworkError(e) || refused(e)) failed(e)
+      // A session that is another account's (412): the pull would go out under it again.
+      if (isNetworkError(e) || refused(e) || mismatched(e)) failed(e)
       else return get().pullState()   // a server that lacks the route (older API) — the full pull knows the old protocol
     }
   }
@@ -929,7 +934,7 @@ export const useStore = create((set, get) => {
     if (held && held.uid !== uid) return refuse('push', held.uid, uid)
     if (!answerIsFor(uid)) return false
     let res
-    try { res = await api('/api/data') }
+    try { res = await api('/api/data', { expect: uid }) }
     catch (e) {
       if (replaceRev === armed) replaceRev = null
       if (!answerIsFor(uid)) return false
@@ -985,7 +990,7 @@ export const useStore = create((set, get) => {
     // A base that is not this account's: nothing goes out, and nothing here changes (NATG-556).
     if (base && base.uid !== uid) return refuse('push', base.uid, uid)
     try {
-      const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
+      const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body), expect: uid })
       if (!answerIsFor(uid)) return
       noteRevless(uid, r.rev == null)
       // A server from before revisions answers without one — then there is nothing to hold the
@@ -1485,7 +1490,7 @@ export const useStore = create((set, get) => {
     const sameAccount = owedMark ? !!owedMark.rejoined : rejoined
     if (owedMark?.alwaysAsk) alwaysAsk = true
     let res
-    try { res = await api('/api/data') }
+    try { res = await api('/api/data', { expect: uid }) }
     catch (e) {
       if (left()) return gone
       failed(e)
@@ -1516,7 +1521,7 @@ export const useStore = create((set, get) => {
     // the server's, so the next pull still brings in what changed.
     const reread = async () => {
       if (!asked) return
-      try { const r = await api('/api/data'); if (r && r.state) ({ state, rev } = r) } catch { /* the first read */ }
+      try { const r = await api('/api/data', { expect: uid }); if (r && r.state) ({ state, rev } = r) } catch { /* the first read */ }
     }
     const takeServer = () => {
       const copy = sanitizeAccent(Object.assign(clone(DEF), state))
@@ -1842,7 +1847,8 @@ export const useStore = create((set, get) => {
         return here ? { workouts: here, state: get().S, rev: null, device: true, token } : null
       }
       let res
-      try { res = await api('/api/data') } catch { return null }
+      // A 412: the browser's session is another account's now, which is what `stale` says.
+      try { res = await api('/api/data', { expect: token.uid }) } catch (e) { return mismatched(e) ? stale : null }
       if (!get().importIsCurrent(token)) return stale   // the account the confirm would be about has gone
       const state = res?.state
       importRead = { token, state: state || null, rev: res?.rev ?? null }
@@ -2046,7 +2052,7 @@ export const useStore = create((set, get) => {
       sharesFetch = mine
       mine.promise = (async () => {
         try {
-          const r = await api('/api/shares')
+          const r = await api('/api/shares', { expect: user.id })
           if (!answerIsFor(user.id)) return null
           const stale = mine.stale || (mine.seen != null && mine.seen !== (r?.etag || null))
           const stored = sharesOf(get().shares, user)
@@ -2324,7 +2330,7 @@ export const useStore = create((set, get) => {
           if (pushTm || owesRead(uid)) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
           if (!answerIsFor(uid)) return
-          const res = await api('/api/data')
+          const res = await api('/api/data', { expect: uid })
           if (!answerIsFor(uid)) return
           // A sign-in's question opened meanwhile (an adoption's write met a profile that appeared,
           // doPush): the adoption settles this copy, not this pull.

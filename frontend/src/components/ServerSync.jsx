@@ -83,7 +83,8 @@ export function connectionView(sync, { mobile = MOBILE, online = isOnline() } = 
       }
     case 'error':
       // The store refused to merge or push a copy whose base is another account's (useStore
-      // mergeInto, doPush): no HTTP status to show, and nothing wrong with the server.
+      // mergeInto, doPush), or the server refused a sync request whose session is no longer the
+      // account it was sent for (412, NATG-558): nothing wrong with the server either way.
       if (err.code === 'account-mismatch') return { tone: 'bad', icon: 'warning', action: 'retry', line: t('This copy belongs to a different account'), banner: t('This copy belongs to a different account. Sign in again or reload.') }
       return err.code === 'bad-response'
         ? { tone: 'bad', icon: 'warning', action: 'retry', line: t('Not an openGym answer (HTTP {0})', err.status), banner: t('Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.', err.status) }
