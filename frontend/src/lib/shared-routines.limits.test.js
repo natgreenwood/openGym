@@ -4,7 +4,7 @@
 // started, days kept). Judged before anything is copied or built, so a huge count costs nothing.
 // The builders clamp to the same limits too, whatever the routine.
 import { describe, expect, it } from 'vitest'
-import { withinLimits, sharedRoutineOf, sharedView, unavailableOf } from './shared-routines.js'
+import { withinLimits, judgeRoutine, sharedRoutineOf, sharedView, unavailableOf } from './shared-routines.js'
 import { MAX_WORK_SETS, MAX_BURST_REPS, MAX_DROPS, MAX_ROUTINE_ROWS } from './limits.js'
 import { LOG_LIMITS } from './log-workout.js'
 import { exLine, buildSets, applyIntensifierPlan } from './history.js'
@@ -54,6 +54,32 @@ describe('withinLimits: judged before anything is built', () => {
     const { out, ms } = fast(() => withinLimits({ ex: new Array(1e8) }))
     expect(out).toBe(false)
     expect(ms).toBeLessThan(50)
+  })
+})
+
+// NATG-503 AC6: a count that isn't a whole number is malformed, not too large. The share is still
+// held back; only the reason the recipient sees changes.
+describe('a count that is not a whole number is unreadable, not too large (NATG-503)', () => {
+  it.each([
+    ['3.5 sets', slot({ sets: 3.5 })],
+    ['a fractional triple-progression ceiling', slot({ setsMax: 4.5 })],
+    ['a fractional drop count', slot({ intensifier: { type: 'dropset', count: 2.5, pct: 20 } })],
+    ['a fractional rest-pause total', slot({ intensifier: { type: 'restpause', totalReps: 20.5, restSec: 15 } })],
+  ])('AC6: judges %s unreadable, and not within the limits', (_, s) => {
+    expect(judgeRoutine(routine(s))).toBe('unreadable')
+    expect(withinLimits(routine(s))).toBe(false)
+  })
+  it('AC6: says unreadable even when another slot is too large', () => {
+    expect(judgeRoutine(routine(slot({ sets: MAX_WORK_SETS + 1 }), slot({ sets: 3.5 })))).toBe('unreadable')
+  })
+  it('AC6: still judges a whole count past its limit too large', () => {
+    expect(judgeRoutine(routine(slot({ sets: MAX_WORK_SETS + 1 })))).toBe('too-large')
+    expect(judgeRoutine(routine(slot({ intensifier: { type: 'dropset', count: MAX_DROPS + 1, pct: 20 } })))).toBe('too-large')
+  })
+  it('AC6: lists the share as not available, with the unreadable reason', () => {
+    const v = sharedView({ uid: 'u2', incoming: [accepted(routine(slot({ sets: 3.5 })), 's8')], outgoing: [], etag: 'e', names: { s8: 'Leg Day' } }, { id: 'u2' }, 'kg')
+    expect(v.routines).toEqual([])
+    expect(unavailableOf(v, 'shared:s8')).toMatchObject({ reason: 'unreadable', name: 'Leg Day' })
   })
 })
 

@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': '쉿: 세트를 밀어 보세요. 왼쪽은 삭제, 오른쪽은 복사.',
   'Options: copy, remove': '옵션: 복사, 삭제',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '가져오는 동안 다른 기기가 동기화해서, 그 변경 사항도 백업과 함께 남겨 뒀어요.',
+  'Another device synced while you were resetting, so what it added since was kept.': '초기화하는 동안 다른 기기가 동기화해서, 그 뒤로 그 기기가 추가한 내용은 남겨 뒀어요.',
   'Save as a backup file': '백업 파일로 저장',
   'Add this device\'s plan to your profile?': '이 기기의 계획을 프로필에 추가할까요?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '로그인하지 않은 상태에서 이 기기에 계획, 메모 또는 헬스장 카드가 만들어졌습니다. 프로필에 추가하거나 서버에 있는 프로필을 그대로 유지하세요.',
@@ -2710,6 +2711,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '운동 하나에 담을 수 있는 양을 넘습니다. 루틴을 줄이거나 세트가 적은 루틴을 고르세요.',
   '{0} is too much to add to this workout.': '{0}은(는) 이 운동에 추가하기에 너무 많습니다.',
   'too much for this workout': '이 운동에는 너무 많음',
+  // --- count limits (NATG-503) ---
+  'Max {0}': '최대 {0}',
+  'Some counts were lowered': '일부 값을 낮췄습니다',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '운동 {0}개가 앱에서 허용하는 것보다 많았습니다. 최대 세트 또는 인터벌 {1}개, 드롭 {2}회, 레스트포즈 반복 {3}회로 추가됩니다.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '운동 {0}개가 앱에서 허용하는 것보다 많았습니다. 최대 세트 또는 인터벌 {1}개, 드롭 {2}회, 레스트포즈 반복 {3}회로 추가됩니다.',
+  'People you share this with won’t be able to open it': '공유받는 사람은 이 루틴을 열 수 없습니다',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 그래도 공유할 수는 있습니다. 세트나 운동이 줄어들면 열 수 있게 됩니다.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': '공유받은 사람들이 이 루틴을 열 수 없습니다',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 운동 메모를 줄이거나 운동 몇 개를 빼면 다시 열 수 있습니다.',

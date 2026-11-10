@@ -13,8 +13,9 @@
 //   · :active gives a scale/tint response so touch feels acknowledged
 //   · focus-visible draws a ring; pointer interaction never does
 
-import { useRef, useState, useEffect, useCallback, forwardRef } from 'react'
+import { useRef, useState, useEffect, useCallback, useId, forwardRef } from 'react'
 import Icon from './Icon.jsx'
+import { fmtCount } from '../lib/format.js'
 import { sheetKeyboardInsets } from '../lib/use-sheet-keyboard.js'
 import { NATIVE_KEYBOARD_EVENT } from '../lib/native-keyboard.js'
 import { t } from '../lib/i18n.js'
@@ -144,13 +145,20 @@ export function Segmented({ options, value, onChange, className = '' }) {
 // `min` and `max` hold for the buttons at once, but for typing only once the field is left:
 // clamped on every keystroke, a field emptied to type a new number snapped to the minimum, and
 // the digits typed next landed after it (a 48 retyped as 75 saved 175).
-export function Stepper({ value, step = 1, min = 0, max = Infinity, onChange, decimal = true, className = '', label, unit, invalid = false, disabled = false, onStep, ariaLabel }) {
+// `capHint` is for a count with a hard limit (lib/limits.js, NATG-503): at `max` the + stops,
+// tapped or held, and a "Max 50" line under the stepper says why. It shows while a larger number
+// is still being typed too, so the limit is seen before leaving the field pulls the value back.
+// The + is aria-disabled rather than disabled, which would drop focus from the button pressed.
+export function Stepper({ value, step = 1, min = 0, max = Infinity, onChange, decimal = true, className = '', label, unit, invalid = false, disabled = false, onStep, ariaLabel, capHint = false }) {
+  const hintId = useId()
   const clamp = v => Math.min(max, Math.max(min, v))
   const set = v => onChange(clamp(Math.round((v || 0) * 100) / 100))
+  const capped = capHint && Number.isFinite(max)
+  const atMax = capped && (+value || 0) >= max
   // Holding a button repeats the step; the latest value/step live in a ref so
   // the interval doesn't keep stepping from the value it was started with.
-  const live = useRef({ value, step, set })
-  live.current = { value, step, set }
+  const live = useRef({ value, step, set, atMax })
+  live.current = { value, step, set, atMax }
   const hold = useRef({ delay: null, tick: null, count: 0, repeated: false })
   const bump = dir => { const { value, step, set } = live.current; set(onStep ? onStep(value, step, dir) : (+value || 0) + dir * step) }
   const stopHold = () => {
@@ -160,10 +168,13 @@ export function Stepper({ value, step = 1, min = 0, max = Infinity, onChange, de
   }
   const startHold = dir => {
     stopHold()
+    if (dir > 0 && live.current.atMax) return
     const h = hold.current
     h.repeated = false; h.count = 0
     h.delay = window.setTimeout(() => {
       const run = () => {
+        // A held + that has reached the cap stops there instead of ticking on against it.
+        if (dir > 0 && live.current.atMax) { stopHold(); return }
         h.repeated = true; h.count++
         bump(dir)
         // modest acceleration after a bit of holding so a long hold covers ground
@@ -175,6 +186,7 @@ export function Stepper({ value, step = 1, min = 0, max = Infinity, onChange, de
   // The click that follows pointerup must not add a step once the hold repeated.
   const click = dir => {
     if (hold.current.repeated) { hold.current.repeated = false; return }
+    if (dir > 0 && live.current.atMax) return
     bump(dir)
   }
   useEffect(() => stopHold, [])
@@ -187,14 +199,21 @@ export function Stepper({ value, step = 1, min = 0, max = Infinity, onChange, de
     <div className={'stp ' + className}>
       <button {...holdProps(-1)} aria-label={ariaLabel ? `Decrease ${ariaLabel}` : t('Decrease')} disabled={disabled}><Icon name="minus" /></button>
       <span className="val" onBlur={() => { const v = +value || 0; if (clamp(v) !== v) onChange(clamp(v)) }}>
-        <NumberField value={value} decimal={decimal} onChange={onChange} disabled={disabled} aria-invalid={invalid ? 'true' : undefined} />
+        <NumberField value={value} decimal={decimal} onChange={onChange} disabled={disabled} aria-invalid={invalid ? 'true' : undefined}
+          aria-describedby={atMax ? hintId : undefined} />
         {unit && <i>{unit}</i>}
       </span>
-      <button {...holdProps(1)} aria-label={ariaLabel ? `Increase ${ariaLabel}` : t('Increase')} disabled={disabled}><Icon name="plus" /></button>
+      <button {...holdProps(1)} aria-label={ariaLabel ? `Increase ${ariaLabel}` : t('Increase')} disabled={disabled}
+        aria-disabled={atMax && !disabled ? 'true' : undefined}><Icon name="plus" /></button>
     </div>
   )
-  if (!label) return inner
-  return <div className="stp-w"><span className="stp-l">{label}</span>{inner}</div>
+  if (!label && !capped) return inner
+  return <div className="stp-w">
+    {label && <span className="stp-l">{label}</span>}
+    {inner}
+    {/* Rendered while empty too, so reaching the cap is announced as it happens. */}
+    {capped && <span className="stp-h" id={hintId} role="status">{atMax ? t('Max {0}', fmtCount(max)) : ''}</span>}
+  </div>
 }
 
 /* ============================ slider ============================ */

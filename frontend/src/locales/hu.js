@@ -1924,6 +1924,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Pszt: húzz el egy sorozatot. Balra töröl, jobbra másol.',
   'Options: copy, remove': 'Lehetőségek: másolás, eltávolítás',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Egy másik eszköz szinkronizált importálás közben, így a változásai megmaradtak a mentés mellett.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Egy másik eszköz szinkronizált visszaállítás közben, így megmaradt, amit azóta hozzáadott.',
   'Save as a backup file': 'Mentés biztonsági fájlként',
   'Add this device\'s plan to your profile?': 'Hozzáadod az eszközön lévő tervet a profilodhoz?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Az eszközön lévő terved, jegyzeteid vagy kártyáid bejelentkezés nélkül készültek. Add hozzá őket a profilodhoz, vagy hagyd a profilt pontosan úgy, ahogy a szerveren van.',
@@ -2713,6 +2714,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Ez több, mint amennyi egy edzésbe belefér. Válassz kevesebb rutint, vagy kevesebb sorozatból állót.',
   '{0} is too much to add to this workout.': '{0} túl sok ahhoz, hogy ehhez az edzéshez add.',
   'too much for this workout': 'túl sok ehhez az edzéshez',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Max. {0}',
+  'Some counts were lowered': 'Néhány érték csökkent',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} gyakorlatban több volt, mint amennyit az app enged. Legfeljebb {1} sorozattal vagy intervallummal, {2} droppal és {3} rest-pause ismétléssel kerül be.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} gyakorlatban több volt, mint amennyit az app enged. Legfeljebb {1} sorozattal vagy intervallummal, {2} droppal és {3} rest-pause ismétléssel kerülnek be.',
+  'People you share this with won’t be able to open it': 'Akikkel megosztod, nem fogják tudni megnyitni',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Túl nagy egy megosztott rutinhoz. Ettől még megoszthatod. Ha kevesebb sorozat vagy gyakorlat lesz benne, meg tudják nyitni.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'Akikkel megosztottad, nem fogják tudni megnyitni',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Túl nagy egy megosztott rutinhoz. Rövidítsd le a gyakorlatok jegyzeteit, vagy távolíts el néhány gyakorlatot, és meg tudják majd nyitni.',

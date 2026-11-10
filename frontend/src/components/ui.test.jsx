@@ -214,6 +214,112 @@ describe('Stepper', () => {
   })
 })
 
+// NATG-503: a count with a hard limit (lib/limits.js). At `max` the + stops, tapped or held, and a
+// "Max 50" line says why; a larger number typed shows the line at once and is pulled back to the
+// cap when the field is left.
+describe('Stepper capHint', () => {
+  function CapHost({ initial, onChange, ...props }) {
+    const [v, setV] = React.useState(initial)
+    return <Stepper value={v} step={1} decimal={false} label="Sets" capHint onChange={n => { setV(n); onChange(n) }} {...props} />
+  }
+  const mount = (initial, max, onChange = vi.fn()) => {
+    act(() => root.render(<CapHost initial={initial} max={max} onChange={onChange} />))
+    return {
+      onChange,
+      plus: host.querySelector('button[aria-label="Increase"]'),
+      minus: host.querySelector('button[aria-label="Decrease"]'),
+      field: host.querySelector('input.num'),
+      hint: () => host.querySelector('.stp-h'),
+    }
+  }
+  const type = (field, value) => {
+    Object.getOwnPropertyDescriptor(field.constructor.prototype, 'value').set.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+
+  it('stops + at the cap and says why, with + aria-disabled but still focusable', () => {
+    const { plus, onChange, hint, field } = mount(49, 50)
+    expect(hint().textContent).toBe('')
+    expect(plus.getAttribute('aria-disabled')).toBeNull()
+    act(() => plus.click())
+    expect(onChange).toHaveBeenLastCalledWith(50)
+    expect(hint().textContent).toBe('Max 50')
+    expect(plus.getAttribute('aria-disabled')).toBe('true')
+    expect(plus.disabled).toBe(false)
+    expect(field.getAttribute('aria-describedby')).toBe(hint().id)
+    act(() => plus.click())
+    expect(onChange).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps the hint in the tree, empty, as a status, so reaching the cap is announced', () => {
+    const { hint, field } = mount(3, 50)
+    expect(hint()).toBeTruthy()
+    expect(hint().getAttribute('role')).toBe('status')
+    expect(hint().textContent).toBe('')
+    expect(field.getAttribute('aria-describedby')).toBeNull()
+  })
+
+  it('stops a held + at the cap and swallows the trailing click', () => {
+    const { plus, onChange, hint } = mount(47, 50)
+    pointer(plus, 'pointerdown')
+    act(() => vi.advanceTimersByTime(400 + 80))
+    act(() => vi.advanceTimersByTime(80))
+    act(() => vi.advanceTimersByTime(80))
+    expect(onChange).toHaveBeenLastCalledWith(50)
+    // Further ticks do nothing at the cap, and the interval is stopped rather than left running.
+    act(() => vi.advanceTimersByTime(80))
+    act(() => vi.advanceTimersByTime(2000))
+    expect(onChange).toHaveBeenCalledTimes(3)
+    expect(vi.getTimerCount()).toBe(0)
+    pointer(plus, 'pointerup')
+    act(() => plus.click())
+    expect(onChange).toHaveBeenCalledTimes(3)
+    expect(hint().textContent).toBe('Max 50')
+  })
+
+  it('does not start a hold on + at the cap', () => {
+    const { plus, onChange } = mount(50, 50)
+    pointer(plus, 'pointerdown')
+    act(() => vi.advanceTimersByTime(1000))
+    pointer(plus, 'pointerup')
+    act(() => plus.click())
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('shows the hint while a larger number is typed and clamps it to the cap on blur', () => {
+    const { field, onChange, hint } = mount(3, 50)
+    act(() => type(field, '80'))
+    expect(field.value).toBe('80')
+    expect(hint().textContent).toBe('Max 50')
+    // not marked invalid: the value is corrected, there is nothing for the user to fix
+    expect(field.getAttribute('aria-invalid')).toBeNull()
+    act(() => field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
+    expect(onChange).toHaveBeenLastCalledWith(50)
+    expect(field.value).toBe('50')
+    expect(hint().textContent).toBe('Max 50')
+  })
+
+  it('lets − step back down from the cap, and the hint goes', () => {
+    const { minus, plus, onChange, hint } = mount(50, 50)
+    act(() => minus.click())
+    expect(onChange).toHaveBeenLastCalledWith(49)
+    expect(hint().textContent).toBe('')
+    expect(plus.getAttribute('aria-disabled')).toBeNull()
+  })
+
+  it('writes the cap in the language\'s number format', () => {
+    const { hint } = mount(1000, 1000)
+    expect(hint().textContent).toBe('Max 1,000')
+  })
+
+  it('changes nothing for a stepper without capHint', () => {
+    const onChange = vi.fn()
+    act(() => root.render(<Stepper value={95} max={95} step={5} label="Deload" onChange={onChange} />))
+    expect(host.querySelector('.stp-h')).toBeNull()
+    expect(host.querySelector('button[aria-label="Increase"]').getAttribute('aria-disabled')).toBeNull()
+  })
+})
+
 describe('NumberField fit', () => {
   // A field that hugs its digits, for the big weight read-out where the unit sits right beside
   // the number. Digits are one ch each under tabular numerals; a decimal point is narrower.

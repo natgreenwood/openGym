@@ -1942,6 +1942,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: svep ett set. Vänster tar bort, höger kopierar.',
   'Options: copy, remove': 'Alternativ: kopiera, ta bort',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'En annan enhet synkade medan du importerade, så dess ändringar behölls bredvid backupen.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'En annan enhet synkade medan du återställde, så det den lagt till sedan dess behölls.',
   'Save as a backup file': 'Spara som backupfil',
   'Add this device\'s plan to your profile?': 'Lägga till enhetens plan i din profil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Din plan, dina anteckningar eller gymkort på den här enheten skapades medan du var utloggad. Lägg till dem i din profil, eller behåll profilen exakt som den är på servern.',
@@ -2757,6 +2758,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Det är mer än ett pass rymmer. Välj färre rutiner, eller rutiner med färre set.',
   '{0} is too much to add to this workout.': '{0} är för mycket att lägga till i det här passet.',
   'too much for this workout': 'för mycket för det här passet',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Max {0}',
+  'Some counts were lowered': 'Vissa antal sänktes',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} övning hade mer än appen tillåter. Den läggs till med högst {1} set eller intervaller, {2} drops och {3} rest-pause-reps.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} övningar hade mer än appen tillåter. De läggs till med högst {1} set eller intervaller, {2} drops och {3} rest-pause-reps.',
+  'People you share this with won’t be able to open it': 'De du delar den med kommer inte att kunna öppna den',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Den är för stor för en delad rutin. Du kan ändå dela den. När den har färre set eller övningar kan de öppna den.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'De du har delat den med kan inte öppna den',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Den är för stor för en delad rutin. Korta ner övningarnas anteckningar eller ta bort några övningar, så kan de öppna den.',

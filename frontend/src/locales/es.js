@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: desliza una serie. Izquierda borra, derecha copia.',
   'Options: copy, remove': 'Opciones: copiar, quitar',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Otro dispositivo se sincronizó mientras importabas, así que sus cambios se quedan junto a la copia.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Otro dispositivo se sincronizó mientras restablecías, así que se conservó lo que añadió desde entonces.',
   'Save as a backup file': 'Guardar como archivo de copia',
   'Add this device\'s plan to your profile?': '¿Añadir el plan de este dispositivo a tu perfil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Tu plan, notas o tarjetas del gimnasio en este dispositivo se crearon sin iniciar sesión. Añádelos a tu perfil o deja el perfil exactamente como está en el servidor.',
@@ -2710,6 +2711,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Es más de lo que cabe en un entrenamiento. Elige menos rutinas o algunas con menos series.',
   '{0} is too much to add to this workout.': '{0} es demasiado para añadirla a este entrenamiento.',
   'too much for this workout': 'demasiado para este entrenamiento',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Máx. {0}',
+  'Some counts were lowered': 'Se redujeron algunas cifras',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} ejercicio tenía más de lo que la app permite. Se añadirá con un máximo de {1} series o intervalos, {2} bajadas y {3} repeticiones rest-pause.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} ejercicios tenían más de lo que la app permite. Se añadirán con un máximo de {1} series o intervalos, {2} bajadas y {3} repeticiones rest-pause.',
+  'People you share this with won’t be able to open it': 'Las personas con quienes la compartas no podrán abrirla',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Es demasiado grande para una rutina compartida. Aun así puedes compartirla. Cuando tenga menos series o ejercicios, podrán abrirla.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'Las personas con las que la compartiste no podrán abrirla',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Es demasiado grande para una rutina compartida. Acorta las notas de sus ejercicios o quita algunos ejercicios, y podrán abrirla.',

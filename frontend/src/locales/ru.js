@@ -1925,6 +1925,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Псс: смахните подход. Влево удаляет, вправо копирует.',
   'Options: copy, remove': 'Действия: копировать, удалить',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Другое устройство синхронизировалось во время импорта, поэтому его изменения сохранены рядом с копией.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Другое устройство синхронизировалось во время сброса, поэтому то, что оно добавило с тех пор, сохранено.',
   'Save as a backup file': 'Сохранить как файл копии',
   'Add this device\'s plan to your profile?': 'Добавить план с этого устройства в профиль?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'План, заметки или карты зала на этом устройстве созданы без входа. Добавьте их в профиль или оставьте профиль ровно таким, как на сервере.',
@@ -2714,6 +2715,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Это больше, чем вмещает одна тренировка. Выберите меньше программ или программы с меньшим числом подходов.',
   '{0} is too much to add to this workout.': '«{0}» слишком много, чтобы добавить в эту тренировку.',
   'too much for this workout': 'слишком много для этой тренировки',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Макс. {0}',
+  'Some counts were lowered': 'Некоторые значения уменьшены',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'В {0} упражнении было больше, чем допускает приложение. Оно будет добавлено максимум с {1} подходами или интервалами, {2} дропами и {3} повторениями рест-паузы.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': { one: 'В {0} упражнении было больше, чем допускает приложение. Оно будет добавлено максимум с {1} подходами или интервалами, {2} дропами и {3} повторениями рест-паузы.', few: 'В {0} упражнениях было больше, чем допускает приложение. Они будут добавлены максимум с {1} подходами или интервалами, {2} дропами и {3} повторениями рест-паузы.', many: 'В {0} упражнениях было больше, чем допускает приложение. Они будут добавлены максимум с {1} подходами или интервалами, {2} дропами и {3} повторениями рест-паузы.', other: 'В {0} упражнениях было больше, чем допускает приложение. Они будут добавлены максимум с {1} подходами или интервалами, {2} дропами и {3} повторениями рест-паузы.' },
+  'People you share this with won’t be able to open it': 'Те, с кем вы ею поделитесь, не смогут её открыть',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Она слишком большая для общей программы. Поделиться ею всё равно можно. Когда в ней станет меньше подходов или упражнений, её смогут открыть.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'Те, с кем вы поделились этой программой, не смогут её открыть',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Она слишком большая для общей программы. Сократите заметки к упражнениям или уберите несколько упражнений, и её снова можно будет открыть.',

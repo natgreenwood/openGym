@@ -1963,6 +1963,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'শুনুন: একটি সেট সোয়াইপ করুন। বাঁয়ে মুছবে, ডানে কপি হবে।',
   'Options: copy, remove': 'বিকল্প: কপি, সরান',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'আপনি ইমপোর্ট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তার পরিবর্তনগুলো ব্যাকআপের পাশাপাশি রাখা হয়েছে।',
+  'Another device synced while you were resetting, so what it added since was kept.': 'আপনি রিসেট করার সময় অন্য একটি ডিভাইস সিঙ্ক হয়েছে, তাই তারপর থেকে সেটি যা যোগ করেছে তা রাখা হয়েছে।',
   'Save as a backup file': 'ব্যাকআপ ফাইল হিসেবে সেভ করুন',
   'Add this device\'s plan to your profile?': 'এই ডিভাইসের প্ল্যান আপনার প্রোফাইলে যোগ করবেন?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'এই ডিভাইসে আপনার প্ল্যান, নোট বা জিম কার্ড সাইন আউট থাকা অবস্থায় সেট আপ করা হয়েছিল। সেগুলো আপনার প্রোফাইলে যোগ করুন, অথবা প্রোফাইলটি সার্ভারে যেমন আছে ঠিক তেমন রাখুন।',
@@ -2789,6 +2790,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'এটি একটি ওয়ার্কআউটে যতটা ধরে তার চেয়ে বেশি। কম রুটিন, বা কম সেটের রুটিন বেছে নিন।',
   '{0} is too much to add to this workout.': '{0} এই ওয়ার্কআউটে যোগ করার জন্য খুব বেশি।',
   'too much for this workout': 'এই ওয়ার্কআউটের জন্য খুব বেশি',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'সর্বোচ্চ {0}',
+  'Some counts were lowered': 'কিছু সংখ্যা কমানো হয়েছে',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0}টি ব্যায়ামে অ্যাপের অনুমতির চেয়ে বেশি ছিল। এটি সর্বোচ্চ {1} সেট বা ইন্টারভাল, {2} ড্রপ আর {3} রেস্ট-পজ রেপ নিয়ে যোগ হবে।',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0}টি ব্যায়ামে অ্যাপের অনুমতির চেয়ে বেশি ছিল। এগুলো সর্বোচ্চ {1} সেট বা ইন্টারভাল, {2} ড্রপ আর {3} রেস্ট-পজ রেপ নিয়ে যোগ হবে।',
+  'People you share this with won’t be able to open it': 'আপনি যাদের সাথে শেয়ার করবেন, তারা এটি খুলতে পারবেন না',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'শেয়ার করা রুটিনের জন্য এটি খুব বড়। তবুও আপনি এটি শেয়ার করতে পারেন। সেট বা ব্যায়াম কমে গেলে তারা এটি খুলতে পারবেন।',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'যাদের সাথে শেয়ার করেছেন, তারা এটি খুলতে পারবে না',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'শেয়ার করা রুটিনের জন্য এটি খুব বড়। এর ব্যায়ামের নোট ছোট করুন বা কিছু ব্যায়াম সরান, তাহলে তারা এটি খুলতে পারবে।',

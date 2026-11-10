@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: bir seti kaydır. Sola silir, sağa kopyalar.',
   'Options: copy, remove': 'Seçenekler: kopyala, kaldır',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'İçe aktarırken başka bir cihaz eşitlendi, onun değişiklikleri de yedeğin yanında tutuldu.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Sıfırlarken başka bir cihaz eşitlendi, o zamandan beri eklediği şeyler tutuldu.',
   'Save as a backup file': 'Yedek dosyası olarak kaydet',
   'Add this device\'s plan to your profile?': 'Bu cihazdaki plan profiline eklensin mi?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Bu cihazdaki planın, notların veya salon kartların oturum açılmadan oluşturuldu. Bunları profiline ekle ya da profili sunucudaki hâliyle bırak.',
@@ -2710,6 +2711,13 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Bu, bir antrenmanın alabileceğinden fazla. Daha az rutin ya da daha az setli rutinler seç.',
   '{0} is too much to add to this workout.': '{0} bu antrenmana eklemek için fazla.',
   'too much for this workout': 'bu antrenman için fazla',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'En fazla {0}',
+  'Some counts were lowered': 'Bazı sayılar düşürüldü',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} egzersizde uygulamanın izin verdiğinden fazlası vardı. En fazla {1} set ya da aralık, {2} düşüş ve {3} rest-pause tekrarıyla eklenecek.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} egzersizde uygulamanın izin verdiğinden fazlası vardı. En fazla {1} set ya da aralık, {2} düşüş ve {3} rest-pause tekrarıyla eklenecekler.',
+  'People you share this with won’t be able to open it': 'Paylaştığın kişiler bunu açamayacak',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Paylaşılan bir rutin için fazla büyük. Yine de paylaşabilirsin. Daha az set ya da egzersiz içerdiğinde açabilecekler.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'Paylaştığın kişiler bunu açamayacak',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Paylaşılan bir rutin için fazla büyük. Egzersiz notlarını kısalt ya da birkaç egzersizi kaldır; böylece açabilirler.',
