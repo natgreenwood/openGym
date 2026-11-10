@@ -179,6 +179,17 @@ describe('not connected — it says so, and what to do', () => {
     expect(connectionView(mocks.sync).line).toBe('This copy belongs to a different account')
   })
 
+  // The server refused a sync request whose session is no longer the account it was sent for
+  // (412, NATG-558): the same words, not "Server error (HTTP 412)", and no uid.
+  it('the server\'s refusal of another account\'s session says the same, not an HTTP error', () => {
+    mocks.sync = sync('error', { lastError: { status: 412, code: 'account-mismatch' } })
+    render()
+    expect(text()).toBe('This copy belongs to a different account. Sign in again or reload.')
+    expect(text()).not.toContain('412')
+    expect(bar().className).toContain('bad')
+    expect(connectionView(mocks.sync).line).toBe('This copy belongs to a different account')
+  })
+
   it('phone refused by its server: "Pair again" opens the connect sheet with the address it had', () => {
     mocks.MOBILE = true
     mocks.sync = sync('auth', { auth: true, pending: true, lastError: { status: 401, code: 'auth' } })

@@ -173,7 +173,7 @@ describe('saved workout state sync and restore', () => {
     await useStore.getState().pullState()
 
     expect(api).toHaveBeenCalledTimes(2)
-    expect(api.mock.calls.every(([, opts]) => !opts)).toBe(true)   // two GETs, no PUT
+    expect(api.mock.calls.every(([, opts]) => opts?.method === undefined)).toBe(true)   // two GETs, no PUT
     expect(useStore.getState().S.workouts.map(w => w.id)).toEqual(['w1', 'w2-from-B'])
     expect(useStore.getState().S._ts).toBe(1010000)
   })
@@ -283,7 +283,7 @@ describe('signing in as a different profile', () => {
     await useStore.getState().pullState()
 
     expect(api).toHaveBeenCalledTimes(1)   // the GET only — nothing of A's was pushed under C
-    expect(api.mock.calls[0][1]).toBeUndefined()
+    expect(api.mock.calls[0][1]).toEqual({ expect: 'C' })   // a GET, for C
     expect(hasData(useStore.getState().S)).toBe(false)
   })
 

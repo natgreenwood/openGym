@@ -21,7 +21,7 @@ const workout = (id, d = '2026-09-01') => ({ id, d, start: 1, entries: [] })
 const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP ' + status), { status, data })
 const sync = () => JSON.parse(localStorage.getItem('gym_sync'))
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([, o]) => JSON.parse(o.body))
-const gets = () => api.mock.calls.filter(([, o]) => !o)
+const gets = () => api.mock.calls.filter(([, o]) => !o?.method)
 // As setUser signs in: the browser's owner is the account (a pull or push checks it).
 const signedIn = (S, extra = {}) => { if (extra.user !== null) localStorage.setItem('gym_owner', extra.user?.id || 'user-1'); useStore.setState({ S, user: { id: 'user-1' }, ready: true, ...extra }) }
 
@@ -272,7 +272,7 @@ describe('ordering', () => {
     api.mockImplementation(async (path, opts) => {
       if (path === '/api/config') return { allow_guest: true }
       if (path === '/api/me') return { user: { id: 'user-1', name: 'One' } }
-      if (path === '/api/data' && !opts) {
+      if (path === '/api/data' && !opts?.method) {
         useStore.getState().update(s => { s.restSec = 30 })   // a change while the pull is in flight
         return { state: { ...clone(DEF), _ts: 10, routines: [routine('r')], _rev: 1 }, rev: 1 }
       }
@@ -297,7 +297,7 @@ describe('ordering', () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('r')] })
     localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100, uid: 'user-1' }))
-    api.mockImplementation(async (path, opts) => opts ? { ok: true, rev: 2 } : { state: { ...clone(DEF), _ts: 100, routines: [routine('r')], _rev: 2 }, rev: 2 })
+    api.mockImplementation(async (path, opts) => opts?.method ? { ok: true, rev: 2 } : { state: { ...clone(DEF), _ts: 100, routines: [routine('r')], _rev: 2 }, rev: 2 })
 
     useStore.getState().update(s => { s.restSec = 30 })   // arms the 1.5 s push
     const pull = useStore.getState().pullState()
@@ -305,7 +305,7 @@ describe('ordering', () => {
     await pull
 
     expect(api.mock.calls[0][1]?.method).toBe('PUT')
-    expect(api.mock.calls[1][1]).toBeUndefined()
+    expect(api.mock.calls[1][1]).toEqual({ expect: 'user-1' })
     expect(puts()).toHaveLength(1)
     expect(sync().rev).toBe(2)
   })

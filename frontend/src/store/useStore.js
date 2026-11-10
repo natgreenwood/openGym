@@ -390,7 +390,7 @@ export const useStore = create((set, get) => {
   let toldTooLarge = false
   let toldNoRoom = false   // the save itself was refused — said once per streak, like the above
   let pushing = null       // the PUT in flight, so a second push waits for it instead of racing it
-  let pushAgain = false    // a push asked for while one was in flight — run once more after it, for the account (uid) that asked
+  let pushAgain = false    // a push asked for while one was in flight — run once more after it, while the account that asked is still here and unrefused (its chainFor)
   let pulling = null       // the GET /api/data in flight, `{ uid, promise }`: two resume signals for the same user make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
@@ -591,6 +591,27 @@ export const useStore = create((set, get) => {
   }
   const isNetworkError = e => e && e.status == null   // fetch itself failed, or gave up: no response at all
   const refused = e => e?.status === 401 || e?.code === 'not-paired'
+  // The server refused a request because the browser's session is no longer the account it was
+  // sent for (X-Expected-Account, NATG-558): another tab signed in meanwhile. Nothing was read or
+  // written. Not a sign-out and not offline; never merged, and never sent again for that account.
+  const mismatched = e => e?.status === 412 && e?.code === 'account-mismatch'
+  // Every sync request goes through here, which notes each of those refusals against the account
+  // the request was for (its `expect`), in order. A refusal for one account says nothing about
+  // another's session, such as a late answer for the account this tab has just switched from.
+  let mismatchSeq = 0
+  const mismatchFor = new Map()   // uid -> { seq, e } of the latest refusal for it
+  const syncApi = (path, opts) => api(path, opts).catch(e => {
+    if (mismatched(e)) mismatchFor.set(opts?.expect, { seq: ++mismatchSeq, e })
+    throw e
+  })
+  const refusedSince = (uid, n) => (mismatchFor.get(uid)?.seq || 0) > n
+  // An operation that chains sync requests (a pull after the push it waited for, a check before
+  // its pull, an adoption's reads and write, Sync now's steps) is for the account signed in as it
+  // starts, to the end. After each await it goes on only while that account is still the one
+  // signed in here (answerIsFor) and has not been refused since it started, by this chain or
+  // another; otherwise `over()` and it ends. It never carries on for whoever is signed in by then:
+  // that account's own operations sync it.
+  const chainFor = uid => { const n = mismatchSeq; return () => !answerIsFor(uid) || refusedSince(uid, n) }
   // The server answered: whatever was wrong with the connection is over.
   const reached = (extra = {}) => setSync({ offline: false, auth: false, lastError: null, ...extra })
   // What a failed request says about the connection. A refused token and a phone without a
@@ -600,7 +621,8 @@ export const useStore = create((set, get) => {
     const lastError = { status: e?.status ?? 0, code: e?.code || (e?.status === 401 ? 'auth' : isNetworkError(e) ? 'network' : 'http') }
     if (refused(e)) setSync({ auth: true, offline: false, lastError, ...extra })
     else if (isNetworkError(e)) setSync({ offline: true, lastError, ...extra })
-    else setSync({ offline: false, lastError, ...extra })
+    // A 412 means the server knew the session: whatever an earlier 401 said, signing in is not it.
+    else setSync({ offline: false, lastError, ...(mismatched(e) ? { auth: false } : {}), ...extra })
   }
   // This device and the server hold the same copy: a push landed, a pull adopted, or a check found
   // that nothing moved on either side. The fingerprint is what signing out counts changes against.
@@ -849,6 +871,7 @@ export const useStore = create((set, get) => {
     if (!force && Date.now() - lastCheck < CHECK_MIN_MS) return
     const uid = get().user.id   // the account the check is for; what its answer starts is for it too (SEC-02)
     lastCheck = Date.now()
+    const over = chainFor(uid)
     // A sign-in still deciding what becomes of this copy: no check of its own. One whose adoption
     // never ran or did not get through (no server, a pairing that failed on the way to it) runs it
     // here, question and all; one already running is left to answer.
@@ -863,7 +886,7 @@ export const useStore = create((set, get) => {
     try {
       if (!answerIsFor(uid)) return
       const left = ++tick
-      const { rev, wid, shares: sharesEtag } = await api('/api/data/rev')
+      const { rev, wid, shares: sharesEtag } = await syncApi('/api/data/rev', { expect: uid })
       if (!answerIsFor(uid)) return
       // Lists unchanged since a push landed (or no lists at all, sharing off): that push moved no
       // verdict, so the lists held here are the server's word on the copy it stored.
@@ -872,12 +895,13 @@ export const useStore = create((set, get) => {
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
       if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer(sharesEtag)
-      if (!answerIsFor(uid)) return
+      if (over()) return   // the lists were refused (412): so would the pull be
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
       if (!answerIsFor(uid)) return
-      if (isNetworkError(e) || refused(e)) failed(e)
+      // A session that is another account's (412): the pull would go out under it again.
+      if (isNetworkError(e) || refused(e) || mismatched(e)) failed(e)
       else return get().pullState()   // a server that lacks the route (older API) — the full pull knows the old protocol
     }
   }
@@ -968,7 +992,7 @@ export const useStore = create((set, get) => {
     if (held && held.uid !== uid) return refuse('push', held.uid, uid)
     if (!answerIsFor(uid)) return false
     let res
-    try { res = await api('/api/data') }
+    try { res = await syncApi('/api/data', { expect: uid }) }
     catch (e) {
       if (replaceRev === armed) replaceRev = null
       if (!answerIsFor(uid)) return false
@@ -1018,14 +1042,14 @@ export const useStore = create((set, get) => {
     // An older app's owed copy over the revision it read: the server stamps what that app changed
     // against the copy it holds, exactly as it would for that app (api/sync-stamps.js).
     const legacy = readLegacy()
-    const body = { state: S, stamped: !(legacy && legacy.owner === get().user?.id) }
+    const body = { state: S, stamped: !(legacy && legacy.owner === uid) }
     if (asReplace != null) { body.baseRev = asReplace.rev; if (asReplace.wid) body.baseWid = asReplace.wid }
     else if (base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     if (!answerIsFor(uid)) return   // its account has gone: nothing goes out for it
     // A base that is not this account's: nothing goes out, and nothing here changes (NATG-556).
     if (base && base.uid !== uid) return refuse('push', base.uid, uid)
     try {
-      const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
+      const r = await syncApi('/api/data', { method: 'PUT', body: JSON.stringify(body), expect: uid })
       if (!answerIsFor(uid)) return
       noteRevless(uid, r.rev == null)
       // A server from before revisions answers without one — then there is nothing to hold the
@@ -1278,11 +1302,15 @@ export const useStore = create((set, get) => {
   // device of the account would pull it once for nothing (NATG-573).
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
+    const uid = get().user?.id
+    const over = uid ? chainFor(uid) : () => false   // a guest has no server to be refused by
     if (pulling) await pulling.promise
     while (pushing) await pushing
-    if (owes()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
+    // Over (the account left, or was refused on the way, 412): nothing more goes, and what is
+    // owed stays owed (signOut then keeps the copy).
+    if (owes() && !over()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
-    await settleMedia(get().S)
+    if (!over()) await settleMedia(get().S)
   }
   // Whether a sign-out asked for under `owner` (the browser's owner at the click) was overtaken by
   // another tab signing a different account in while it waited. Its logout would end that
@@ -1522,6 +1550,9 @@ export const useStore = create((set, get) => {
     const uid = get().user?.id
     const left = () => { if (answerIsFor(uid)) return false; setHold(false); return true }
     const gone = { adopted: false, added: false, gone: true }
+    const over = chainFor(uid)
+    // What this adoption still has to send once it is over (left, or refused on the way): nothing.
+    const stash = () => (over() ? null : applyStash())
     if (pulling) await pulling.promise
     if (left()) return gone
     // An adoption resumed after a restart is the sign-in's own: whether this copy already belonged
@@ -1530,8 +1561,10 @@ export const useStore = create((set, get) => {
     const sameAccount = owedMark ? !!owedMark.rejoined : rejoined
     if (owedMark?.alwaysAsk) alwaysAsk = true
     let res
-    try { res = await api('/api/data') }
-    catch (e) {
+    try {
+      if (over()) throw mismatchFor.get(uid).e   // still here (left() above), so the pull it waited for was refused: so would this read be
+      res = await syncApi('/api/data', { expect: uid })
+    } catch (e) {
       if (left()) return gone
       failed(e)
       // Nothing decided: with a sign-in that marked it, sync stays held and the next check asks
@@ -1561,7 +1594,9 @@ export const useStore = create((set, get) => {
     // the server's, so the next pull still brings in what changed.
     const reread = async () => {
       if (!asked) return
-      try { const r = await api('/api/data'); if (r && r.state) ({ state, rev } = r) } catch { /* the first read */ }
+      // Refused (412): nothing is applied or written, and the adoption fails as its first read would.
+      try { const r = await syncApi('/api/data', { expect: uid }); if (r && r.state) ({ state, rev } = r) }
+      catch (e) { if (mismatched(e)) { if (left()) return; failed(e); throw e } /* otherwise the first read */ }
     }
     // A reset or import made while the hold kept its push back armed a replace of the copy this
     // throws away: left armed, the next ordinary edit went out as that replace, over what another
@@ -1592,7 +1627,7 @@ export const useStore = create((set, get) => {
         if (asked) await keepDeviceCopy()
         if (left()) return gone
         takeServer()
-        await applyStash()
+        await stash()
         return { adopted: true, added: false }
       }
       markOwed(false)
@@ -1603,7 +1638,7 @@ export const useStore = create((set, get) => {
         replaceRev = null
         if (rev != null) writeSync(rev, 0)
         confirmed(get().S)
-        await applyStash()
+        await stash()
         return { adopted: false, added: false }
       }
       // Pushed against the revision the read returned (0: no profile), never without a base
@@ -1622,7 +1657,7 @@ export const useStore = create((set, get) => {
       // check resumes it. What a sign-out kept for this account waits for that run too.
       if (!raced && guarded && adoptWrite?.uid === uid) return { adopted: false, added: false }
       if (!raced) {
-        await applyStash()
+        await stash()
         return { adopted: false, added: false }
       }
       ;({ state, rev } = raced)
@@ -1640,7 +1675,7 @@ export const useStore = create((set, get) => {
       const { base, owed } = metaOf()
       if (!hasData(S) || (!owed && base && !localChanged(S))) {
         takeServer()
-        await applyStash()
+        await stash()
         return { adopted: true, added: false, merged: false }
       }
       // A copy with no base yet merges against the revision just read, as mergeInto would record
@@ -1648,7 +1683,7 @@ export const useStore = create((set, get) => {
       if (!base) writeSync(rev, 0, state?._wid)
       if (!mergeInto(S, state, rev)) return { adopted: false, added: false, refused: true }
       await get().pushState()
-      await applyStash()
+      await stash()
       return { adopted: true, added: false, merged: true }
     }
     // The question is about what this copy held when the sign-in began (the marker's `pre`). What
@@ -1674,7 +1709,7 @@ export const useStore = create((set, get) => {
       if (rev != null) writeSync(rev, 0, state?._wid)
       else dropSync()
       await get().pushState()
-      await applyStash()
+      await stash()
       return { adopted: true, added: true }
     }
     const later = pre ? splitByPre(get().S, pre).later : null
@@ -1690,7 +1725,7 @@ export const useStore = create((set, get) => {
       else dropSync()
       await get().pushState()
     }
-    await applyStash()
+    await stash()
     return { adopted: true, added: false }
   }
   // A copy's workouts, weigh-ins and custom exercises split by the names a sign-in recorded when it
@@ -1902,7 +1937,8 @@ export const useStore = create((set, get) => {
         return here ? { workouts: here, state: get().S, rev: null, device: true, token } : null
       }
       let res
-      try { res = await api('/api/data') } catch { return null }
+      // A 412: the browser's session is another account's now, which is what `stale` says.
+      try { res = await syncApi('/api/data', { expect: token.uid }) } catch (e) { return mismatched(e) ? stale : null }
       if (!get().importIsCurrent(token)) return stale   // the account the confirm would be about has gone
       const state = res?.state
       importRead = { token, state: state || null, rev: res?.rev ?? null }
@@ -2107,7 +2143,7 @@ export const useStore = create((set, get) => {
       const left = ++tick
       mine.promise = (async () => {
         try {
-          const r = await api('/api/shares')
+          const r = await syncApi('/api/shares', { expect: user.id })
           if (!answerIsFor(user.id)) return null
           const stale = mine.stale || (mine.seen != null && mine.seen !== (r?.etag || null))
           const stored = sharesOf(get().shares, user)
@@ -2370,14 +2406,15 @@ export const useStore = create((set, get) => {
       clearTimeout(pushTm)
       pushTm = null
       if (adoptHold) return   // the sign-in has not decided what this copy is yet (adoptProfile)
-      if (pushing) { pushAgain = get().user.id; return pushing.then(() => pushing) }
+      if (pushing) { pushAgain = chainFor(get().user.id); return pushing.then(() => pushing) }
       pushing = doPush().finally(() => {
         pushing = null
         // A follow-up asked for by an account that has gone since is dropped, not sent under the
-        // session the browser holds now (SEC-01).
+        // session the browser holds now (SEC-01). So is one whose account was refused (412) after
+        // it asked: the change stays owed and goes with the next check.
         const again = pushAgain
         pushAgain = false
-        if (again && answerIsFor(again)) get().pushState()
+        if (again && !again()) get().pushState()
       })
       return pushing
     },
@@ -2395,14 +2432,15 @@ export const useStore = create((set, get) => {
       if (pulling && pulling.uid === uid) return pulling.promise
       const mine = { uid, promise: null }
       pulling = mine
+      const over = chainFor(uid)
       mine.promise = (async () => {
         try {
           // A replace still to read the profile goes first as well: its push reads the server
           // itself, and a merge before it would bring back what the reset or import replaces.
           if (pushTm || owesRead(uid)) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
-          if (!answerIsFor(uid)) return
-          const res = await api('/api/data')
+          if (over()) return   // left, or that push or its read was refused (412): so would this read be
+          const res = await syncApi('/api/data', { expect: uid })
           if (!answerIsFor(uid)) return
           // A sign-in's question opened meanwhile (an adoption's write met a profile that appeared,
           // doPush): the adoption settles this copy, not this pull.
@@ -2474,15 +2512,20 @@ export const useStore = create((set, get) => {
     // `sync` every screen reads — status 'ok' when the two agree.
     async syncNow() {
       if (!get().user) { setSync({}); return get().sync }
+      // For the account signed in now, to the end (chainFor): each step stops once it has left or
+      // been refused (412) on the way.
+      const user = get().user
+      const over = chainFor(user.id)
       // Held for a sign-in's question: "Sync now" is asking it (again), and the sync follows.
-      if (adoptHold) { await get().resumeAdoption(); if (adoptHold) return get().sync }
+      if (adoptHold) { await get().resumeAdoption(); if (adoptHold || over()) return get().sync }
       if (pulling) await pulling.promise
+      if (over()) return get().sync
       // The share lists first, then the document, the order checkRev keeps (NATG-501): a sharer's
       // edit, a revoke or a share that is no longer available shows after Sync now too, and a
       // pointer the document brings is judged by lists at least as new as it.
-      const { config, user, shares } = get()
+      const { config, shares } = get()
       if (sharingAvailable(config, user, { demo: DEMO }) || sharesOf(shares, user)) await get().loadSharesNewer()
-      await get().pullState()
+      if (!over()) await get().pullState()
       return get().sync
     },
 
