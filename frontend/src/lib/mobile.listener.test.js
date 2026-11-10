@@ -62,3 +62,18 @@ describe('onAppActive — the App plugin rejecting must not go unhandled', () =>
     expect(unhandled).toEqual([])
   })
 })
+
+describe('onAppActive — its listener can be taken off again', () => {
+  // The store takes it off when a test disposes of it (useStore disposeStore, NATG-658).
+  it('resolves to the handle App.addListener gave', async () => {
+    const handle = { remove: async () => {} }
+    mocks.App = { addListener: async () => handle }
+    const m = await load()
+    expect(await m.onAppActive(() => {})).toBe(handle)
+  })
+
+  it('resolves to nothing when the App plugin is not there', async () => {
+    const m = await load()
+    expect(await m.onAppActive(() => {})).toBeUndefined()
+  })
+})

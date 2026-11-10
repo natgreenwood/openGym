@@ -283,11 +283,13 @@ export function initReminderSync(getState) {
 
 // Runs cb whenever the native shell returns to the foreground — the store pulls the account's
 // state then, so a phone that sat in a pocket all afternoon shows what the desktop did. No-op
-// off mobile; the store's own visibility/focus listeners cover the browser.
+// off mobile; the store's own visibility/focus listeners cover the browser. Returns a promise of
+// the listener's handle (of nothing if the plugin failed, and nothing at all off mobile), so the
+// store can take it off again (disposeStore).
 export function onAppActive(cb) {
   if (!MOBILE) return
   // Returned, not dropped, for the same reason as in initReminderSync.
-  import('@capacitor/app').then(({ App }) =>
+  return import('@capacitor/app').then(({ App }) =>
     App.addListener('appStateChange', ({ isActive }) => { if (isActive) cb() })
   ).catch(() => {})
 }
