@@ -4,7 +4,7 @@
 // the pointer clean-up that only ever removes.
 import { describe, expect, it } from 'vitest'
 import { isSharedId, sharedPointer, shareIdOf, routineById, SHARED_PREFIX } from './routine-lookup.js'
-import { sharedRoutineOf, sharedView, sharedViewOf, orphanPointers, sharedNames, unavailableOf } from './shared-routines.js'
+import { sharedRoutineOf, shareOutcome, sharedView, sharedViewOf, orphanPointers, sharedNames, unavailableOf } from './shared-routines.js'
 import { registerCustom } from './exercises.js'
 
 const ME = { id: 'u2', name: 'Jo Patel' }
@@ -172,6 +172,30 @@ describe('sharedView: what the screens read', () => {
     const state = { shares: lists(incoming), user: ME, S: { unit: 'kg' } }
     expect(sharedViewOf(state)).toBe(sharedViewOf({ ...state }))
     expect(sharedViewOf({ ...state, S: { unit: 'lb' } })).not.toBe(sharedViewOf(state))
+  })
+})
+
+describe('the server’s reason a share is not available (NATG-659)', () => {
+  const off = (id, unavailable) => ({ id, state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable })
+  it('keeps too-large: a share over the server’s size cap says so, not that it can’t be read', () => {
+    expect(shareOutcome(off('s1', 'too-large'))).toEqual({ routine: null, reason: 'too-large' })
+    // Even with a routine beside it: the server's verdict wins over judging the routine here.
+    expect(shareOutcome({ ...accepted('s1', LEG), unavailable: 'too-large' })).toEqual({ routine: null, reason: 'too-large' })
+    const v = sharedView(lists([off('s1', 'too-large')], { names: { s1: 'Leg Day' } }), ME, 'kg')
+    expect(unavailableOf(v, 'shared:s1')).toMatchObject({ reason: 'too-large', name: 'Leg Day', from: 'Sam Keller' })
+  })
+  it('keeps custom-exercise as before', () => {
+    expect(shareOutcome(off('s2', 'custom-exercise'))).toEqual({ routine: null, reason: 'custom-exercise' })
+  })
+  it('reads any other reason, or one it doesn’t know, as unreadable, never passing the server’s word through', () => {
+    for (const reason of ['unreadable', 'gone', 'Too-Large', 'too-large ', 'custom-exercise-x', 1, true, { reason: 'too-large' }, ['too-large']]) {
+      expect(shareOutcome(off('s3', reason))).toEqual({ routine: null, reason: 'unreadable' })
+    }
+  })
+  it('leaves a pending share that is too large waiting, not listed as not available', () => {
+    const v = sharedView(lists([{ id: 's4', state: 'pending', from: { id: 'u3', name: 'Alex' }, unavailable: 'too-large' }]), ME, 'kg')
+    expect(v.pending.map(p => p.id)).toEqual(['s4'])
+    expect(v.unavailable).toEqual([])
   })
 })
 

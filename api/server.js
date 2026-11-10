@@ -3483,6 +3483,26 @@ function bodyDeadline(req) {
   req.allowSlowBody = clear;
 }
 
+// The account a web request says it is for, X-Expected-Account (frontend lib/api.js, NATG-558).
+// The document routes a browser tab syncs through its session cookie: every tab shares that
+// cookie, and another tab can switch it to another account between this tab's own check and
+// the request leaving. A session that is not the named account is refused here, before the
+// handler reads a body or the document. The header never authorises: with no session the
+// handler's own 401 answers, header or not. No header, no change: paired phones, MCP and
+// older bundles send none. The log line carries no uid and nothing of the document; `transport`
+// tells a client bug (a bearer sending the header) from a real race on the cookie.
+const EXPECTS_ACCOUNT = new Set(['GET /api/data', 'PUT /api/data', 'GET /api/data/rev', 'GET /api/shares', 'GET /api/nudge-check']);
+function expectedAccountOk(req, res, key) {
+  const want = req.headers['x-expected-account'];
+  if (want === undefined || !EXPECTS_ACCOUNT.has(key)) return true;
+  const s = sessionOf(req);
+  if (!s) return true;                       // the handler's 401 says it
+  if (s.user.id === want) return true;
+  console.warn(JSON.stringify({ ev: 'account-mismatch', route: key, transport: s.bearer ? 'bearer' : 'cookie' }));
+  json(res, 412, { error: 'session is for another account', code: 'account-mismatch' });
+  return false;
+}
+
 // The Capacitor WebView origins of the Android and iOS app.
 const APP_ORIGINS = new Set(['https://localhost', 'capacitor://localhost', 'http://localhost']);
 
@@ -3557,6 +3577,7 @@ const server = http.createServer(async (req, res) => {
     const wait = AUTH_BURST.take(addr) || (kind ? ADDR_FAILS.retryAfter(kind + '|' + addr) : 0);
     if (wait) return tooMany(res, wait);
   }
+  if (!expectedAccountOk(req, res, key)) return;
   try { await handler(req, res); }
   catch (e) {
     if (e?.clientGone) { console.warn(key, 'client went away mid-body:', e.message); return; }
