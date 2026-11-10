@@ -219,7 +219,7 @@ function endTone(enabled, kind) {
 export const useUI = create((set, get) => ({
   sheets: [],          // { id, render:(close)=>JSX, kind:'sheet'|'center', locked, wide }
   toastMsg: '',
-  toastAction: null,   // { label, run, id } while the toast offers an action (Undo)
+  toastAction: null,   // { label, run, id, icon } while the toast offers an action (Undo)
   swipeHint: null,     // { idx, i, id }: the set row showing the one-time swipe hint (Workout.jsx)
   setFlash: null,      // { idx, i, id }: the set row a copy or an undo just brought, flashed once
   timer: null,         // rest countdown between sets — { left, total, endsAt, forIdx, ready?, paused?, kind? }
@@ -247,13 +247,15 @@ export const useUI = create((set, get) => ({
   // A toast is 2.2 s of text. With an action (`{ action: 'Undo', onAction }`) it stays 5 s, shows
   // the action as a button at its end and holds still while a finger rests on it (pauseToast). A
   // new toast replaces the one showing, action and all: the old Undo is gone, what it would have
-  // undone stays done. The action runs once at most, and the toast goes with it.
-  toast(msg, { action, onAction, ms } = {}) {
+  // undone stays done. The action runs once at most, and the toast goes with it. `icon` goes in
+  // front of the action's label: Undo's arrow unless another is named, none with `icon: null`
+  // (the routine page's "Show", NATG-670).
+  toast(msg, { action, onAction, ms, icon = 'undo' } = {}) {
     const withAction = !!(action && typeof onAction === 'function')
     clearTimeout(toastTm)
     toastLeft = ms || (withAction ? TOAST_ACTION_MS : TOAST_MS)
     toastSeq += 1
-    set({ toastMsg: msg, toastAction: withAction ? { label: action, run: onAction, id: toastSeq } : null })
+    set({ toastMsg: msg, toastAction: withAction ? { label: action, run: onAction, id: toastSeq, icon } : null })
     runToast(set)
   },
   runToastAction() {

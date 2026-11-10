@@ -2715,4 +2715,9 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': { one: 'У {0} вправі було більше, ніж дозволяє застосунок. Її буде додано щонайбільше з {1} підходами чи інтервалами, {2} дропами і {3} повтореннями рест-паузи.', few: 'У {0} вправах було більше, ніж дозволяє застосунок. Їх буде додано щонайбільше з {1} підходами чи інтервалами, {2} дропами і {3} повтореннями рест-паузи.', many: 'У {0} вправах було більше, ніж дозволяє застосунок. Їх буде додано щонайбільше з {1} підходами чи інтервалами, {2} дропами і {3} повтореннями рест-паузи.', other: 'У {0} вправах було більше, ніж дозволяє застосунок. Їх буде додано щонайбільше з {1} підходами чи інтервалами, {2} дропами і {3} повтореннями рест-паузи.' },
   'People you share this with won’t be able to open it': 'Ті, з ким ти нею поділишся, не зможуть її відкрити',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Вона завелика для спільної програми. Поділитися нею все одно можна. Коли в ній буде менше підходів чи вправ, її зможуть відкрити.',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'Ті, з ким ти ділишся цією програмою, не зможуть її відкрити',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Вона завелика для спільної програми. Скороти нотатки до вправ або прибери кілька вправ, і її знову можна буде відкрити.',
+  'This routine is now too large to share.': 'Ця програма тепер завелика, щоб нею ділитися.',
+  'Show': 'Показати',
 }

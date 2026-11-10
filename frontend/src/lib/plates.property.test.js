@@ -36,6 +36,14 @@ function reachable(inv) {
   return best
 }
 
+// Heaviest-first greedy, the way a bar is loaded: as many of each size as still fit, biggest first.
+function greedy(target, inv) {
+  const plates = []
+  let left = target
+  for (const { w, n } of inv) for (let k = 0; k < n && Math.round(w * Q) <= left; k++) { plates.push(w); left -= Math.round(w * Q) }
+  return { plates, left }
+}
+
 describe('plates for a weight', () => {
   it('add up to what is on the bar: plates + missing = the weight asked for', () => {
     fc.assert(fc.property(weight, inventory(), (w, inv) => {
@@ -63,14 +71,18 @@ describe('plates for a weight', () => {
     }), RUNS)
   })
 
-  it('are the heaviest load you can make without going over, with the fewest plates', () => {
+  it('are the heaviest load you can make without going over: greedy\'s plates when greedy lands exactly, else the fewest', () => {
     fc.assert(fc.property(weight, inventory('kg', 4, 3), (w, inv) => {
       const { plates } = plateStack(w, inv)
       const target = Math.floor(Math.max(0, w) * Q)
       const options = reachable(inv)
       const bestSum = Math.max(...[...options.keys()].filter(s => s <= target))
       expect(Math.round(sum(plates) * Q)).toBe(bestSum)
-      expect(plates.length).toBe(options.get(bestSum))
+      // Greedy can use more plates than needed (55 from 25s, 15s, 2s and a 1); it still wins when
+      // it lands, because that is how the bar is loaded. Only when it misses do the fewest count.
+      const loaded = greedy(target, inv)
+      if (loaded.left === 0) expect(plates).toEqual(loaded.plates)
+      else expect(plates.length).toBe(options.get(bestSum))
     }), RUNS)
   })
 

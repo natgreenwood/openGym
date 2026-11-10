@@ -727,8 +727,10 @@ function ExerciseBlock({ entryIdx, compact, dense, editing, onToggle, onToggleSi
     {/* Three notes can apply to one exercise and they are not interchangeable, so each keeps its
         own line and its own icon: the plan's instruction (cfg.note, from the routine), the
         standing fact about the movement (exNotes), and the message you pinned to yourself last
-        session. Today's own note is edited through the button in the header and shown last. */}
-    {cfg.note && <div className="exnote">{cfg.note}</div>}
+        session. Today's own note is edited through the button in the header and shown last.
+        The plan note is drawn only when it is text: older or hand-edited data can hold an object
+        there, which React cannot draw (NATG-657). */}
+    {typeof cfg.note === 'string' && cfg.note && <div className="exnote">{cfg.note}</div>}
     {standingNote && <div className="exnote"><Icon name="info" style={{ fontSize: 13, marginInlineEnd: 5, verticalAlign: '-2px' }} />{standingNote}</div>}
     {pinnedNote && <div className="exnote" style={{ color: 'var(--yellow)' }}>
       <Icon name="pin" style={{ fontSize: 13, marginInlineEnd: 5, verticalAlign: '-2px' }} />

@@ -161,6 +161,26 @@ describe('StructuralBalance view', () => {
     expect(host.querySelector('[data-role-id="frontSquat"] [data-needs-anchor]')).toBe(null)   // not logged either
   })
 
+  // NATG-653: "No data" and "Not scored" are text, so they read in --label-2 (4.5:1 on the card in
+  // both themes, NATG-644). --label-3 was 1.7:1 in light and 2.6:1 in dark.
+  it('writes each status in its own colour, the no-data ones in --label-2', () => {
+    const S = clone(DEF)
+    S.workouts = [
+      workoutAt('0030', Date.now(), [setDoneSet(100, 1)]),   // close-grip bench, the anchor
+      workoutAt('0047', Date.now(), [setDoneSet(57.5, 10)]),  // incline bench, scored against it
+    ]
+    useStore.setState({ S, user: null })
+    const host = render()
+    const status = id => host.querySelector(`[data-role-id="${id}"] .v > span:first-child`)
+    expect(status('deadlift').textContent).toBe('No data')
+    expect(status('deadlift').style.color).toBe('var(--label-2)')
+    expect(status('narrowBench').style.color).toBe('var(--green)')
+    const colours = { balanced: 'var(--green)', borderline: 'var(--yellow)', weak: 'var(--red)', 'no-data': 'var(--label-2)' }
+    for (const row of host.querySelectorAll('[data-role-id]')) {
+      expect(row.querySelector('.v > span:first-child').style.color, row.dataset.roleId).toBe(colours[row.dataset.status])
+    }
+  })
+
   it('the back chevron navigates to /stats', () => {
     const host = render()
     act(() => host.querySelector('.iconbtn').click())
