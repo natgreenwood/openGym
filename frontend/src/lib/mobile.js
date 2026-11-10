@@ -17,6 +17,7 @@ import { sharedFor } from './shared-source.js'
 import { NUDGE_COPY, lineIndex, nudgeFor, nudgeMinute, toneOf } from './nudge.js'
 import { excusedOn } from './day-notes.js'
 import { stateJson } from './state-json.js'
+import { exportableState } from './sync-merge.js'
 
 export const MOBILE = import.meta.env.VITE_MOBILE === '1'
 
@@ -357,7 +358,11 @@ const AUTO_BACKUP_NAME = /^opengym-backup-\d{4}-\d{2}-\d{2}(-[2-9])?\.json$/
 // to the other install: writing it fails with EACCES, and that day went without a copy, silently.
 // The copy then goes under the day's next name (-2 up to -9), which this install owns after its first write.
 // The other install's files stay where they are; this one cannot see them to prune them.
-export async function writeAutoBackup(state) {
+export async function writeAutoBackup(S) {
+  // These copies are made to leave the phone (a sync app, a manual copy), so they hold what an
+  // export does: not the content the sync keeps of removed entries (lib/sync-merge.js
+  // exportableState). The private mirror in Directory.Data (nativeSave) keeps the full state.
+  const state = exportableState(S)
   const day = todayISO()
   // A folder the person chose (Android, #161) comes first. When it can no longer be written —
   // the permission revoked, the folder deleted, the sync app gone — the copy goes to the default
