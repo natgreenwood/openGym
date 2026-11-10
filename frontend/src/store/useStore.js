@@ -975,6 +975,17 @@ export const useStore = create((set, get) => {
       markOwed(true)
       if (isNetworkError(e)) offlineChanges = true
       failed(e, { pending: true })
+      // With no base to fall back on, the next sync is a first sync, and its merge brings the
+      // server's entries back (NATG-672): said once, here, while the user still sees the result.
+      // A server known to have no revisions takes the next push as it is, so nothing to say.
+      if (!metaOf().base && !isRevless(uid)) {
+        const said = armed.kind === 'reset'
+          ? t('The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.')
+          : t('The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.')
+        import('./useUI.js')
+          .then(({ useUI }) => useUI.getState().toast(said, { ms: 5000 }))
+          .catch(() => {})
+      }
       return false
     }
     // Another replace armed meanwhile reads for itself; one dropped (a sign-out, a switch) is gone.

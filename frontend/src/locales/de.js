@@ -1942,6 +1942,8 @@ export default {
   'Options: copy, remove': 'Optionen: kopieren, entfernen',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Ein anderes Gerät hat während des Imports synchronisiert, seine Änderungen bleiben neben dem Backup erhalten.',
   'Another device synced while you were resetting, so what it added since was kept.': 'Ein anderes Gerät hat während des Zurücksetzens synchronisiert, was es seitdem hinzugefügt hat, bleibt erhalten.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'Der Server war nicht erreichbar, daher wurde nur dieses Gerät zurückgesetzt. Sobald du wieder online bist, wird zusammengeführt, was auf dem Server ist. Setze dann erneut zurück, um es zu löschen.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'Der Server war nicht erreichbar, daher hat das Backup nur die Daten auf diesem Gerät ersetzt. Sobald du wieder online bist, wird zusammengeführt, was auf dem Server ist. Importiere dann erneut, um es zu ersetzen.',
   'Save as a backup file': 'Als Backup-Datei sichern',
   'Add this device\'s plan to your profile?': 'Plan von diesem Gerät zum Profil hinzufügen?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Plan, Notizen oder Studiokarten auf diesem Gerät wurden ohne Anmeldung angelegt. Zum Profil hinzufügen oder das Profil genau so lassen, wie es auf dem Server ist.',

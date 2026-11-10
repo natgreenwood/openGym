@@ -1926,6 +1926,8 @@ export default {
   'Options: copy, remove': 'Действия: копировать, удалить',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Другое устройство синхронизировалось во время импорта, поэтому его изменения сохранены рядом с копией.',
   'Another device synced while you were resetting, so what it added since was kept.': 'Другое устройство синхронизировалось во время сброса, поэтому то, что оно добавило с тех пор, сохранено.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'Сервер был недоступен, поэтому сброшено только это устройство. Когда вы снова будете онлайн, данные с сервера снова объединятся с ним. Тогда выполните сброс ещё раз, чтобы их удалить.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'Сервер был недоступен, поэтому резервная копия заменила только данные на этом устройстве. Когда вы снова будете онлайн, данные с сервера объединятся с ними. Тогда импортируйте ещё раз, чтобы их заменить.',
   'Save as a backup file': 'Сохранить как файл копии',
   'Add this device\'s plan to your profile?': 'Добавить план с этого устройства в профиль?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'План, заметки или карты зала на этом устройстве созданы без входа. Добавьте их в профиль или оставьте профиль ровно таким, как на сервере.',

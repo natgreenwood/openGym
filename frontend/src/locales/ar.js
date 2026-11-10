@@ -1977,6 +1977,8 @@ export default {
   'Options: copy, remove': 'خيارات: نسخ، إزالة',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'زامن جهاز آخر أثناء الاستيراد، فاحتفظنا بتغييراته إلى جانب النسخة الاحتياطية.',
   'Another device synced while you were resetting, so what it added since was kept.': 'زامن جهاز آخر أثناء إعادة التعيين، فاحتفظنا بما أضافه منذ ذلك الحين.',
+  'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.': 'تعذّر الوصول إلى الخادم، لذا أُعيد تعيين هذا الجهاز فقط. عند عودة الاتصال، سيُدمج ما يحتفظ به الخادم من جديد. أعد التعيين مرة أخرى حينها لمسحه.',
+  'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.': 'تعذّر الوصول إلى الخادم، لذا استبدلت النسخة الاحتياطية بيانات هذا الجهاز فقط. عند عودة الاتصال، سيُدمج ما يحتفظ به الخادم. استورد مرة أخرى حينها لاستبداله.',
   'Save as a backup file': 'حفظ كملف نسخة احتياطية',
   'Add this device\'s plan to your profile?': 'إضافة خطة هذا الجهاز إلى ملفك؟',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'أُعدّت خطتك أو ملاحظاتك أو بطاقات النادي على هذا الجهاز أثناء تسجيل الخروج. أضفها إلى ملفك، أو أبقِ الملف كما هو على الخادم.',

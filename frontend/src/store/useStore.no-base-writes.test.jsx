@@ -30,7 +30,8 @@ const IMPORT_NOTICE = 'Another device synced while you were importing, so its ch
    still taken (stage 2 refuses it), so a test that sees one has found the bug. `after(fn)`: the
    next read is answered, and then another device writes `fn` (between this device's read and
    its PUT). `failReads` / `failPuts`: that many reads or writes fail for lack of network first (a
-   failed write is still listed in `puts`, as sent). */
+   failed write is still listed in `puts`, as sent); `readError` makes those reads fail with that
+   error instead. */
 function server(doc) {
   const s = { doc: doc ? clone(doc) : null, next: null, failReads: 0, failPuts: 0, calls: [], puts: [] }
   s.write = fn => { const d = clone(s.doc || { ...clone(DEF), _ts: 0 }); fn(d); d._rev = (s.doc?._rev || 0) + 1; d._wid = 'wid-' + d._rev; s.doc = d }
@@ -39,7 +40,7 @@ function server(doc) {
     const method = o.method || 'GET'
     s.calls.push(method + ' ' + path)
     if (method === 'GET' && path === '/api/data') {
-      if (s.failReads > 0) { s.failReads--; throw netErr() }
+      if (s.failReads > 0) { s.failReads--; throw (s.readError || netErr)() }
       const answer = { state: s.doc ? clone(s.doc) : null, rev: s.doc?._rev || 0 }
       const fn = s.next
       s.next = null
@@ -360,6 +361,170 @@ describe('AC5: the reset\'s notice', () => {
     for (const [file, pack] of Object.entries(packs)) {
       expect(pack[RESET_NOTICE], file).toBeTruthy()
       expect(pack[RESET_NOTICE], file).not.toBe(pack[IMPORT_NOTICE])
+    }
+  })
+})
+
+/* NATG-672: a copy with no stored base whose reset or import cannot read the server is not kept
+   armed (NATG-655), so its next sync is a first sync, and that merge brings the server's entries
+   back. The store says so once, at the failed read, in the replace's own words. */
+describe('NATG-672: the notice when a replace with no base cannot read the server', () => {
+  const RESET_OFFLINE = 'The server couldn’t be reached, so only this device was reset. Once you’re back online, what the server holds will be merged back in. Reset again then to clear it.'
+  const IMPORT_OFFLINE = 'The server couldn’t be reached, so the backup replaced only this device’s copy. Once you’re back online, what the server holds will be merged in. Import again then to replace it.'
+  const BACK_ONLINE = 'Back online and synced with the server.'
+  const settled = () => vi.dynamicImportSettled()   // the store raises its toasts through a lazy import
+  const notices = () => toasts().filter(m => m === RESET_OFFLINE || m === IMPORT_OFFLINE)
+  const mine = () => { const S = PROFILE(); delete S._rev; delete S._wid; return S }
+  const BACKUP = () => ({ ...clone(DEF), _ts: 40, workouts: [workout('wBackup', 30)] })
+  const importOffline = async backup => {
+    const token = useStore.getState().importToken()
+    expect(await useStore.getState().importConflict(backup, token)).toBeNull()   // the check's read failed
+    expect(useStore.getState().importBackup(backup, { token })).toBe(true)
+    await useStore.getState().pushState()
+  }
+
+  it('AC1: a reset whose read fails on the network says only this device was reset, for 5 s, and nothing goes out', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine())
+    srv.failReads = 1
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await settled()
+
+    expect(srv.puts).toEqual([])
+    expect(toast.mock.calls.filter(([m]) => m === RESET_OFFLINE)).toEqual([[RESET_OFFLINE, { ms: 5000 }]])
+    expect(notices()).toEqual([RESET_OFFLINE])
+  })
+
+  it('AC1: a server error on the read says the same', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine())
+    srv.failReads = 1
+    srv.readError = () => Object.assign(new Error('server error'), { status: 500 })
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await settled()
+
+    expect(srv.puts).toEqual([])
+    expect(notices()).toEqual([RESET_OFFLINE])
+  })
+
+  it('AC2, AC6, AC7: NATG-655 finding 2. The import is merged with the server copy on reconnect, and the user was told once, at the failed read', async () => {
+    const srv = server({ ...clone(DEF), _ts: 20, workouts: [workout('wServer', 20)], _rev: 1, _wid: 'wid-1' })
+    signedIn({ ...clone(DEF), _ts: 10 })
+    srv.failReads = 2   // the import check's read, then the push's
+    await importOffline(BACKUP())
+    await settled()
+
+    expect(srv.calls).toEqual(['GET /api/data', 'GET /api/data'])
+    expect(srv.puts).toEqual([])
+    expect(toast.mock.calls.filter(([m]) => m === IMPORT_OFFLINE)).toEqual([[IMPORT_OFFLINE, { ms: 5000 }]])
+
+    // Back online: the first-sync path merges, exactly as before this notice existed.
+    await useStore.getState().pullState()
+    await vi.waitFor(() => expect(srv.puts).toHaveLength(1))
+    expect(srv.puts[0].baseRev).toBe(1)
+    expect(ids(srv.doc.workouts).sort()).toEqual(['wBackup', 'wServer'])
+    await settled()
+    // Shown once, and the reconnect says only what it always said.
+    expect(notices()).toEqual([IMPORT_OFFLINE])
+    expect(toasts().at(-1)).toBe(BACK_ONLINE)
+  })
+
+  it('AC7: pushes that fail again while still offline do not repeat it', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine())
+    srv.failReads = 3
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await useStore.getState().pushState()
+    await useStore.getState().pushState()
+    await settled()
+
+    expect(srv.failReads).toBe(0)   // every one of them tried, and failed to read
+    expect(notices()).toEqual([RESET_OFFLINE])
+  })
+
+  it('AC3: with a stored base, a reset whose read fails says nothing new', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine(), 3, 'wid-3')
+    srv.failReads = 1
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await settled()
+
+    expect(srv.calls).toEqual(['GET /api/data'])
+    expect(srv.puts).toEqual([])
+    expect(toasts()).toEqual([])
+  })
+
+  it('AC3: with a stored base, an import offline goes against that base, and says nothing new', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine(), 3, 'wid-3')
+    srv.failReads = 1
+    srv.failPuts = 1
+    await importOffline(BACKUP())
+    await settled()
+
+    expect(srv.calls).toEqual(['GET /api/data', 'PUT /api/data'])   // no read of its own: it has a base
+    expect(srv.puts.map(p => p.baseRev)).toEqual([3])
+    expect(toasts()).toEqual([])
+  })
+
+  it('AC4: when the read lands, no notice', async () => {
+    const srv = server(PROFILE())
+    signedIn(mine())
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    srv.failReads = 1   // the import's check fails, the push's own read lands
+    await importOffline(BACKUP())
+    await settled()
+
+    expect(srv.puts.map(p => p.baseRev)).toEqual([3, 4])
+    expect(notices()).toEqual([])
+  })
+
+  it('AC8: against a server from before revisions, a failed read says nothing', async () => {
+    // Its answers carry no revision, and a PUT with none is taken as it is.
+    const calls = []
+    let failNextRead = false
+    api.mockImplementation(async (path, o = {}) => {
+      const method = o.method || 'GET'
+      calls.push(method + ' ' + path)
+      if (method === 'GET' && path === '/api/data') {
+        if (failNextRead) { failNextRead = false; throw netErr() }
+        return { state: PROFILE() }
+      }
+      if (method === 'PUT' && path === '/api/data') return { ok: true }
+      return {}
+    })
+    signedIn(mine())
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()   // read answered with no revision: this server is revless
+    expect(calls).toEqual(['GET /api/data', 'PUT /api/data'])
+
+    failNextRead = true
+    useStore.getState().resetEverything()
+    await useStore.getState().pushState()
+    await settled()
+
+    expect(calls).toEqual(['GET /api/data', 'PUT /api/data', 'GET /api/data'])
+    expect(toasts()).toEqual([])
+  })
+
+  it('AC5: both notices are in every locale pack, with the typographic apostrophe and no em dash', () => {
+    for (const s of [RESET_OFFLINE, IMPORT_OFFLINE]) {
+      expect(s).not.toMatch(/[—']/)
+      expect(s).toMatch(/’/)
+    }
+    const packs = import.meta.glob('../locales/*.js', { eager: true, import: 'default' })
+    expect(Object.keys(packs).length).toBeGreaterThanOrEqual(19)
+    for (const [file, pack] of Object.entries(packs)) {
+      for (const s of [RESET_OFFLINE, IMPORT_OFFLINE]) {
+        expect(pack[s], file).toBeTruthy()
+        expect(pack[s], file).not.toMatch(/—/)
+      }
+      expect(pack[RESET_OFFLINE], file).not.toBe(pack[IMPORT_OFFLINE])
     }
   })
 })
