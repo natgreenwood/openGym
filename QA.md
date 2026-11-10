@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-10 (frontend and API)_
+_Last verified by QA agent: 2026-11-10 (frontend, API and MCP)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -446,6 +446,32 @@ Serialization tests cannot establish native delivery: pairing, locked-phone
 operation and transport failures require an
 iPhone and Apple Watch.
 
+## MCP checks
+
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. Install the API
+dependencies too so the local real-API integration tests run:
+
+```sh
+cd api
+npm ci --omit=optional --no-audit --no-fund
+cd ../mcp
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+TZ=UTC npm test
+npm run check:node-loadable
+node ../scripts/ci/test-audit.mjs test
+```
+
+The MCP job in `.github/workflows/test.yml` runs the suite with coverage and
+the plain-Node import check. No separate build, lint or type-check is defined.
+Tests use synthetic profiles, loopback HTTP servers and temporary data; no real
+account or credentials are needed.
+
+Date fixtures must count local calendar days at midday rather than subtracting
+elapsed 24-hour periods. The regression in `mcp/test/write-tools.test.js` pins
+the clock to late evening after London's autumn transition and checks 30 distinct
+dates. It fakes only `Date` and restores the original timezone and real clock.
+
 ## Known gaps
 
 `scripts/app-icons.test.mjs` currently has two failures comparing committed icons
@@ -456,13 +482,6 @@ icons as part of unrelated frontend changes.
 `src/lib/plates.property.test.js` can independently fail its fewest-plates
 property: `plateStack` sometimes chooses more plates than necessary. Inspect
 the failing test rather than treating every shuffled-run failure as an order leak.
-
-The MCP rate-limit test in `mcp/test/write-tools.test.js` generates local dates
-by subtracting elapsed 24-hour periods. Late in the day after the autumn DST
-change, Europe/London can produce a duplicate date and fail the test. This
-reproduces on unchanged main. From `mcp/`, `TZ=UTC npm test` passes on the same
-runtime; retain the local-time failure as a fixture defect rather than treating
-the UTC run as a fix.
 
 ## API checks
 
