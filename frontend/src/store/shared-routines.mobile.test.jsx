@@ -47,6 +47,14 @@ vi.mock('../lib/api.js', () => ({
 }))
 
 const USER = { id: 'test-recipient', name: 'Test Recipient' }
+// The store's heavy imports (the 1 MB exercise table, the sync and mobile libraries) are
+// transformed here, while the file is collected. Cold, that took seconds and was billed to the
+// first test, past its timeout under a parallel run. The store itself is not imported here, so
+// no extra store listens on the window; vi.resetModules() in freshStore() keeps the transforms.
+await Promise.all([
+  import('../lib/exercises.js'), import('../lib/mobile.js'), import('../lib/sync-merge.js'), import('../lib/media-store.js'),
+  import('../lib/remote.js'), import('../lib/health-sync.js'), import('../lib/i18n.js'),
+])
 const file = name => JSON.parse(h.files.get('DATA/' + name))
 let store
 beforeEach(() => {

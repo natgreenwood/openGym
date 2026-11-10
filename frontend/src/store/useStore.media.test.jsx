@@ -13,7 +13,7 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF } from './defaults.js'
+import { DEF } from './useStore.js'
 import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))

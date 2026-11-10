@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 vi.mock('../lib/api.js', () => ({ api: vi.fn(async () => ({})), setRemoteAuth: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
-import { DEF } from './defaults.js'
+import { DEF } from './useStore.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 let useStore
