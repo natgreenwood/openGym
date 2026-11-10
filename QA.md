@@ -391,6 +391,26 @@ Date-only fixtures must use local calendar dates: start at noon, subtract days
 with `setDate`, then format with `isoOf`. `toISOString()` uses UTC and can move
 the fixture to the previous date; subtracting 86400000 also crosses DST poorly.
 
+## Grouped-row focus rings
+
+From `frontend/`, run the CSS focus, segmented-control and contrast regressions:
+
+```sh
+npx vitest run src/focus-ring-inset.test.js src/segmented-height.test.js src/a11y-contrast-transparency.test.js --maxWorkers=1
+```
+
+In Chromium, use a guest profile and intercepted API responses. Tab through
+Settings' grouped rows, including Workout, then a running freestyle workout's
+Workout options menu. Check complete rings on first, middle, last and single-row
+groups in both themes. Enter on Workout and Add exercise must still open their
+screens. Keep the containers' `overflow:hidden`; the row ring must sit inside it.
+
+Compare Settings → Workout's nested switch, segmented button and help button,
+plus the Workout options opener, against the base stylesheet. Their rings must
+stay unchanged. Chromium can round the CSS's 2.5px outline to 2px: assert that
+the offset is negative and its magnitude covers the rendered outline width.
+These checks do not establish native WebView or screen-reader behavior.
+
 ## Sheets and media focus
 
 From `frontend/`:
