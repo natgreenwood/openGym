@@ -8,19 +8,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
 import { DEF } from './defaults.js'
+import { warmStoreImports } from '../test-utils/warm-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: () => {} }) } }))
 
-// The store's heavy imports (the 1 MB exercise table, the sync and mobile libraries) are
-// transformed here, while the file is collected. Cold, that took seconds and was billed to the
-// first test, past its timeout under a parallel run. The store itself is not imported here, so
-// no extra tab listens on the window; vi.resetModules() in openTab keeps the transforms.
-await Promise.all([
-  import('../lib/exercises.js'), import('../lib/mobile.js'), import('../lib/sync-merge.js'), import('../lib/media-store.js'),
-  import('../lib/remote.js'), import('../lib/health-sync.js'), import('../lib/i18n.js'),
-])
+await warmStoreImports()
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const w = (id, d = '2026-09-01') => ({ id, d, start: 1, entries: [] })
