@@ -2797,4 +2797,5 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0}টি ব্যায়ামে অ্যাপের অনুমতির চেয়ে বেশি ছিল। এগুলো সর্বোচ্চ {1} সেট বা ইন্টারভাল, {2} ড্রপ আর {3} রেস্ট-পজ রেপ নিয়ে যোগ হবে।',
   'People you share this with won’t be able to open it': 'আপনি যাদের সাথে শেয়ার করবেন, তারা এটি খুলতে পারবেন না',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'শেয়ার করা রুটিনের জন্য এটি খুব বড়। তবুও আপনি এটি শেয়ার করতে পারেন। সেট বা ব্যায়াম কমে গেলে তারা এটি খুলতে পারবেন।',
+  'Something in it can’t be read in a shared routine. You can still share it.': 'শেয়ার করা রুটিনে এর কিছু অংশ পড়া যায় না। তবুও আপনি এটি শেয়ার করতে পারেন।',
 }

@@ -2718,4 +2718,5 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} ejercicios tenían más de lo que la app permite. Se añadirán con un máximo de {1} series o intervalos, {2} bajadas y {3} repeticiones rest-pause.',
   'People you share this with won’t be able to open it': 'Las personas con quienes la compartas no podrán abrirla',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Es demasiado grande para una rutina compartida. Aun así puedes compartirla. Cuando tenga menos series o ejercicios, podrán abrirla.',
+  'Something in it can’t be read in a shared routine. You can still share it.': 'Hay algo en ella que no se puede leer en una rutina compartida. Aun así puedes compartirla.',
 }

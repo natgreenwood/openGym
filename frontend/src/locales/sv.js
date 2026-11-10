@@ -2765,4 +2765,5 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} övningar hade mer än appen tillåter. De läggs till med högst {1} set eller intervaller, {2} drops och {3} rest-pause-reps.',
   'People you share this with won’t be able to open it': 'De du delar den med kommer inte att kunna öppna den',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Den är för stor för en delad rutin. Du kan ändå dela den. När den har färre set eller övningar kan de öppna den.',
+  'Something in it can’t be read in a shared routine. You can still share it.': 'Något i den kan inte läsas i en delad rutin. Du kan ändå dela den.',
 }
