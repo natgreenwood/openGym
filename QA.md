@@ -588,7 +588,7 @@ close, to avoid reopening the keyboard.
 From `frontend/`, run the snapshot, event, settings and widget regressions:
 
 ```sh
-npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx --maxWorkers=2
+npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx src/views/Workout.watch-refused.test.jsx src/components/WorkoutScrollAnchor.test.jsx --maxWorkers=2
 ```
 
 These tests use local fixtures and a mocked native bridge; no credentials or
@@ -603,6 +603,21 @@ snapshot persistence; `watch-sync.health-overflow.test.js` combines refusal with
 Health opt-out. The sign-out test checks removal of `gym_watch_last_sent`.
 Use synthetic localStorage only. For quota injection in happy-dom, spy on the
 `localStorage.setItem` instance method and assert that the injected failure runs.
+
+`watch-sync.open.test.js` also checks the workout refusal notice, including an
+older pending send resolving after a newer refusal. `Workout.watch-refused.test.jsx`
+checks the persistent header status region and changes between render and
+subscription. The scroll-anchor suite covers folding beneath a taller header.
+
+Browser probes can use the real store and sync module with
+`_setWatchPluginForTest` and a synthetic bridge. Open `/#/workout` (hash routing),
+grow a workout to 500 rows with long custom names and four sets per row, then
+shrink it. Check refusal, failed recovery, successful recovery, sending off and
+unlinked states. In list mode, scroll down before enabling sending; keep the
+entries unchanged to isolate the notice's header-height change. Check the pinned
+notice, exercise position, 320px German wrapping and the wider light/dark layouts.
+These checks establish browser rendering and bridge calls, not native delivery
+or screen-reader announcements.
 
 Measure the UTF-8 bytes of serialized snapshots against `SNAPSHOT_MAX_BYTES`,
 and compare the active workout before and after `fitSnapshot`; `null` means
