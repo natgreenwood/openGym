@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-10 (frontend); 2026-11-09 (API)_
+_Last verified by QA agent: 2026-11-10 (frontend and API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -211,6 +211,32 @@ deliberate sign-out after the tab follows the new account.
   Decline and Remove with cancel/confirm, offline answers, retry after an error,
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
+
+## Shared routine byte cap
+
+From `frontend/`, run the byte measure, notice, toast, sync settlement and adjacent
+sharing checks together:
+
+```sh
+npx vitest run src/lib/shared-measure.test.js src/views/RoutineEdit.too-large.test.jsx src/store/useStore.unsettled.test.jsx src/store/useStore.unsettled-start.test.jsx src/components/Toast.action.test.jsx src/components/Toast.test.js src/views/RoutineEdit.sharing.test.jsx src/views/RoutineEdit.sharing-guard.test.jsx src/lib/shared-routine-parity.test.js --maxWorkers=2 --reporter=dot
+```
+
+The browser and API import `api/shared-measure.js`. Measure the projected routine,
+not the saved document: exactly 65,536 UTF-8 bytes is allowed; 65,537 is over.
+Use synthetic profiles and intercepted API responses for browser checks. Cover
+local crossings, shrink, server flags arriving through `/api/data/rev`, and a
+cold offline start with `gym_shared_v1` retained for the same `gym_owner`.
+
+`gym_unsettled` must survive a restart both before a push and after it lands but
+before shares refresh. A shrink must keep an old server warning hidden in both
+cases. A shares request sent after landing, or a later unchanged-etag poll,
+settles the flag. The store tests control these orderings without a live server.
+
+Chromium checks cover 320, 390 and 1280 px in light and dark themes, keyboard
+activation of the toast's Show action, notice focus and reduced-motion scrolling.
+The notice is not a live region; the share row describes it with
+`aria-describedby`. Intercepted browser checks do not establish live multi-device
+delivery, screen-reader announcements or native app lifecycle behavior.
 
 ## Plan import and Coach-created plans
 
