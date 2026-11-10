@@ -128,7 +128,9 @@ const recordPuts = puts => {
 // arrives (refused, 409 and all, as the server would), and that answer held until `release()`, as
 // QA's route held the real one. `asked` resolves once it has arrived. `release()` fails the test
 // unless that very request is out and its answer not yet back: a hold that stopped holding would
-// let the tests pass without the race they are about (NATG-594).
+// let the tests pass without the race they are about (NATG-594). One whose request never comes
+// leaves its test waiting on `asked` until it times out; the test's afterEach then names it.
+let unasked = []
 const hold = (method, path = '/api/data') => {
   const answer = h.api
   const g = {}
@@ -143,6 +145,7 @@ const hold = (method, path = '/api/data') => {
     expect(answered, `${name}: its answer was back before release()`).toBe(false)
     letGo()
   }
+  unasked.push(() => arrived ? null : name)
   h.api = async (p, opts = {}) => {
     if ((opts.method || 'GET') === method && p === path) {
       h.api = answer
@@ -168,6 +171,9 @@ beforeEach(async () => {
 afterEach(() => {
   tabs = []
   localStorage.clear()
+  const missed = unasked.map(f => f()).filter(Boolean)
+  unasked = []
+  expect(missed, 'held requests that never arrived').toEqual([])
 })
 
 describe('a second tab while the first one changes owner', () => {
