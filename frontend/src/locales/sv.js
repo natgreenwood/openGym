@@ -2757,4 +2757,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Det är mer än ett pass rymmer. Välj färre rutiner, eller rutiner med färre set.',
   '{0} is too much to add to this workout.': '{0} är för mycket att lägga till i det här passet.',
   'too much for this workout': 'för mycket för det här passet',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'De du har delat den med kan inte öppna den',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Den är för stor för en delad rutin. Korta ner övningarnas anteckningar eller ta bort några övningar, så kan de öppna den.',
+  'This routine is now too large to share.': 'Den här rutinen är nu för stor för att delas.',
+  'Show': 'Visa',
 }

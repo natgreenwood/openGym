@@ -2713,4 +2713,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Ez több, mint amennyi egy edzésbe belefér. Válassz kevesebb rutint, vagy kevesebb sorozatból állót.',
   '{0} is too much to add to this workout.': '{0} túl sok ahhoz, hogy ehhez az edzéshez add.',
   'too much for this workout': 'túl sok ehhez az edzéshez',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'Akikkel megosztottad, nem fogják tudni megnyitni',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Túl nagy egy megosztott rutinhoz. Rövidítsd le a gyakorlatok jegyzeteit, vagy távolíts el néhány gyakorlatot, és meg tudják majd nyitni.',
+  'This routine is now too large to share.': 'Ez a rutin most már túl nagy a megosztáshoz.',
+  'Show': 'Mutasd',
 }

@@ -2710,4 +2710,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'To więcej, niż zmieści jeden trening. Wybierz mniej planów lub plany z mniejszą liczbą serii.',
   '{0} is too much to add to this workout.': '{0} to za dużo, by dodać do tego treningu.',
   'too much for this workout': 'za dużo na ten trening',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'Osoby, z którymi go dzielisz, nie będą mogły go otworzyć',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Jest za duży, by go udostępniać. Skróć notatki do ćwiczeń albo usuń kilka ćwiczeń, a będą mogły go otworzyć.',
+  'This routine is now too large to share.': 'Ten plan treningowy jest teraz za duży, by go udostępnić.',
+  'Show': 'Pokaż',
 }

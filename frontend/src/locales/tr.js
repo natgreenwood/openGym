@@ -2710,4 +2710,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'Bu, bir antrenmanın alabileceğinden fazla. Daha az rutin ya da daha az setli rutinler seç.',
   '{0} is too much to add to this workout.': '{0} bu antrenmana eklemek için fazla.',
   'too much for this workout': 'bu antrenman için fazla',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'Paylaştığın kişiler bunu açamayacak',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Paylaşılan bir rutin için fazla büyük. Egzersiz notlarını kısalt ya da birkaç egzersizi kaldır; böylece açabilirler.',
+  'This routine is now too large to share.': 'Bu rutin artık paylaşmak için fazla büyük.',
+  'Show': 'Göster',
 }

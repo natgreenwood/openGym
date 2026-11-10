@@ -2710,4 +2710,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '这超出了一次训练能容纳的量。请少选几个训练日，或选组数更少的。',
   '{0} is too much to add to this workout.': '{0}太多了，无法加入这次训练。',
   'too much for this workout': '对这次训练来说太多',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': '你分享的人将无法打开它',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '它太大了，无法作为分享的训练日。缩短动作备注或删掉一些动作，对方就能打开了。',
+  'This routine is now too large to share.': '这个训练日现在太大，无法分享。',
+  'Show': '查看',
 }

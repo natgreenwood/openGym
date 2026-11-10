@@ -2721,4 +2721,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'มากเกินกว่าที่การฝึกหนึ่งครั้งจะรับได้ เลือกรูทีนให้น้อยลง หรือรูทีนที่มีเซตน้อยลง',
   '{0} is too much to add to this workout.': '{0} มากเกินกว่าจะเพิ่มในการฝึกนี้',
   'too much for this workout': 'มากเกินไปสำหรับการฝึกนี้',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'คนที่คุณแชร์ด้วยจะเปิดรูทีนนี้ไม่ได้',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์ได้ ย่อโน้ตของท่าลงหรือลบบางท่าออก แล้วเขาจะเปิดได้',
+  'This routine is now too large to share.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์แล้ว',
+  'Show': 'แสดง',
 }

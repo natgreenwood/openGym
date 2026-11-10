@@ -2710,4 +2710,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '운동 하나에 담을 수 있는 양을 넘습니다. 루틴을 줄이거나 세트가 적은 루틴을 고르세요.',
   '{0} is too much to add to this workout.': '{0}은(는) 이 운동에 추가하기에 너무 많습니다.',
   'too much for this workout': '이 운동에는 너무 많음',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': '공유받은 사람들이 이 루틴을 열 수 없습니다',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 운동 메모를 줄이거나 운동 몇 개를 빼면 다시 열 수 있습니다.',
+  'This routine is now too large to share.': '이 루틴은 이제 공유하기에 너무 큽니다.',
+  'Show': '보기',
 }

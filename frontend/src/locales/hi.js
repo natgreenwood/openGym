@@ -2710,4 +2710,9 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'यह एक वर्कआउट की क्षमता से ज़्यादा है। कम रूटीन चुनें, या कम सेट वाले रूटीन।',
   '{0} is too much to add to this workout.': '{0} इस वर्कआउट में जोड़ने के लिए बहुत ज़्यादा है।',
   'too much for this workout': 'इस वर्कआउट के लिए बहुत ज़्यादा',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'जिनके साथ आपने इसे साझा किया है, वे इसे खोल नहीं पाएँगे',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'साझा रूटीन के लिए यह बहुत बड़ा है। इसकी एक्सरसाइज़ के नोट्स छोटे करें या कुछ एक्सरसाइज़ हटाएँ, फिर वे इसे खोल पाएँगे।',
+  'This routine is now too large to share.': 'यह रूटीन अब साझा करने के लिए बहुत बड़ा है।',
+  'Show': 'दिखाएँ',
 }
