@@ -1707,3 +1707,82 @@ describe('a sign-out overtaken by another tab signing in as a different account'
     expect(localStorage.getItem('gym_guest')).toBeNull()
   })
 })
+
+/* A reset made while a sign-in's adoption is still open (a failed GET leaves it held) arms a replace
+   that the hold keeps from going (pushState). An adoption that then takes the server's copy has
+   thrown the reset's copy away: the replace armed for it goes too, so the next ordinary edit goes
+   against the adopted revision, and a 409 merges what another device wrote since (NATG-596).
+   An import the adoption does push still goes. */
+describe('a reset or import made while a sign-in\'s adoption is held', () => {
+  const remoteWrites = srv => {
+    srv.doc = { ...srv.doc, _rev: srv.doc._rev + 1, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther')] }
+  }
+
+  it('reset during adoption must not replace a later remote workout', async () => {
+    const srv = server({ ...clone(DEF), _ts: 500, workouts: [w('yW1')], _rev: 4 })
+    const A = await openTab(null)
+    await act(A, () => A.getState().setUser({ id: 'Yan', name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    expect(A.getState().sync.held).toBe(true)
+    await act(A, () => A.getState().resetEverything())
+    await act(A, () => A.getState().pushState())   // held: sends nothing
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().sync.held).toBe(false)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    expect(puts).toEqual([])
+    remoteWrites(srv)
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  it('reset during an adoption whose first read failed, resumed later, must not replace a later remote workout', async () => {
+    const srv = server({ ...clone(DEF), _ts: 500, workouts: [w('yW1')], _rev: 4 })
+    const A = await openTab(null)
+    await act(A, () => A.getState().setUser({ id: 'Yan', name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    const online = h.api
+    h.api = async () => { throw new Error('offline') }
+    await expect(act(A, () => A.getState().adoptProfile(async () => false))).rejects.toThrow('offline')
+    expect(A.getState().sync.held).toBe(true)
+    h.api = online
+    await act(A, () => A.getState().resetEverything())
+    await act(A, () => A.getState().pushState())   // held: sends nothing
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().resumeAdoption(async () => false))
+    expect(A.getState().sync.held).toBe(false)
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    expect(puts).toEqual([])
+    remoteWrites(srv)
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  it('an import during adoption that the adoption pushes still reaches the server', async () => {
+    const srv = server({ ...clone(DEF), _ts: 500, workouts: [w('yW1')], _rev: 4 })
+    const A = await openTab(null)
+    await act(A, () => A.getState().setUser({ id: 'Yan', name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    expect(A.getState().sync.held).toBe(true)
+    const token = A.getState().importToken()
+    expect(A.getState().importBackup({ ...clone(DEF), workouts: [w('b1', '2026-08-01')] }, { token })).toBe(true)
+    await act(A, () => A.getState().pushState())   // held: sends nothing
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().sync.held).toBe(false)
+    expect(puts.map(p => p.baseRev)).toEqual([4])
+    expect(ids(srv.doc)).toEqual(['b1', 'yW1'])
+    remoteWrites(srv)
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([4, 5, 6])
+    expect(ids(srv.doc)).toEqual(['b1', 'yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+})

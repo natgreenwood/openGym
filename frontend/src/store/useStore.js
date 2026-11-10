@@ -1518,7 +1518,11 @@ export const useStore = create((set, get) => {
       if (!asked) return
       try { const r = await api('/api/data'); if (r && r.state) ({ state, rev } = r) } catch { /* the first read */ }
     }
+    // A reset or import made while the hold kept its push back armed a replace of the copy this
+    // throws away: left armed, the next ordinary edit went out as that replace, over what another
+    // device had written since the server's copy was taken (NATG-596).
     const takeServer = () => {
+      replaceRev = null
       const copy = sanitizeAccent(Object.assign(clone(DEF), state))
       copy.active = carryActive(get().S, copy)
       if (rev != null) adopt(copy, rev)
