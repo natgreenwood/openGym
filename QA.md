@@ -467,6 +467,16 @@ the plain-Node import check. No separate build, lint or type-check is defined.
 Tests use synthetic profiles, loopback HTTP servers and temporary data; no real
 account or credentials are needed.
 
+The CI reporter commands also work with Vitest 5.1.0: verified on Node 22.22.1
+with npm 10.9.10, and in `node:22.23.4-alpine` with npm 10.9.9. Use npm 10 for
+lockfile regeneration. GitHub writes `mcp/test-results.json`,
+`mcp/coverage/coverage-summary.json` and `stats/mcp.json`; GitLab writes
+`mcp/junit.xml` and `mcp/coverage/cobertura-coverage.xml`.
+
+The permission-failure test in `mcp/test/state.test.js` deliberately skips when
+running as root, including in the GitLab Alpine image. It runs as a non-root
+user. Keep the API dependencies installed and `CI=true` when checking CI parity.
+
 Date fixtures must count local calendar days at midday rather than subtracting
 elapsed 24-hour periods. The regression in `mcp/test/write-tools.test.js` pins
 the clock to late evening after London's autumn transition and checks 30 distinct
