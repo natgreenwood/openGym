@@ -822,6 +822,7 @@ body.chips-dragging *{cursor:inherit}
 .measure-field{min-width:0}
 .measure-input{height:47px;background:var(--surface-2);border-radius:var(--r);display:flex;align-items:center;padding:0 12px;gap:6px}
 .measure-input .num{width:100%;min-width:0;background:transparent;border:0;outline:none;font-size:18px;font-weight:500;color:var(--label);padding:0}
+.measure-input:has(.num:focus-visible){outline:2.5px solid var(--focus-ring);outline-offset:2px}
 .measure-input i{font-style:normal;color:var(--label-2);font-size:13px}
 .measure-options{margin:12px 0 16px}
 .measure-select{margin-bottom:10px;background:var(--surface-2)}
