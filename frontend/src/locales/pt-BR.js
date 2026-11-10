@@ -1792,6 +1792,13 @@ export const PT_BR_OVERRIDES = {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'É mais do que um treino comporta. Escolha menos rotinas, ou rotinas com menos séries.',
   '{0} is too much to add to this workout.': '{0} é demais para adicionar a este treino.',
   'too much for this workout': 'demais para este treino',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Máx. {0}',
+  'Some counts were lowered': 'Alguns valores foram reduzidos',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} exercício tinha mais do que o app permite. Ele vai ser adicionado com no máximo {1} séries ou intervalos, {2} drops e {3} repetições rest-pause.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} exercícios tinham mais do que o app permite. Eles vão ser adicionados com no máximo {1} séries ou intervalos, {2} drops e {3} repetições rest-pause.',
+  'People you share this with won’t be able to open it': 'As pessoas com quem você compartilhar não vão conseguir abrir',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Ela é grande demais para uma rotina compartilhada. Você ainda pode compartilhá-la. Quando tiver menos séries ou exercícios, elas vão conseguir abrir.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

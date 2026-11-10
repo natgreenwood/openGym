@@ -54,3 +54,40 @@ describe('Plan import sheet — the toast counts what it added', () => {
     expect(useUI.getState().toastMsg).toBe('Added 2 routines to your plan')
   })
 })
+
+// NATG-503 AC4: a file with counts past lib/limits.js still imports, at the limits, and the sheet
+// says so before "Add to my plan". A file within them shows no such notice.
+describe('Plan import sheet — counts lowered to the limits', () => {
+  const notice = host => [...host.querySelectorAll('.shared-notice.warn')].find(n => n.textContent.includes('Some counts were lowered'))
+  const over = (id, name) => ({ id, name, emoji: null, ex: [
+    { id: ids[0], sets: 80, reps: 8, weight: 40 },
+    { id: ids[1], sets: 3, reps: 8, weight: 40, intensifier: { type: 'dropset', count: 25, pct: 20 } },
+  ] })
+
+  it('AC4: says how many exercises were lowered, with the limits, and still imports them at the limits', () => {
+    planImportSheet(bundleOf([over('a', 'Push')]))
+    const host = renderTop()
+    const n = notice(host)
+    expect(n).toBeTruthy()
+    expect(n.getAttribute('role')).toBe('status')
+    expect(n.textContent).toContain('2 exercises had more than the app allows. They’ll be added with at most 50 sets or intervals, 10 drops and 1,000 rest-pause reps.')
+    act(() => { buttonFor(host, 'Add to my plan').click() })
+    const [a, b] = useStore.getState().S.routines[0].ex
+    expect(a.sets).toBe(50)
+    expect(b.intensifier.count).toBe(10)
+    expect(useUI.getState().toastMsg).toBe('Added 1 routine to your plan')
+  })
+
+  it('AC4: uses the singular for one exercise', () => {
+    planImportSheet(bundleOf([{ id: 'a', name: 'Push', emoji: null, ex: [{ id: ids[0], sets: 80, reps: 8, weight: 40 }] }]))
+    const host = renderTop()
+    expect(notice(host).textContent).toContain('1 exercise had more than the app allows. It’ll be added with at most 50 sets')
+  })
+
+  it('AC4: shows no notice when nothing was lowered', () => {
+    planImportSheet(bundleOf([routine('a', 'Push')]))
+    const host = renderTop()
+    expect(notice(host)).toBeUndefined()
+    expect(host.textContent).not.toContain('Some counts were lowered')
+  })
+})

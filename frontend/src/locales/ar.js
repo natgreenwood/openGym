@@ -2765,4 +2765,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'هذا أكثر مما يتسع له تمرين واحد. اختر روتينات أقل، أو روتينات بمجموعات أقل.',
   '{0} is too much to add to this workout.': '{0} أكبر من أن يُضاف إلى هذا التمرين.',
   'too much for this workout': 'أكثر مما يتسع له هذا التمرين',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'الحد الأقصى {0}',
+  'Some counts were lowered': 'تم تخفيض بعض الأعداد',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'كان في {0} تمرين أكثر مما يسمح به التطبيق. ستتم إضافته بحد أقصى {1} مجموعة أو فاصل و{2} دروب و{3} تكرار ريست بوز.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'كان في {0} تمارين أكثر مما يسمح به التطبيق. ستتم إضافتها بحد أقصى {1} مجموعة أو فاصل و{2} دروب و{3} تكرار ريست بوز.',
+  'People you share this with won’t be able to open it': 'لن يتمكن من تشاركه معهم من فتحه',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'إنه أكبر من أن يكون روتينًا مشتركًا. لا يزال بإمكانك مشاركته. عندما تقل مجموعاته أو تمارينه، سيتمكنون من فتحه.',
 }

@@ -17,6 +17,7 @@ import { isPyramid, normalizePyramid, normalizePyramidRest, normalizePyramidWeig
 import { isBackoff } from './backoff.js'
 import { dbLoadOf } from './dumbbells.js'
 import { MAX_TRIPLE_SETS, POLICIES } from './progression.js'
+import { MAX_WORK_SETS, MAX_DROPS, MAX_BURST_REPS } from './limits.js'
 import { uid, todayISO, DAYN, weekOrder, weekStartOf, exCount, routineCount } from './format.js'
 import { t, exerciseNameFor, exerciseNameClass } from './i18n-core.js'
 import { convertWeight } from './units.js'
@@ -104,7 +105,8 @@ export const PLAN_SLOT_FIELDS = Object.freeze([
 // Keep only the meaningful config fields, so the file stays small and readable. A field added
 // here goes on PLAN_SLOT_FIELDS too, or import drops it.
 function cleanEx(e) {
-  const o = { id: e.id, sets: e.sets }
+  // Older data can hold more sets than the editor now allows (NATG-503); the file never does.
+  const o = { id: e.id, sets: capSets(e.sets) }
   const mode = modeOf(e)
   if (mode === 'cardio') {
     // Written out for the same reason as 'time' below: swings set to cardio would otherwise
@@ -206,17 +208,34 @@ function cleanSgName(v) {
   return typeof v === 'string' ? v.trim().slice(0, SG_NAME_MAX) : ''
 }
 
-/** Keep the floors the config sheet and applyIntensifierPlan already enforce, and nothing else:
- *  a plan file is someone else's data, so anything unrecognised is dropped rather than trusted. */
+/** Keep the floors and caps the config sheet and applyIntensifierPlan already enforce, and
+ *  nothing else: a plan file is someone else's data, so anything unrecognised is dropped rather
+ *  than trusted. The caps are lib/limits.js's, the most the steppers take (NATG-503). */
 function cleanIntensifier(x) {
   const type = x && x.type
   if (type === 'dropset') {
-    return { type, count: Math.max(1, Math.round(Number(x.count)) || 1), pct: Math.max(5, Math.round(Number(x.pct)) || 20) }
+    return { type, count: Math.min(MAX_DROPS, wholeCount(x.count)), pct: Math.max(5, Math.round(Number(x.pct)) || 20) }
   }
   if (type === 'restpause') {
-    return { type, totalReps: Math.max(1, Math.round(Number(x.totalReps)) || 1), restSec: Math.max(5, Math.round(Number(x.restSec)) || 15) }
+    return { type, totalReps: Math.min(MAX_BURST_REPS, wholeCount(x.totalReps)), restSec: Math.max(5, Math.round(Number(x.restSec)) || 15) }
   }
   return null
+}
+const wholeCount = v => Math.max(1, Math.round(Number(v)) || 1)
+
+/** A slot's sets, at most MAX_WORK_SETS, the most the Sets and Intervals steppers take. Anything
+ *  that isn't over the cap is left as it was: unset, 0 ("not set") and the like keep meaning what
+ *  they meant. Triple progression's `setsMax` has its own cap in cleanEx and isn't touched here. */
+const capSets = v => (v > MAX_WORK_SETS ? MAX_WORK_SETS : v)
+
+/** Whether import lowered any of the slot's counts to the limits (parsePlan's `capped`): its
+ *  sets, a drop set's drops or a rest-pause set's reps. */
+function overLimits(e) {
+  if (e.sets > MAX_WORK_SETS) return true
+  const x = e.intensifier
+  if (x && x.type === 'dropset') return wholeCount(x.count) > MAX_DROPS
+  if (x && x.type === 'restpause') return wholeCount(x.totalReps) > MAX_BURST_REPS
+  return false
 }
 
 // The plain slot fields cleanEx writes as numbers, text and flags. A file the app exported always
@@ -344,6 +363,8 @@ export function parsePlan(raw, destinationUnit = 'kg') {
   const known = new Set(customEx.map(c => c.id))
   const week = planWeek(data.week)
   let dropped = 0
+  // Exercises with a count lowered to the limits (NATG-503): the import sheet says so.
+  let capped = 0
   const routines = data.routines.filter(r => r && Array.isArray(r.ex) && !isReservedKey(r.id)).map(r => ({
     ...r,
     ex: r.ex.filter(e => {
@@ -358,6 +379,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       // that they get on the way out. A drawing's id (the female figure of an exercise) becomes
       // the exercise's own.
       const e = cleanSlot(slot)
+      if (overLimits(e)) capped++
       const warm = cleanWarmupSets(e.warmupSets)
       const intens = cleanIntensifier(e.intensifier)
       const rest = cleanRestSec(e.restSec)
@@ -377,6 +399,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
       const pyramidWeight = pyramid.length ? normalizePyramidWeight(e.pyramidWeight, pyramid.length) : []
       const { warmupSets, intensifier, restSec, restOff: _restOff, warmupRestSec, warmupRestOff: _warmOff, sideRestSec: _sideRest, sideRestOff: _sideOff, subs: _subs, pyramid: _pyramid, pyramidRest: _pyramidRest, pyramidWeight: _pyramidWeight, sgName: _sgName, sgRest: _sgRest, incline: _incline, ...passthrough } = e
       if (!known.has(passthrough.id)) passthrough.id = canonicalExId(passthrough.id)
+      if ('sets' in passthrough) passthrough.sets = capSets(passthrough.sets)
       return convertedExercise({ ...passthrough, ...(pyramid.length ? { pyramid } : {}), ...(pyramidRest.length ? { pyramidRest } : {}), ...(pyramidWeight.length ? { pyramidWeight } : {}), ...(warm ? { warmupSets: warm } : {}), ...(intens ? { intensifier: intens } : {}), ...(rest ? { restSec: rest } : restOff ? { restOff: true } : {}), ...(warmOff ? { warmupRestOff: true } : warmRest ? { warmupRestSec: warmRest } : {}), ...(sideOff ? { sideRestOff: true } : sideRest ? { sideRestSec: sideRest } : {}), ...(subs.length ? { subs } : {}), ...(sgName ? { sgName } : {}), ...(sgRest ? { sgRest } : {}), ...(incline > 0 ? { incline } : {}) }, sourceUnit || destination, destination)
     })
   }))
@@ -386,6 +409,7 @@ export function parsePlan(raw, destinationUnit = 'kg') {
     week,
     customEx,
     dropped,
+    capped,
     routineCount: routines.length,
     exerciseCount: routines.reduce((n, r) => n + r.ex.length, 0),
     scheduledDays: WEEK_DAYS.filter(d => week[d]?.length).length,

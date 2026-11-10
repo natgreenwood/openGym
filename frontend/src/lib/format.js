@@ -79,6 +79,10 @@ const NUM_1 = { maximumFractionDigits: 1 }
 const NUM_2 = { maximumFractionDigits: 2 }
 // Plate sizes keep their quarter: 1.25 and 21.25 are real numbers on a plate and a bar.
 export const fmtPlate = n => formatter(Intl.NumberFormat, dateLocale()).format(Math.round(n * 100) / 100)
+// A whole count in the language's own digits and grouping ("1,000", "1.000", "1 000"), for a
+// limit quoted in a sentence.
+export const fmtCount = n => formatter(Intl.NumberFormat, dateLocale(), COUNT).format(Math.round(n))
+const COUNT = { maximumFractionDigits: 0 }
 // Volume stays in the profile's unit throughout: the old shorthand turned anything over
 // 10 000 into "t", which is wrong for a pound profile and made one list mix "18.8t" with
 // "7'535 kg" — two numbers you can't compare at a glance.
