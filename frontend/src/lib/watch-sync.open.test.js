@@ -10,7 +10,7 @@ vi.mock('./health-sync.js', () => ({
   onHealthChange: cb => { health.listeners.add(cb); return () => health.listeners.delete(cb) },
 }))
 
-import { shouldOpenOnWatch, startWatchSync, applyEvents, bindWatchAppActions, markDiscarded, _setWatchPluginForTest, _resetWatchSync, OPEN_ON_WATCH_WINDOW_MS, SNAPSHOT_MAX_BYTES } from './watch-sync.js'
+import { shouldOpenOnWatch, startWatchSync, applyEvents, bindWatchAppActions, markDiscarded, refusedWorkout, onRefusedWorkout, _setWatchPluginForTest, _resetWatchSync, OPEN_ON_WATCH_WINDOW_MS, SNAPSHOT_MAX_BYTES } from './watch-sync.js'
 import { WATCH_DEFAULTS, writeWatchPrefs } from './watch-settings.js'
 
 const now = 1_800_000_000_000
@@ -405,6 +405,130 @@ describe('a workout too big for the watch', () => {
       expect(b.sendSnapshot).not.toHaveBeenCalled()
       expect(warn).toHaveBeenCalledTimes(1)
       expect(warn.mock.calls[0][0]).toMatch(/workout w-9 not sent.*the last snapshot sent is over the budget too$/)
+      stop()
+    })
+  })
+
+  // NATG-650: the workout screen says so while the running workout is refused (refusedWorkout),
+  // and stops once a snapshot of it that fits reaches the watch, or the workout ends.
+  describe('what the workout screen is told', () => {
+    let heard
+    beforeEach(() => { heard = vi.fn(); onRefusedWorkout(heard) })
+
+    it('the first refusal names the workout, and the settings sent around it do not take it back (AC2, AC3)', async () => {
+      const { b, stop, set } = await start(running(2))
+      expect(refusedWorkout()).toBeNull()
+      await set(running(500))
+      // the fallback went out, with the last workout the watch got: still refused
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+      expect(sent(b).active.entries).toHaveLength(2)
+      expect(refusedWorkout()).toBe('w-9')
+      expect(heard).toHaveBeenCalledTimes(1)
+      // again and again: the same, said once
+      await set({ ...running(500) })
+      health.listeners.forEach(fn => fn({ on: true }))
+      await vi.runAllTimersAsync()
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(3)
+      expect(sent(b).active.entries).toHaveLength(2)
+      expect(refusedWorkout()).toBe('w-9')
+      expect(heard).toHaveBeenCalledTimes(1)
+      stop()
+    })
+
+    it('also when nothing at all could go to the watch (AC2)', async () => {
+      const { b, stop } = await start(running(500))
+      expect(b.sendSnapshot).not.toHaveBeenCalled()
+      expect(refusedWorkout()).toBe('w-9')
+      stop()
+    })
+
+    it('ends once a snapshot of the workout that fits is on the watch (AC3)', async () => {
+      const { b, stop, set } = await start(running(500))
+      expect(refusedWorkout()).toBe('w-9')
+      await set(running(3))
+      expect(sent(b).active.entries).toHaveLength(3)
+      expect(refusedWorkout()).toBeNull()
+      // too large again: said again
+      await set(running(500))
+      expect(refusedWorkout()).toBe('w-9')
+      stop()
+    })
+
+    it('not while the snapshot that fits has not reached the watch', async () => {
+      const b = bridge()
+      const { stop, set } = await start(running(500), { b })
+      b.sendSnapshot.mockImplementation(async () => ({ sent: false }))
+      await set(running(3))
+      expect(refusedWorkout()).toBe('w-9')
+      b.sendSnapshot.mockImplementation(async () => ({ sent: true }))
+      await set({ ...running(3) })
+      expect(refusedWorkout()).toBeNull()
+      stop()
+    })
+
+    for (const how of ['finished', 'discarded']) {
+      it(`ends at once when the workout is ${how} (AC3)`, async () => {
+        const { st, stop } = await start(running(500))
+        expect(refusedWorkout()).toBe('w-9')
+        if (how === 'discarded') markDiscarded('w-9')
+        st.setState({ S: how === 'finished' ? { ...S0, workouts: [{ id: 'w-9' }] } : S0 })
+        expect(refusedWorkout()).toBeNull()
+        await vi.runAllTimersAsync()
+        expect(refusedWorkout()).toBeNull()
+        stop()
+      })
+    }
+
+    it('is about that workout only: another one starts with nothing to say', async () => {
+      const { st, stop, set } = await start(running(500))
+      expect(refusedWorkout()).toBe('w-9')
+      st.setState({ S: running(2, 'w-10') })
+      expect(refusedWorkout()).toBeNull()
+      await set(running(500, 'w-10'))
+      expect(refusedWorkout()).toBe('w-10')
+      stop()
+    })
+
+    it('never for a workout that fits (AC4)', async () => {
+      const { b, stop, set } = await start(running(2))
+      await set(running(40))
+      await set({ ...running(40) })
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(2)
+      expect(refusedWorkout()).toBeNull()
+      expect(heard).not.toHaveBeenCalled()
+      stop()
+    })
+
+    it('never without a watch with the app, and not once it is gone (A3)', async () => {
+      const lonely = await start(running(500), { b: bridge({ installed: false }) })
+      expect(lonely.b.sendSnapshot).not.toHaveBeenCalled()
+      expect(refusedWorkout()).toBeNull()
+      lonely.stop()
+      // refused, then the watch goes: the link's own event asks again and finds none
+      const b = bridge()
+      const on = {}
+      b.addListener = vi.fn(async (name, fn) => { on[name] = fn; return { remove: () => {} } })
+      const { stop } = await start(running(500), { b })
+      expect(refusedWorkout()).toBe('w-9')
+      b.status.mockImplementation(async () => ({ paired: true, installed: false }))
+      on.watchState()
+      await vi.runAllTimersAsync()
+      expect(refusedWorkout()).toBeNull()
+      stop()
+    })
+
+    it('never with sending to the watch off, and not once it is switched off (A3)', async () => {
+      writeWatchPrefs({ enabled: false })
+      const off = await start(running(500))
+      expect(sent(off.b).active).toBeNull()
+      expect(refusedWorkout()).toBeNull()
+      off.stop()
+      writeWatchPrefs({ enabled: true })
+      const { stop } = await start(running(500))
+      expect(refusedWorkout()).toBe('w-9')
+      writeWatchPrefs({ enabled: false })
+      await vi.runAllTimersAsync()
+      expect(refusedWorkout()).toBeNull()
       stop()
     })
   })

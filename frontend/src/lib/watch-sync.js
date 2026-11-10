@@ -551,6 +551,23 @@ export function watchExtras (S) {
   }
 }
 
+/* ---------- a workout too big for the watch, for the workout screen ---------- */
+
+// The running workout the watch could not be sent (fitSnapshot gave up on it), by id, or null: the
+// workout screen says so while it lasts (NATG-650). It ends when a snapshot of the workout that
+// fits reaches the watch, not with the stand-in fallbackSnapshot sends, and when the workout ends,
+// sending is switched off or no watch is there any more. This page's own: a reload finds it again
+// on its first send.
+let refusedWid = null
+const refusedListeners = new Set()
+export const refusedWorkout = () => refusedWid
+export const onRefusedWorkout = fn => { refusedListeners.add(fn); return () => refusedListeners.delete(fn) }
+const setRefused = wid => {
+  if (wid === refusedWid) return
+  refusedWid = wid
+  for (const fn of refusedListeners) { try { fn() } catch { /* a listener's problem */ } }
+}
+
 export async function startWatchSync ({ useStore, useUI }) {
   const p = await watchPlugin()
   if (!p) return () => {}
@@ -582,6 +599,7 @@ export async function startWatchSync ({ useStore, useUI }) {
     // A watch that is new here (the app just installed on it, or reinstalled): it has nothing yet,
     // so the snapshot goes again even when it is the same as the last one sent.
     if (linked && !was) lastSent = null
+    if (!linked) setRefused(null)
     return linked
   }
   await checkLink()
@@ -599,6 +617,7 @@ export async function startWatchSync ({ useStore, useUI }) {
     try {
       const S = useStore.getState().S
       const prefs = readWatchPrefs()
+      if (!prefs.enabled) setRefused(null)
       // Settings → Apple Watch: off, the watch is told there is nothing (no workout, nothing ready).
       const snap = prefs.enabled
         ? buildSnapshot(S, { timer: useUI.getState().timer, ready: readyFor(S) })
@@ -615,6 +634,7 @@ export async function startWatchSync ({ useStore, useUI }) {
       let out = fitSnapshot(snap), refused = 0, fallback = null
       if (!out) {
         refused = bytesOf(snap)
+        if (wid != null) setRefused(wid)
         // What this page sent last is the newest the watch can have; the record only after a
         // reload or a link change, when this page has nothing of its own.
         fallback = fallbackSnapshot(snap, lastSent ? JSON.parse(lastSent) : readLastSent(), wid)
@@ -622,10 +642,13 @@ export async function startWatchSync ({ useStore, useUI }) {
       }
       if (out) {
         const json = JSON.stringify(out)
-        if (json !== lastSent) {
+        let there = json === lastSent
+        if (!there) {
           const r = await p.WatchBridge.sendSnapshot({ json })
-          if (r && r.sent) { lastSent = json; writeLastSent(json); warned.clear() }
+          if (r && r.sent) { lastSent = json; writeLastSent(json); warned.clear(); there = true }
         }
+        // The workout itself is on the watch now, as it is: nothing to say on the workout screen.
+        if (there && !refused) setRefused(null)
       }
       if (refused) {
         // One line per workout and outcome, written after the send so a send that just went out
@@ -653,6 +676,8 @@ export async function startWatchSync ({ useStore, useUI }) {
     // Boot done: what the watch sent meanwhile is applied now, and the watch hears the real state.
     if (s.ready && !prev.ready) { drainWatchEvents(); schedule() }
     if (s.S === prev.S) return
+    // Finished, discarded, or another workout: what was said about the one refused is over.
+    if (refusedWid != null && s.S?.active?.id !== refusedWid) setRefused(null)
     schedule()
     // A workout started on the phone: the watch app opens with it (HealthKit's startWatchApp).
     if (linked && shouldOpenOnWatch(prev.S?.active, s.S?.active)) Promise.resolve().then(() => p.WatchBridge.openOnWatch({ type: plannedType(s.S.active.entries) || undefined })).catch(() => {})
@@ -678,12 +703,12 @@ export async function startWatchSync ({ useStore, useUI }) {
   if (!linked) await checkLink()
   schedule()
   drainWatchEvents()
-  return () => { offStore(); offUI(); offPrefs(); offHealth(); offLang(); sub?.remove?.(); subLink?.remove?.(); document.removeEventListener('visibilitychange', onVisible); clearTimeout(tm) }
+  return () => { offStore(); offUI(); offPrefs(); offHealth(); offLang(); sub?.remove?.(); subLink?.remove?.(); document.removeEventListener('visibilitychange', onVisible); clearTimeout(tm); setRefused(null) }
 }
 
 // Test seams.
 export function _setWatchPluginForTest (plugin, getState) { pluginP = Promise.resolve(plugin ? { WatchBridge: plugin } : null); getStateRef = getState || null }
-export function _resetWatchSync () { startedOnWatch.clear(); handlers = null; appHandlers = null; pluginP = null; getStateRef = null; draining = null }
+export function _resetWatchSync () { startedOnWatch.clear(); handlers = null; appHandlers = null; pluginP = null; getStateRef = null; draining = null; refusedWid = null }
 
 /**
  * Writes `fields` (heart rate) onto one set: in the running session when it is that workout, else in
