@@ -55,6 +55,9 @@ const WID_OWNER_KEY = 'gym_state_owner'
 // A) leaves gym_owner where it was; this is what shows it to a boot still waiting (NATG-606).
 const OWNER_GEN_KEY = 'gym_owner_gen'
 const DIRTY_KEY = 'gym_dirty'          // the saved copy owes the server a change
+// sync.unsettled, kept for the next start (NATG-670): an edit was made whose effect on the share
+// lists this device hasn't heard yet, so the lists kept beside it may judge an older copy.
+const UNSETTLED_KEY = 'gym_unsettled'
 // An owed copy an older app (v1.3.9) left behind: its first sync stamps what it changed
 // (lib/sync-legacy.js), holding the fingerprint that app last agreed on with the server.
 const LEGACY_KEY = 'gym_legacy_owed'
@@ -374,6 +377,13 @@ export function restoredStateFor(local, remote, dirty = false) {
   return next
 }
 
+// The copies an edit in this tab put in place (update), as against one a pull, a merge, another
+// tab or a restore brought: the routine page raises its "too large to share" toast only for a
+// change made here (NATG-670 AC6). Held weakly, so a copy no longer in use is not kept for it.
+const editedHere = new WeakSet()
+/** Whether `S` is a copy an edit in this tab made (update), not one that came from elsewhere. */
+export const madeHere = S => !!S && editedHere.has(S)
+
 export const useStore = create((set, get) => {
   let pushTm = null
   let saveTm = null
@@ -403,6 +413,20 @@ export const useStore = create((set, get) => {
     if (MOBILE) writeJsonFile(SHARED_FILE, v)
   }
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
+  /* `sync.unsettled` (NATG-670): this device made an edit whose effect on what the server says
+     about it has not been seen here yet. The routine page goes by its own measure of a shared
+     routine alone while it is on, since the server's `too-large` flag can be a verdict on an older
+     copy. On when an edit queues a push. Off once a push carrying every edit so far has landed AND
+     the share lists have been heard from since: an answer to a GET /api/shares that left after it
+     landed, or a revision poll that left after it and found the lists' etag unchanged (a push that
+     moved no verdict moves no etag, so the poll is what bounds it). A push that fails or is
+     refused leaves it on. `editSeq` counts the edits that queued a push; `landedAt` is the tick a
+     push carrying all of them landed at (0: none since the last edit); a request takes a tick as
+     it leaves, so only one that left after the landing settles it. */
+  let editSeq = 0
+  let landedAt = 0
+  let tick = 0
+  const settleAfter = left => { if (landedAt && left > landedAt) { landedAt = 0; setSync({ unsettled: false }); saveUnsettled(false) } }
   // A replace armed for the next push (replaceState): `{ uid, kind, rev, wid, prepare }`. A backup
   // import's goes against the revision the import's check read (importRead), so a change another
   // device synced while the confirm was open is merged in, not wiped. One with no revision yet (a
@@ -474,6 +498,7 @@ export const useStore = create((set, get) => {
     } catch { return null }
   }
   const storedOwed = () => { try { return localStorage.getItem(DIRTY_KEY) === '1' } catch { return false } }
+  const storedUnsettled = () => { try { return localStorage.getItem(UNSETTLED_KEY) === '1' } catch { return false } }
 
   /* Where the copy in memory stands with the server: the revision it descends from (`base`, as
      { rev, ts, uid }) and whether it owes the server a change (`owed`). Both belong to the copy, per
@@ -508,6 +533,7 @@ export const useStore = create((set, get) => {
     } catch { /* storage refused — the copy in memory still knows */ }
   }
   const saveOwed = owed => { try { if (owed || storeLag) localStorage.setItem(DIRTY_KEY, '1'); else localStorage.removeItem(DIRTY_KEY) } catch { /* as above */ } }
+  const saveUnsettled = on => { try { if (on) localStorage.setItem(UNSETTLED_KEY, '1'); else localStorage.removeItem(UNSETTLED_KEY) } catch { /* as above */ } }
   // `wid`: the write id of the server's document at that revision (api/server.js PUT /api/data):
   // the same `rev` after the server went back in time names a different document.
   // `uid`: the account signed in, whose revision this is. Nobody signed in has no revision of
@@ -778,6 +804,10 @@ export const useStore = create((set, get) => {
     // which looks newer, and a start in between would take that one back (restoreFromMirror).
     if (MOBILE) nativePersist(!stamp || workoutMoved)
     if (push && get().user) {
+      editSeq++
+      landedAt = 0
+      setSync({ unsettled: true })
+      saveUnsettled(true)
       // Before boot has pulled, the copy in hand may be older than the server's: a push now
       // would carry it with a stale (or no) baseRev. It waits for finishBoot.
       if (!get().ready) { pushPending = true; return }
@@ -828,8 +858,12 @@ export const useStore = create((set, get) => {
     if (!base || owes()) return get().pullState()
     try {
       if (!answerIsFor(uid)) return
+      const left = ++tick
       const { rev, wid, shares: sharesEtag } = await api('/api/data/rev')
       if (!answerIsFor(uid)) return
+      // Lists unchanged since a push landed (or no lists at all, sharing off): that push moved no
+      // verdict, so the lists held here are the server's word on the copy it stored.
+      if (typeof sharesEtag !== 'string' || sharesEtag === get().shares?.etag) settleAfter(left)
       // The share lists moved (a new share, an answer, a revoke, a sharer's edit of a routine
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
@@ -956,6 +990,7 @@ export const useStore = create((set, get) => {
     if (replaceRev && replaceRev.uid !== uid) replaceRev = null   // armed for another account (NATG-570)
     if (owesRead(uid) && !(await readForReplace(uid, replaceRev))) return
     const S = get().S
+    const edits = editSeq   // the edits this push carries; one made while it is out queues its own
     const { base } = metaOf()
     // No base: this copy does not know which revision it descends from (a first sync, or a marker
     // from before bases named their account, while the first pull has not landed). It pulls first,
@@ -999,6 +1034,7 @@ export const useStore = create((set, get) => {
       markOwed(false)
       toldTooLarge = false
       confirmed(S)
+      if (edits === editSeq && get().sync.unsettled) landedAt = ++tick
       // Back from offline with changes that were waiting: say so once — the banner that promised
       // "syncs when you're back online" has just kept its word.
       if (offlineChanges) {
@@ -1263,7 +1299,7 @@ export const useStore = create((set, get) => {
   const forgetSync = () => {
     meta.set(get().S, { base: null, owed: false })
     offlineChanges = false   // a push the previous account owed is not this one's to announce
-    try { for (const k of [SYNC_KEY, DIRTY_KEY, SYNCED_AT_KEY, SYNCED_FP_KEY]) localStorage.removeItem(k) } catch { /* nothing to keep */ }
+    try { for (const k of [SYNC_KEY, DIRTY_KEY, UNSETTLED_KEY, SYNCED_AT_KEY, SYNCED_FP_KEY]) localStorage.removeItem(k) } catch { /* nothing to keep */ }
     fpOf = null
   }
 
@@ -1293,7 +1329,8 @@ export const useStore = create((set, get) => {
     handedOver = false
     // Signed out, this device is nobody's: the sign-in screen is in the instance's language.
     persist(freshState(), false)
-    setSync({ offline: false, auth: false, lastError: null, pending: false, lastSynced: 0 })
+    landedAt = 0
+    setSync({ offline: false, auth: false, lastError: null, pending: false, lastSynced: 0, unsettled: false })
     // On a phone the file is wiped with it, now rather than after the usual wait: a start in
     // between would open in local mode on the signed-out account's data, since that boot takes
     // the file whenever storage holds nothing.
@@ -1703,8 +1740,14 @@ export const useStore = create((set, get) => {
   meta.set(S0, { base: readStoredSync(), owed: storedOwed() })
   const user0 = (() => { try { return JSON.parse(localStorage.getItem('gym_user')) || null } catch { return null } })()
   adoptHold = !!user0 && readAdopt()?.uid === user0.id
-  const sync0 = { offline: false, pending: storedOwed(), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
+  // `unsettled`: a copy that starts out owed, or changed since the revision it descends from (an
+  // edit saved here whose push never left), carries edits the lists kept here never judged; and so
+  // does one whose push landed before the session ended but whose lists were not heard from since.
+  const sync0 = { offline: false, pending: storedOwed(), unsettled: storedOwed() || storedUnsettled() || localChanged(S0), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
   sync0.status = statusOf(sync0, user0)
+  // Kept on with nothing left to push: the push landed before the last session ended, so the first
+  // list or unchanged poll from here on settles it, as it would have then.
+  if (sync0.unsettled && !storedOwed() && !localChanged(S0)) landedAt = ++tick
 
   return {
     S: S0,
@@ -1760,6 +1803,7 @@ export const useStore = create((set, get) => {
       S._ts = stampChange(prev, S, Date.now())
       if (prevJson !== null && JSON.stringify(prev) !== prevJson) throw new Error('update(): the previous state was changed in place')
       persist(S, push)
+      if (get().S !== prev) editedHere.add(get().S)
       // A photo or video added to a workout is a change worth the day's backup too: the one
       // finishing wrote went before the finish screen's pictures (autoBackupNow). Not a removal,
       // nor a workout deleted: the day's copy then still holds what was taken off, as a backup should.
@@ -2048,6 +2092,7 @@ export const useStore = create((set, get) => {
       // accepted after the server answered, so this answer cannot judge it.
       const mine = { uid: user.id, promise: null, stale: false, seen: null, known: new Set(orphanPointers(get().S, [])) }
       sharesFetch = mine
+      const left = ++tick
       mine.promise = (async () => {
         try {
           const r = await api('/api/shares')
@@ -2070,6 +2115,7 @@ export const useStore = create((set, get) => {
           set({ shares, sharesError: false })
           sharesFresh = user.id
           saveShares(shares)
+          settleAfter(left)
           // A shared routine accepted, changed or gone can make a day a training day or a rest
           // day: the phone's reminders and nudges are scheduled again from the new lists.
           if (MOBILE) syncReminder(get().S)
@@ -2255,7 +2301,8 @@ export const useStore = create((set, get) => {
           localStorage.setItem('gym_owner', u.id)
           seenOwner = u.id
           persist(restartedState(get().S), false)
-          setSync({ pending: false, lastSynced: 0, lastError: null })
+          landedAt = 0
+          setSync({ pending: false, lastSynced: 0, lastError: null, unsettled: false })
         }
         // The mark, with the names of what this copy holds now (`pre`) — what the question is
         // about; whatever is logged later belongs to the account (runAdopt).
