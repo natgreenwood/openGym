@@ -125,8 +125,11 @@ needed.
 - `accounts()` supplies the fake server; the file-level `hold(method, path)`
   controls late responses, including boot 401s. The server has no `hold` method.
   Await `held.asked` before changing the session: the helper captures the response
-  or error on arrival, then `held.release()` delivers that same result. A late
-  401 must preserve a new owner's sign-in; an unchanged owner must still sign out.
+  or error on arrival, then `held.release()` delivers that same result. Release
+  asserts that the requested method/path arrived and its response is still held;
+  teardown names any hold whose request never arrived. Removing `await released`
+  must fail the hold-using tests. A late 401 must preserve a new owner's sign-in;
+  an unchanged owner must still sign out.
 - `act()` identifies the writing tab; a tab's `busy` counter delays its storage
   callbacks until `pump()` can deliver them.
 
@@ -142,6 +145,11 @@ compare failing names after removing the same owner guards from each version.
 Cover the `doPush` send guard alone, together with each of the 409, `pushAgain`
 and debounce guards, and each of those three guards alone. Also check the
 post-GET `pullState` guard, because held GET answers use the same helper.
+
+The 409 handler's owner check is also backed by `mergeInto`'s `answerIsFor(uid)`
+check. Removing only the handler check can leave the suite green. To exercise
+the 409 retry rows, remove both owner checks; keep `mergeInto`'s separate
+`base.uid` refusal intact when isolating owner changes.
 
 ## Account-stamped sync bases
 
