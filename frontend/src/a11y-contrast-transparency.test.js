@@ -283,9 +283,17 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     ['index.css', '.field:focus,.input:focus', '--focus-ring'],
     ['coach.css', '.composer textarea:focus', '--focus-ring'],
     ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
+    ['index.css', '.stp:has(.num:focus-visible)', '--focus-ring'],
     ['index.css', '.dw-col:focus-visible::after', '--label'],
   ])('%s %s draws in %s', (file, sel, colour) => {
     expect(rule(read(file), sel)).toContain(`var(${colour})`)
+  })
+
+  it('a stepper draws its field ring where its own clipping leaves it whole (NATG-593)', () => {
+    // .stp clips its children, so the field's ring goes on the .stp itself.
+    expect(rule(css, '.stp')).toContain('overflow:hidden')
+    expect(rule(css, '.stp .num')).toContain('outline:none')
+    expect(rule(css, '.stp:has(.num:focus-visible)')).toMatch(/outline:2\.5px solid var\(--focus-ring\)/)
   })
 
   it('no stylesheet draws a focus indicator in the raw accent or a tint of it', () => {
