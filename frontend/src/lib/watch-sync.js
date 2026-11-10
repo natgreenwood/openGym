@@ -573,6 +573,10 @@ export async function startWatchSync ({ useStore, useUI }) {
   if (!p) return () => {}
   getStateRef = () => useStore.getState()
   let lastSent = null, lastClips = null, tm = null
+  // Sends can overlap (a slow bridge, the next change's debounce): each is numbered when it starts,
+  // and the last one refused is kept, so an older send that resolves late can't take back a newer
+  // refusal (NATG-650).
+  let sendSeq = 0, refusedSeq = 0
   // The warnings written since the last snapshot that went out, by kind and workout: each once.
   const warned = new Set()
   const warnOnce = (kind, wid, text) => {
@@ -612,6 +616,7 @@ export async function startWatchSync ({ useStore, useUI }) {
   } catch { /* no Apple Health here: the watch measures nothing */ }
   const send = async () => {
     tm = null
+    const seq = ++sendSeq
     // Not before the store has its copy: an empty one would tell the watch its workout is over.
     if (!linked || !storeReady()) return
     try {
@@ -634,7 +639,7 @@ export async function startWatchSync ({ useStore, useUI }) {
       let out = fitSnapshot(snap), refused = 0, fallback = null
       if (!out) {
         refused = bytesOf(snap)
-        if (wid != null) setRefused(wid)
+        if (wid != null) { refusedSeq = seq; setRefused(wid) }
         // What this page sent last is the newest the watch can have; the record only after a
         // reload or a link change, when this page has nothing of its own.
         fallback = fallbackSnapshot(snap, lastSent ? JSON.parse(lastSent) : readLastSent(), wid)
@@ -648,7 +653,8 @@ export async function startWatchSync ({ useStore, useUI }) {
           if (r && r.sent) { lastSent = json; writeLastSent(json); warned.clear(); there = true }
         }
         // The workout itself is on the watch now, as it is: nothing to say on the workout screen.
-        if (there && !refused) setRefused(null)
+        // Only a send of that workout started after it was last refused says so.
+        if (there && !refused && wid != null && wid === refusedWid && seq > refusedSeq) setRefused(null)
       }
       if (refused) {
         // One line per workout and outcome, written after the send so a send that just went out

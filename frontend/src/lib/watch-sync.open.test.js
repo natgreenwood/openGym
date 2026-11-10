@@ -454,6 +454,32 @@ describe('a workout too big for the watch', () => {
       stop()
     })
 
+    // The Tester's sequence: the bridge still busy with a send from before the refusal
+    it('not when a send started before the refusal resolves after it', async () => {
+      const b = bridge()
+      let finishOld
+      b.sendSnapshot.mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve }))
+      _setWatchPluginForTest(b)
+      const st = store({ S: running(2) })
+      const stop = await startWatchSync({ useStore: st, useUI: store({ timer: null }) })
+      await vi.advanceTimersByTimeAsync(400)
+      expect(b.sendSnapshot).toHaveBeenCalledTimes(1)
+      st.setState({ S: running(500) })
+      await vi.advanceTimersByTimeAsync(400)
+      expect(refusedWorkout()).toBe('w-9')
+      // the older send, of the two rows that fitted, lands now: the 500 rows still don't fit
+      finishOld({ sent: true })
+      await vi.advanceTimersByTimeAsync(0)
+      expect(refusedWorkout()).toBe('w-9')
+      expect(heard).toHaveBeenCalledTimes(1)
+      // a send of the workout that fits, started after the refusal, still ends it
+      st.setState({ S: running(3) })
+      await vi.advanceTimersByTimeAsync(400)
+      expect(sent(b).active.entries).toHaveLength(3)
+      expect(refusedWorkout()).toBeNull()
+      stop()
+    })
+
     it('not while the snapshot that fits has not reached the watch', async () => {
       const b = bridge()
       const { stop, set } = await start(running(500), { b })
