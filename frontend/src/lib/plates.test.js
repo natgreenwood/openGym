@@ -81,6 +81,11 @@ describe('plateStack', () => {
     expect(plateStack(21.25, inventoryFor({ unit: 'kg' }))).toEqual({ plates: [20, 1.25], missing: 0 })
   })
 
+  test('greedy that lands exactly wins even when fewer plates would make the weight', () => {
+    // 25 + 15 + 15 is three plates; heaviest first is five, and that is the answer on purpose
+    expect(plateStack(55, [{ w: 25, n: 2 }, { w: 15, n: 2 }, { w: 2, n: 2 }, { w: 1, n: 1 }])).toEqual({ plates: [25, 25, 2, 2, 1], missing: 0 })
+  })
+
   test('the coach ramp on Monday\'s squat, one pair of each', () => {
     expect(plateStack(12.5, homeInv).plates).toEqual([10, 2.5])
     expect(plateStack(27.5, homeInv).plates).toEqual([25, 2.5])
