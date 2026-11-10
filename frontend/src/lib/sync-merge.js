@@ -761,6 +761,11 @@ function applyDeletions(S, deleted, tombs = null) {
 // (lib/backup-media.js exportableState). Nothing shows it: the merge alone reads it.
 export const TOMB_LISTS = { workouts: workoutKey, routines: x => x?.id, customEx: x => x?.id, gymCards: x => x?.id, equipProfiles: x => x?.id }
 export const TOMB_MAX = 200
+// The age is judged against the time a change is stamped at (stampDeletions) or the server stores
+// a copy (api/sync-stamps.js stampPut), and both are lifted past the highest stamp a copy carries
+// (stampChange). So a device whose clock runs more than this far ahead ages kept content out early,
+// and on every copy once its stamps spread. Raising the constant does not help with that; the same
+// holds for EDIT_KEEP_MS.
 export const TOMB_KEEP_MS = 30 * 86400000
 const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null)
 
@@ -791,6 +796,7 @@ function joinTomb(f, a, b) {
   return tombOf(f, t)
 }
 function foldTomb(tombs, f, k, x) {
+  if (k === '__proto__') return   // as joinTombs: never the map's prototype, only own keys
   const m = isMap(tombs[f]) ? tombs[f] : (tombs[f] = {})
   const t = joinTomb(f, m[k], x)
   if (t) m[k] = t; else delete m[k]
@@ -1120,8 +1126,10 @@ export function mergeStates(a0, b0, { prefer } = {}) {
   const deleted = prefer ? mergeDeletions(prefer === 'a' ? a.deleted : b.deleted, null) : mergeDeletions(a.deleted, b.deleted)
   // The content of removed entries (`tombs` above), of both copies, with what is removed here
   // folded in. With `prefer` too: what either side kept is still the same account's, and a backup
-  // brought in with "Merge them in" carries none of its own (importBackup). Only without it is an
-  // entry that is back merged with what was kept of it: sign-in keeps the preferred side's version.
+  // brought in with "Merge them in" carries none of its own (importBackup). With `prefer` an entry
+  // that is back is not merged with what was kept of it yet, since sign-in keeps the preferred
+  // side's version as it is; the kept content stays, and the next merge without `prefer` restores
+  // it into the entry (AC3). The restore is deferred, not skipped.
   const tombs = joinTombs(a.tombs, b.tombs)
   for (const w of applyDeletions(out, deleted, tombs)) {
     const k = String(workoutKey(w))

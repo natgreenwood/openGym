@@ -106,6 +106,14 @@ describe('a removal on this device keeps the content too (stampDeletions)', () =
     expect(gone.tombs).toEqual({ routines: { r0: { _f: { name: 100041 }, name: 'Push day' } } })
   })
 
+  it('never makes an entry whose key is __proto__ the prototype of the kept map', () => {
+    const S = { ...base(), routines: [{ id: 'r1', name: 'y', _ts: 5, _f: { name: 5 } }, { id: '__proto__', name: 'x', _ts: 5, _f: { name: 5 } }] }
+    const next = stampDeletions(S, { ...clone(S), routines: [] }, 100052)
+    const m = next.tombs.routines
+    expect(Object.getPrototypeOf(m)).toBe(Object.prototype)
+    expect(Object.keys(m)).toEqual(['r1'])
+  })
+
   it('never writes into the previous copy', () => {
     const edited = change(change(base(), 100041, S => { S.routines[0].name = 'A' }), 100045, S => { S.customEx[0].name = 'B'; S.customEx = [] })
     const json = JSON.stringify(edited)

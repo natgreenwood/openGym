@@ -556,6 +556,8 @@ export function keepUnknown(cur, next) {
 // it out at its own time, since the join would otherwise bring back what a device had dropped.
 export const TOMB_LISTS = { workouts: workoutKey, routines: x => x?.id, customEx: x => x?.id, gymCards: x => x?.id, equipProfiles: x => x?.id };
 export const TOMB_MAX = 200;
+// Judged against the server's `t`, which is lifted past the highest stamp it sees: a device whose
+// clock runs more than this far ahead ages kept content out early (sync-merge.js TOMB_KEEP_MS).
 export const TOMB_KEEP_MS = 30 * 86400000;
 const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null);
 function tombOf(f, x) {
