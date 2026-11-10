@@ -81,7 +81,8 @@ function useTooLarge(routine, list, noticeRef) {
  * The routine page's Sharing section: the share action, or why it is unavailable, and the
  * people the routine is shared with, each with Unshare. Every row offers Unshare whatever that
  * person did with it, since a share they turned down still takes a place under the server's cap
- * until it is unshared (NATG-484). Renders nothing when sharing is unavailable.
+ * until it is unshared (NATG-484). Renders nothing when sharing is unavailable, but
+ * for the "too large to share" notice a list kept on this device still calls for (NATG-670).
  */
 const RoutineSharing = forwardRef(function RoutineSharing({ routine, S, shares }, ref) {
   const toast = useUI(s => s.toast)
@@ -91,8 +92,26 @@ const RoutineSharing = forwardRef(function RoutineSharing({ routine, S, shares }
   const noticeRef = useRef(null)
   const [leaving, setLeaving] = useState(() => new Set())   // share ids with an unshare in flight
   const { available, list, failed } = shares
-  const tooLarge = useTooLarge(routine, available ? list : null, noticeRef)
-  if (!available) return null
+  // `list` is the one kept on this device while the server can't be asked (`guarded`): a phone that
+  // starts offline still warns, and still raises the toast on an edit that crosses the cap.
+  const tooLarge = useTooLarge(routine, list, noticeRef)
+  // Not a live region: the toast announces the crossing once, and this is not read out on every
+  // edit while the routine stays over. Focusable for the toast's Show.
+  const notice = tooLarge && <div ref={noticeRef} id={noticeId} tabIndex={-1} className="shared-notice warn share-too-large">
+    <Icon name="warning" />
+    <div>
+      <b>{t('People you’ve shared this with won’t be able to open it')}</b>
+      <span>{t('It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.')}</span>
+    </div>
+  </div>
+  // Sharing unavailable: nothing, unless a list kept here shows the routine is shared and it is
+  // too large. Then the heading and the notice alone, since sharing and unsharing need the server.
+  if (!available) return notice ? <div ref={ref} tabIndex={-1} className="routine-sharing">
+    <section className="sect">
+      <h2 className="sect-t">{t('Sharing')}</h2>
+      {notice}
+    </section>
+  </div> : null
   const custom = customExercisesIn(routine, S)
   const names = custom.map(exerciseNameText).join(', ')
   const reload = () => useStore.getState().loadShares()
@@ -127,15 +146,7 @@ const RoutineSharing = forwardRef(function RoutineSharing({ routine, S, shares }
   return <div ref={ref} tabIndex={-1} className="routine-sharing">
     <section className="sect">
       <h2 className="sect-t">{t('Sharing')}</h2>
-      {/* Not a live region: the toast announces the crossing once, and this is not read out on
-          every edit while the routine stays over. Focusable for the toast's Show. */}
-      {tooLarge && <div ref={noticeRef} id={noticeId} tabIndex={-1} className="shared-notice warn share-too-large">
-        <Icon name="warning" />
-        <div>
-          <b>{t('People you’ve shared this with won’t be able to open it')}</b>
-          <span>{t('It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.')}</span>
-        </div>
-      </div>}
+      {notice}
       <div className="sect-b">
         {custom.length
           // Unavailable, but still focusable, with the reason written in the row rather than in a

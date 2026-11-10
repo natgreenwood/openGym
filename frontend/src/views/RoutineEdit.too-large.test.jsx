@@ -38,12 +38,15 @@ function routineOf(bytes) {
 const UNDER = MAX_SHARED_BYTES - 10
 const OVER = MAX_SHARED_BYTES + 10
 
-async function mount({ routine = routineOf(1000), outgoing = [out('s1', 'Alex Rivera')], unsettled = false } = {}) {
-  answers.shares = { incoming: [], outgoing, etag: 'e' }
+// `offline`: a cold start without the server, as on a phone that opens with no network: no config
+// answer, and the share lists only as this device kept them (`outgoing`, or none with null).
+async function mount({ routine = routineOf(1000), outgoing = [out('s1', 'Alex Rivera')], unsettled = false, offline = false } = {}) {
+  answers.shares = { incoming: [], outgoing: outgoing || [], etag: 'e' }
   const S = JSON.parse(JSON.stringify(DEF))
   S.routines = [routine]
   localStorage.setItem('gym_owner', ME.id)
-  useStore.setState({ S, user: ME, config: { shares: true }, shares: null, sharesError: false, sync: { ...useStore.getState().sync, unsettled } })
+  const kept = offline && outgoing ? { uid: ME.id, outgoing, incoming: [], etag: 'e' } : null
+  useStore.setState({ S, user: ME, config: offline ? null : { shares: true }, shares: kept, sharesError: false, sync: { ...useStore.getState().sync, unsettled } })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -212,5 +215,38 @@ describe('accessibility (AC7)', () => {
     await mount({ routine: routineOf(UNDER) })
     const row = [...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Share with more people')
     expect(row.hasAttribute('aria-describedby')).toBe(false)
+  })
+})
+
+describe('a cold start offline, with the lists kept on this device', () => {
+  const section = () => host.querySelector('.routine-sharing')
+  it('shows the heading and the notice alone: no share row, no list, which need the server', async () => {
+    await mount({ routine: routineOf(OVER), offline: true })
+    expect(notice()).not.toBeNull()
+    expect(section().querySelector('.sect-t').textContent).toBe('Sharing')
+    expect(section().querySelectorAll('button')).toHaveLength(0)
+    expect(host.textContent).not.toContain('Shared with')
+    expect(host.textContent).not.toContain('Alex Rivera')
+  })
+
+  it('shows nothing while the routine is under the cap, as before', async () => {
+    await mount({ routine: routineOf(UNDER), offline: true })
+    expect(section()).toBeNull()
+  })
+
+  it('shows nothing without a kept list', async () => {
+    await mount({ routine: routineOf(OVER), offline: true, outgoing: null })
+    expect(section()).toBeNull()
+  })
+
+  it('an edit that crosses the cap shows the notice and raises the toast, whose Show reaches it', async () => {
+    await mount({ routine: routineOf(UNDER), offline: true })
+    editNote(noteOf(OVER))
+    expect(notice()).not.toBeNull()
+    expect(toastShown()).toBe(true)
+    const scroll = vi.spyOn(notice(), 'scrollIntoView').mockImplementation(() => {})
+    act(() => useUI.getState().runToastAction())
+    expect(scroll).toHaveBeenCalled()
+    expect(document.activeElement).toBe(notice())
   })
 })
