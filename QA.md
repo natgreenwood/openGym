@@ -635,10 +635,12 @@ dates. It fakes only `Date` and restores the original timezone and real clock.
 
 ## Known gaps
 
-`scripts/app-icons.test.mjs` currently has two failures comparing committed icons
-with fresh renders on this Linux runtime. They reproduce on the unchanged base;
-run `npx vitest run scripts/app-icons.test.mjs` to isolate them. Do not regenerate
-icons as part of unrelated frontend changes.
+`scripts/app-icons.test.mjs` has two failures comparing committed icons with
+fresh renders under this host's Node 22.22.1. They reproduce on the unchanged
+base. All nine cases pass with the official Node 22.23.4 binary on the same
+host, matching CI. Isolate the file with
+`npx vitest run scripts/app-icons.test.mjs`; use the official CI runtime before
+regenerating icons as part of unrelated frontend changes.
 
 ## API checks
 
