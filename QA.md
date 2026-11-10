@@ -176,6 +176,34 @@ check. Removing only the handler check can leave the suite green. To exercise
 the 409 retry rows, remove both owner checks; keep `mergeInto`'s separate
 `base.uid` refusal intact when isolating owner changes.
 
+## Deleted-entry content and merge convergence
+
+From `frontend/`, run the five-collection merge, equal-stamp and Undo-window
+properties together, then the server-port and backup/reset acceptance checks:
+
+```sh
+npm test -- src/lib/sync-merge.property.test.js src/lib/sync-merge.tombs.test.js src/lib/sync-merge.ties.test.js src/lib/sync-merge.undo-window.test.js --maxWorkers=1 --reporter=dot
+npm test -- src/lib/sync-merge.tombs.test.js src/lib/sync-merge.ties.test.js src/lib/sync-merge.undo-window.test.js src/lib/sync-stamps-parity.test.js src/lib/backup-media.test.js src/lib/media-refs.test.js src/lib/mobile.autobackup.test.js src/lib/mobile.backupfolder.test.js src/store/useStore.reset-sync.test.jsx src/store/useStore.import-restore.test.jsx src/views/Settings.server-sync.test.jsx --maxWorkers=1 --reporter=verbose
+```
+
+From `api/`:
+
+```sh
+node --test test/sync-tombs.test.js test/media-refs.test.js test/media-gc.test.js
+```
+
+The API regressions start isolated local servers and cover both reconnect
+orders through real revision conflicts, legacy/current writer shapes, retained
+content size and repeated below-request-limit pushes. No external account is
+needed. The shared media-reference fixture is `api/test/fixtures/media-refs.json`.
+
+In Chromium, seed synthetic retained content and use Settings → Data & backup.
+Check the downloaded JSON omits `tombs` while local retained content stays;
+import a file with a distinct live routine name and injected `tombs`, then wait
+for the live name to change before checking the injected content was ignored.
+Reset everything must remove retained content from localStorage after reload.
+These browser checks do not establish native or physical mixed-version sync.
+
 ## Account-stamped sync bases
 
 From `frontend/`, check marker upgrades, foreign-base refusals, first sync,
