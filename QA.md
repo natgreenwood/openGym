@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-10 (frontend and API)_
+_Last verified by QA agent: 2026-11-10 (frontend, API and MCP)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -32,29 +32,84 @@ Check test-order isolation with the whole suite, changing the seed between runs:
 npx vitest run --sequence.shuffle --sequence.seed=7
 ```
 
+When a whole run exceeds the per-command time limit, run all four shards
+sequentially with the same seed:
+
+```sh
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=1/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=2/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=3/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=4/4 --maxWorkers=3
+```
+
+Keep the default per-file isolation enabled. Each file runs in one shard, and
+shuffle still reorders tests within each file. Collect all four final summaries.
+
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
-Known gaps for the plates property test.
+Plate-loading properties for input replay.
+
+## Plate-loading properties
+
+From `frontend/`, exercise loading, inventory limits, set-row totals and plate
+changes, including a longer fast-check run:
+
+```sh
+npx vitest run src/lib/plates.property.test.js src/lib/plates.test.js --maxWorkers=1
+PROPERTY_RUNS=5000 npx vitest run src/lib/plates.property.test.js --maxWorkers=1
+```
+
+`plateStack` deliberately keeps heaviest-first greedy plates when they reach the
+target exactly, even if fewer plates could do so. When greedy misses, it chooses
+the fewest plates for the heaviest reachable load at or below the target. The
+pinned 55-weight unit case covers the distinction; random inputs rarely do.
+
+To replay fast-check inputs, configure its seed in a temporary Node `--import`
+preload inherited by Vitest workers. For a preload at the frontend root:
+
+```js
+import fc from './node_modules/fast-check/lib/fast-check.js'
+fc.configureGlobal({ seed: -130782281 })
+```
+
+Pass its absolute path through `NODE_OPTIONS="--import=/absolute/path/to/preload.mjs"`
+when running the plates command. Do not commit the temporary preload. Verified
+with official Node 22.23.4, Vitest 5.1.0 and fast-check 4.10.2.
 
 ## Fresh-store and global isolation
 
 The shared helper introduced in [PR #81](https://github.com/natgreenwood/openGym/pull/81)
 is `src/test-utils/fresh-store.js`. Call `await freshStore()` from a test or
 `beforeEach`; it returns the store module's exports. Its automatic `afterEach`
-signs out every store it loaded and removes the window/document listeners recorded
-during loading, including the `gym_owner` storage listener. It requires Vitest's
-default per-file isolation. A store loaded in `beforeAll` is released after the
-first test. Signed-out poll timers remain idle rather than being cancelled.
+signs out every store it loaded and disposes of it (`disposeStore`, NATG-658):
+the poll and any save or push still on its debounce stop, and every
+window/document listener the store added comes off, including the `gym_owner`
+storage listener. Only tests call `disposeStore`; the app never does. The helper
+requires Vitest's default per-file isolation. A store loaded in `beforeAll` is
+released after the first test.
+
+Read `DEF` and `hasData` from `src/store/defaults.js` when no store is needed.
+That module can load without browser globals, listeners or timers; importing
+`useStore.js` just to read them creates an extra store outside the helper's
+cleanup. Existing application imports from `useStore.js` still work.
+
+For tests that load their first store inside a test or hook, import
+`warmStoreImports` from `src/test-utils/warm-store.js` and call
+`await warmStoreImports()` at collection time, before the hooks and tests.
+It transforms the heavy dependencies without loading a store or adding
+window/document listeners. Keep the dependency list in that helper. Its
+regression test is `src/test-utils/warm-store.test.js`.
 
 Seed owner-sensitive storage before calling the helper. Import modules that must
 share its instances, such as `media-store.js` and `media-owed.js`, afterwards.
 Keep test-owned pagehide flushes in the file's `afterEach`; they run before the
 helper's cleanup.
 
-From `frontend/`, exercise listener cleanup (including spies installed before or
-during loading), descriptor restoration, and modal global-key cleanup together:
+From `frontend/`, exercise timer and listener cleanup (including spies installed
+before or during loading), descriptor restoration, and modal global-key cleanup
+together:
 
 ```sh
-npx vitest run src/test-utils/fresh-store.test.js src/components/Modals.test.jsx --sequence.shuffle --sequence.seed=7 --reporter=dot
+npx vitest run src/test-utils/fresh-store.test.js src/store/useStore.dispose.test.jsx src/components/Modals.test.jsx --sequence.shuffle --sequence.seed=7 --reporter=dot
 ```
 
 `restoreMocks` and `unstubGlobals` run before each test; create spies and global
@@ -95,8 +150,11 @@ needed.
 - `accounts()` supplies the fake server; the file-level `hold(method, path)`
   controls late responses, including boot 401s. The server has no `hold` method.
   Await `held.asked` before changing the session: the helper captures the response
-  or error on arrival, then `held.release()` delivers that same result. A late
-  401 must preserve a new owner's sign-in; an unchanged owner must still sign out.
+  or error on arrival, then `held.release()` delivers that same result. Release
+  asserts that the requested method/path arrived and its response is still held;
+  teardown names any hold whose request never arrived. Removing `await released`
+  must fail the hold-using tests. A late 401 must preserve a new owner's sign-in;
+  an unchanged owner must still sign out.
 - `act()` identifies the writing tab; a tab's `busy` counter delays its storage
   callbacks until `pump()` can deliver them.
 
@@ -112,6 +170,11 @@ compare failing names after removing the same owner guards from each version.
 Cover the `doPush` send guard alone, together with each of the 409, `pushAgain`
 and debounce guards, and each of those three guards alone. Also check the
 post-GET `pullState` guard, because held GET answers use the same helper.
+
+The 409 handler's owner check is also backed by `mergeInto`'s `answerIsFor(uid)`
+check. Removing only the handler check can leave the suite green. To exercise
+the 409 retry rows, remove both owner checks; keep `mergeInto`'s separate
+`base.uid` refusal intact when isolating owner changes.
 
 ## Account-stamped sync bases
 
@@ -199,6 +262,44 @@ that no logout is sent, the new owner stays signed in, the sheet closes, and the
 cancellation toast names that account without leaving Settings. Also test a new,
 deliberate sign-out after the tab follows the new account.
 
+### Expected account on the cookie path (acceptance check)
+
+Every web sync request names the account it is for (`X-Expected-Account`), and
+the API refuses a session that is another account's with a 412 (NATG-558). From
+`frontend/`, the client half:
+
+```sh
+npx vitest run src/lib/api.expected-account.test.js src/store/useStore.expected-account.test.jsx src/components/SyncBanner.test.jsx --reporter=verbose
+```
+
+The end-to-end check is the NATG-558 research probe (`natg558-probe.mjs`,
+attached to NATG-558) with its assertions inverted, run in a real Chromium
+against the real API and a Vite-served store. Playwright is not a repository
+dependency: install `playwright-core` in a scratch directory outside the
+checkout and pass it as `NATG558_PLAYWRIGHT_MODULE` (with `NATG558_CHROMIUM_PATH`
+for a browser it did not download). Copy `api/` and `frontend/src` from the
+build under test into `research-scratch/` as the probe's header describes, with
+synthetic accounts A and B only. The first Vite start optimises dependencies and
+reloads the page, which fails that run; run it again with the cache kept.
+
+With both pieces in place it must show, while B's login has set the cookie and
+A's tab still owns the store:
+
+- `pullState` as A sends `X-Expected-Account: A` and gets `412` with body
+  `{ error, code: 'account-mismatch' }`.
+- A's store and `gym_state_v1` hold none of B's workouts. `sync` is `error` with
+  `lastError { status: 412, code: 'account-mismatch' }`, not `auth` or offline.
+- The API logs one `{"ev":"account-mismatch","route":"GET /api/data","transport":"cookie"}`
+  line, with no account ids and no state.
+- A bearer request for A from another origin, with B's cookie in the browser,
+  still gets A's document and sends no such header.
+- After the cookie returns to A and the tab pushes, A's server profile holds
+  `workout-A` only, and B's holds `workout-B` only.
+
+Run against a web build without the header, the first assertion fails. The
+probe covers Chromium only; Safari, Firefox and the native apps are not
+exercised.
+
 ## Shared routines
 
 - `src/store/shared-routines.reload-newer.test.jsx` holds controlled GET/DELETE
@@ -211,6 +312,13 @@ deliberate sign-out after the tab follows the new account.
   Decline and Remove with cancel/confirm, offline answers, retry after an error,
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
+
+For double-failure recovery, apply a recipient's DELETE but answer 500, abort its
+reload GET, then let the next load return no shares. Remove's connection-error
+toast is expected; recovery removes the row and schedule pointer without a revoke
+toast and preserves logged workouts. Repeat with an older GET held across the
+DELETE, then fail its fresh follow-up. When the DELETE was not applied, the first
+successful sweep can keep the row; an owner revoke on a later load must toast.
 
 ## Shared routine byte cap
 
@@ -274,6 +382,24 @@ and body only. Check Hevy with intercepted HTTP and synthetic responses, in kg
 and lb; no live account or real API key is needed. Include the Shared tab's offline
 notice and an unavailable shared routine when changing the shared CSS. Wait for
 the boot overlay and sheet animations to finish before taking screenshots.
+
+## Stepper keyboard focus
+
+From `frontend/`:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/components/ui.test.jsx src/sheets.config-count-caps.test.jsx --maxWorkers=2
+```
+
+Also check real Tab navigation in Chromium and WebKit: config-sheet fields,
+`.stp.mini`, and workout weight, reps and effort controls at 320px. Check both
+themes and all eight accents. Measure the rendered ring against its background;
+the token tests alone cannot establish visibility through ancestor opacity.
+Completed straight and per-side rows restore opacity from `.45` to `1` while a
+control has visible focus, then return to `.45` after focus leaves. Check the
+field and both buttons. Effort buttons use the text colour against their tinted
+fill. At a count cap, + keeps focus and its ring after Enter/Space; only its icon
+dims. Tapping a text field also shows its ring.
 
 ## Count limits and sharing notices
 
@@ -388,6 +514,49 @@ Date-only fixtures must use local calendar dates: start at noon, subtract days
 with `setDate`, then format with `isoOf`. `toISOString()` uses UTC and can move
 the fixture to the previous date; subtracting 86400000 also crosses DST poorly.
 
+## Grouped-row focus rings
+
+From `frontend/`, run the CSS focus, segmented-control and contrast regressions:
+
+```sh
+npx vitest run src/focus-ring-inset.test.js src/segmented-height.test.js src/a11y-contrast-transparency.test.js --maxWorkers=1
+```
+
+In Chromium, use a guest profile and intercepted API responses. Tab through
+Settings' grouped rows, including Workout, then a running freestyle workout's
+Workout options menu. Check complete rings on first, middle, last and single-row
+groups in both themes. Enter on Workout and Add exercise must still open their
+screens. Keep the containers' `overflow:hidden`; the row ring must sit inside it.
+
+Compare Settings → Workout's nested switch, segmented button and help button,
+plus the Workout options opener, against the base stylesheet. Their rings must
+stay unchanged. Chromium can round the CSS's 2.5px outline to 2px: assert that
+the offset is negative and its magnitude covers the rendered outline width.
+These checks do not establish native WebView or screen-reader behavior.
+
+## Measurement and weekly-rate focus
+
+From `frontend/`, check focus contrast, measurement inputs and sheet handling:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/views/Measurements.test.jsx src/views/Measurements.units.test.jsx src/views/Measurements.unitless.test.jsx src/components/WeightRate.test.jsx src/components/Modals.test.jsx --maxWorkers=2 --reporter=dot
+```
+
+In Chromium with a synthetic guest profile and intercepted `/api/*` responses,
+open Body measurements → Log. Tab and Shift+Tab through built-in and custom
+number fields in light and dark themes at 320px and 1024px widths. The wrapper
+ring must remain complete: a declared 2.5px `--focus-ring` outline at a 2px
+offset, with a 12px radius; the inner input retains `outline:none`. Chromium
+can round the rendered outline width to 2px. Measure the computed ring against
+the field, sheet and page backgrounds for every preset accent: each must reach
+3:1. Repeat keyboard checks in Weekly rate's Lose, Gain and Hold modes.
+
+Save a decimal measurement and a zero in a unitless custom field, reload and
+edit the entry; values and focus rings must survive. Save and reopen a weekly
+rate too. For Vite browser interception, match request paths beginning `/api/`;
+a broad `**/api/**` also matches source modules served from the sibling API
+directory. These checks do not establish server persistence or native behavior.
+
 ## Sheets and media focus
 
 From `frontend/`:
@@ -419,7 +588,7 @@ close, to avoid reopening the keyboard.
 From `frontend/`, run the snapshot, event, settings and widget regressions:
 
 ```sh
-npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx --maxWorkers=2
+npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx src/views/Workout.watch-refused.test.jsx src/components/WorkoutScrollAnchor.test.jsx --maxWorkers=2
 ```
 
 These tests use local fixtures and a mocked native bridge; no credentials or
@@ -435,6 +604,21 @@ Health opt-out. The sign-out test checks removal of `gym_watch_last_sent`.
 Use synthetic localStorage only. For quota injection in happy-dom, spy on the
 `localStorage.setItem` instance method and assert that the injected failure runs.
 
+`watch-sync.open.test.js` also checks the workout refusal notice, including an
+older pending send resolving after a newer refusal. `Workout.watch-refused.test.jsx`
+checks the persistent header status region and changes between render and
+subscription. The scroll-anchor suite covers folding beneath a taller header.
+
+Browser probes can use the real store and sync module with
+`_setWatchPluginForTest` and a synthetic bridge. Open `/#/workout` (hash routing),
+grow a workout to 500 rows with long custom names and four sets per row, then
+shrink it. Check refusal, failed recovery, successful recovery, sending off and
+unlinked states. In list mode, scroll down before enabling sending; keep the
+entries unchanged to isolate the notice's header-height change. Check the pinned
+notice, exercise position, 320px German wrapping and the wider light/dark layouts.
+These checks establish browser rendering and bridge calls, not native delivery
+or screen-reader announcements.
+
 Measure the UTF-8 bytes of serialized snapshots against `SNAPSHOT_MAX_BYTES`,
 and compare the active workout before and after `fitSnapshot`; `null` means
 refusal. For fallback probes, deliver a small workout before growing it and
@@ -446,23 +630,57 @@ Serialization tests cannot establish native delivery: pairing, locked-phone
 operation and transport failures require an
 iPhone and Apple Watch.
 
+## MCP checks
+
+Verified with Node 22.22.1, npm 9.2.0 and Vitest 4.1.12. Install the API
+dependencies too so the local real-API integration tests run:
+
+```sh
+cd api
+npm ci --omit=optional --no-audit --no-fund
+cd ../mcp
+npm ci --ignore-scripts --no-audit --no-fund
+npm test
+TZ=UTC npm test
+npm run check:node-loadable
+node ../scripts/ci/test-audit.mjs test
+```
+
+The MCP job in `.github/workflows/test.yml` runs the suite with coverage and
+the plain-Node import check. No separate build, lint or type-check is defined.
+Tests use synthetic profiles, loopback HTTP servers and temporary data; no real
+account or credentials are needed.
+
+The CI reporter commands also work with Vitest 5.1.0: verified on Node 22.22.1
+with npm 10.9.10, and in `node:22.23.4-alpine` with npm 10.9.9. Use npm 10 for
+lockfile regeneration. GitHub writes `mcp/test-results.json`,
+`mcp/coverage/coverage-summary.json` and `stats/mcp.json`; GitLab writes
+`mcp/junit.xml` and `mcp/coverage/cobertura-coverage.xml`.
+
+The permission-failure test in `mcp/test/state.test.js` deliberately skips when
+running as root, including in the GitLab Alpine image. It runs as a non-root
+user. Keep the API dependencies installed and `CI=true` when checking CI parity.
+
+Date fixtures must count local calendar days at midday rather than subtracting
+elapsed 24-hour periods. The regression in `mcp/test/write-tools.test.js` pins
+the clock to late evening after London's autumn transition and checks 30 distinct
+dates. It fakes only `Date` and restores the original timezone and real clock.
+
 ## Known gaps
 
-`scripts/app-icons.test.mjs` currently has two failures comparing committed icons
-with fresh renders on this Linux runtime. They reproduce on the unchanged base;
-run `npx vitest run scripts/app-icons.test.mjs` to isolate them. Do not regenerate
-icons as part of unrelated frontend changes.
+`scripts/app-icons.test.mjs` has two failures comparing committed icons with
+fresh renders under this host's Node 22.22.1. They reproduce on the unchanged
+base. All nine cases pass with the official Node 22.23.4 binary on the same
+host, matching CI. Isolate the file with
+`npx vitest run scripts/app-icons.test.mjs`; use the official CI runtime before
+regenerating icons as part of unrelated frontend changes.
 
-`src/lib/plates.property.test.js` can independently fail its fewest-plates
-property: `plateStack` sometimes chooses more plates than necessary. Inspect
-the failing test rather than treating every shuffled-run failure as an order leak.
-
-The MCP rate-limit test in `mcp/test/write-tools.test.js` generates local dates
-by subtracting elapsed 24-hour periods. Late in the day after the autumn DST
-change, Europe/London can produce a duplicate date and fail the test. This
-reproduces on unchanged main. From `mcp/`, `TZ=UTC npm test` passes on the same
-runtime; retain the local-time failure as a fixture defect rather than treating
-the UTC run as a fix.
+For icon timeout checks, fresh-draw has its own 30-second timeout and `--check`
+has 120 seconds; the global five-second default is unchanged. Run the full
+frontend suite with six bounded `node -e 'for(;;){}'` processes and repeat the
+four-file Backup media command above concurrently. Stop every load process
+after the suite finishes. Read the fresh-draw duration and result from Vitest's
+JSON report; other tests can independently time out under this load.
 
 ## API checks
 
