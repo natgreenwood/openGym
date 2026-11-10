@@ -33,7 +33,34 @@ npx vitest run --sequence.shuffle --sequence.seed=7
 ```
 
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
-Known gaps for the plates property test.
+Plate-loading properties for input replay.
+
+## Plate-loading properties
+
+From `frontend/`, exercise loading, inventory limits, set-row totals and plate
+changes, including a longer fast-check run:
+
+```sh
+npx vitest run src/lib/plates.property.test.js src/lib/plates.test.js --maxWorkers=1
+PROPERTY_RUNS=5000 npx vitest run src/lib/plates.property.test.js --maxWorkers=1
+```
+
+`plateStack` deliberately keeps heaviest-first greedy plates when they reach the
+target exactly, even if fewer plates could do so. When greedy misses, it chooses
+the fewest plates for the heaviest reachable load at or below the target. The
+pinned 55-weight unit case covers the distinction; random inputs rarely do.
+
+To replay fast-check inputs, configure its seed in a temporary Node `--import`
+preload inherited by Vitest workers. For a preload at the frontend root:
+
+```js
+import fc from './node_modules/fast-check/lib/fast-check.js'
+fc.configureGlobal({ seed: -130782281 })
+```
+
+Pass its absolute path through `NODE_OPTIONS="--import=/absolute/path/to/preload.mjs"`
+when running the plates command. Do not commit the temporary preload. Verified
+with official Node 22.23.4, Vitest 5.1.0 and fast-check 4.10.2.
 
 ## Fresh-store and global isolation
 
@@ -579,10 +606,6 @@ dates. It fakes only `Date` and restores the original timezone and real clock.
 with fresh renders on this Linux runtime. They reproduce on the unchanged base;
 run `npx vitest run scripts/app-icons.test.mjs` to isolate them. Do not regenerate
 icons as part of unrelated frontend changes.
-
-`src/lib/plates.property.test.js` can independently fail its fewest-plates
-property: `plateStack` sometimes chooses more plates than necessary. Inspect
-the failing test rather than treating every shuffled-run failure as an order leak.
 
 ## API checks
 
