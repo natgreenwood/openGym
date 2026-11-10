@@ -2723,4 +2723,6 @@ export default {
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'É grande demais para uma rotina partilhada. Encurta as notas dos exercícios ou remove alguns exercícios, e vão conseguir abri-la.',
   'This routine is now too large to share.': 'Esta rotina está agora grande demais para partilhar.',
   'Show': 'Mostrar',
+  // --- workout screen: too large for the watch (NATG-650) ---
+  'This workout is too large to send to your Apple Watch, so the watch isn’t showing the latest version.': 'Este treino é grande demais para enviar para o teu Apple Watch, por isso o relógio não está a mostrar a versão mais recente.',
 }

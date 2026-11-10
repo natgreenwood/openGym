@@ -40,7 +40,7 @@ import { routineChangesFromEntry, updateRoutineFromEntry } from '../lib/routines
 import { sessionNoProg, setSessionNoProg, setEntryNoProg, joinSessionNoProg } from '../lib/session-noprog.js'
 import { glyphOf } from '../lib/glyphs.js'
 import { markAllSetsDone, sessionHistory } from '../lib/backfill.js'
-import { bindWatchActions, markDiscarded } from '../lib/watch-sync.js'
+import { bindWatchActions, markDiscarded, refusedWorkout, onRefusedWorkout } from '../lib/watch-sync.js'
 import { bestSetFor } from '../lib/exercise-history.js'
 import { bindLiveActions } from '../lib/live-activity.js'
 import { isWarmupRow, isFailureSet, toggleFailure, isDropSet, isRestPauseSet, dropsOf, clustersOf, addDrop, addCluster, removeDropAt, removeClusterAt, setDropAt, setClusterAt, nextDropWeight, nextBurstReps, isSideSet, makeSideSet, setSideField, toggleSide, addSideDrop, removeSideDropAt, setSideDropAt, addSideCluster, removeSideClusterAt, setSideClusterAt, WEIGHT_ORIGIN_MANUAL } from '../lib/workout-model.js'
@@ -993,6 +993,11 @@ function ActiveWorkout() {
   const readyRestEnds = useUI(s => (s.timer?.ready ? s.timer.endsAt : undefined))
   const A = S.active
   const editing = !!A.editingWorkoutId
+  // Too large to send to the Apple Watch even at its smallest (lib/watch-sync.js, NATG-650): said
+  // in the header while it lasts, for this workout only.
+  const [watchRefused, setWatchRefused] = useState(refusedWorkout)
+  useEffect(() => onRefusedWorkout(() => setWatchRefused(refusedWorkout())), [])
+  const tooBigForWatch = watchRefused != null && watchRefused === A.id
   // A past workout has no rest to time — the sets were done days ago. The work timer for
   // timed sets stays, since counting a hold is how its duration gets entered.
   const startRest = (A.backfill || editing) ? () => {} : liveRest
@@ -2186,6 +2191,14 @@ function ActiveWorkout() {
     {/* In the list the chips ride in the pinned header, so any exercise is one tap away from
         anywhere in a long stack. */}
     {listMode && chipRow}
+    {/* Last in the header, so in the list it stays pinned where a long workout is scrolled to.
+        Always there and empty when nothing is refused: a screen reader hears it when it appears. */}
+    <div role="status">
+      {tooBigForWatch && <div className="muted small whdr-note">
+        <span className="whdr-note-icon"><Icon name="watch" /></span>
+        <span>{t('This workout is too large to send to your Apple Watch, so the watch isn’t showing the latest version.')}</span>
+      </div>}
+    </div>
     </div>
     {editing && <p className="muted small">{t('Editing a saved workout. Date and duration stay unchanged.')}</p>}
     {A.backfill && <div className="muted small" style={{ marginBottom: 8 }}>{t('Logging a past workout, so no rest timers.')}</div>}
