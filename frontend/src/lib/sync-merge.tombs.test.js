@@ -54,7 +54,7 @@ describe('the three operations the research reduced it to (AC1, AC3)', () => {
   it('keeps the removed version while nothing brings it back, and gives it back to a later edit', () => {
     const SC = merge(set, del)
     expect(SC.workouts).toEqual([])
-    expect(SC.tombs.workouts.w0).toEqual({ id: 'w0', _f: { entries: 100041 }, entries: [{ id: 'bench', sets: [{ w: 60, r: 5 }, { w: 20, r: 1 }] }] })
+    expect(SC.tombs.workouts.w0).toEqual({ _f: { entries: 100041 }, entries: [{ id: 'bench', sets: [{ w: 60, r: 5 }, { w: 20, r: 1 }] }] })
     expect(merge(note, SC).workouts[0].entries[0].sets).toHaveLength(2)
   })
 
@@ -103,7 +103,7 @@ describe('a removal on this device keeps the content too (stampDeletions)', () =
   it('keeps the stamped fields of the entry it removed, and none of a never-edited one', () => {
     const edited = change(base(), 100041, S => { S.routines[0].name = 'Push day' })
     const gone = change(edited, 100052, S => { S.routines = []; S.workouts = [] })
-    expect(gone.tombs).toEqual({ routines: { r0: { id: 'r0', _f: { name: 100041 }, name: 'Push day' } } })
+    expect(gone.tombs).toEqual({ routines: { r0: { _f: { name: 100041 }, name: 'Push day' } } })
   })
 
   it('never writes into the previous copy', () => {
@@ -117,7 +117,7 @@ describe('a removal on this device keeps the content too (stampDeletions)', () =
 describe('retention (AC5) and the cap (AC6)', () => {
   const DAY = 86400000
   const T = 1_800_000_000_000
-  const tomb = id => ({ id, _f: { name: 1 }, name: id })
+  const tomb = id => ({ _f: { name: 1 }, name: id })
 
   it('drops kept content 30 days after the removal, when a change is stamped', () => {
     expect(TOMB_KEEP_MS).toBe(30 * DAY)
@@ -180,7 +180,7 @@ describe('kept content in another unit', () => {
 
 describe('a backup that replaces the profile wins over what was kept of its entries too', () => {
   it('stamps the backup\'s fields that differ from a kept version (stampReplace)', () => {
-    const server = { ...base(), routines: [], tombs: { routines: { r0: { id: 'r0', _f: { name: 900 }, name: 'Kept' } } }, deleted: { routines: { r0: 950 } } }
+    const server = { ...base(), routines: [], tombs: { routines: { r0: { _f: { name: 900 }, name: 'Kept' } } }, deleted: { routines: { r0: 950 } } }
     const backup = { ...base(), routines: [{ id: 'r0', name: 'From backup', ex: [], _ts: 5 }] }
     stampReplace(backup, [server], 1000)
     expect(backup.routines[0]._f.name).toBe(1000)

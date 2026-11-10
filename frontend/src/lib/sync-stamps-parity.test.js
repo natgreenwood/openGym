@@ -3,7 +3,7 @@
    its own changes (an older app, an API planner) must hold in this side's merge. */
 import { describe, expect, it } from 'vitest'
 import * as S from '../../../api/sync-stamps.js'
-import { highestStamp, mergeDeletions, mergeEdits, mergeEntry, mergeStates, stampChange, stampEntry, stampEdits, stampRestore } from './sync-merge.js'
+import { highestStamp, mergeDeletions, mergeEdits, mergeEntry, mergeStates, mergeTombs, pruneTombs, stampChange, stampEntry, stampEdits, stampRestore, TOMB_KEEP_MS, TOMB_LISTS, TOMB_MAX } from './sync-merge.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 } }
@@ -46,6 +46,41 @@ describe('api/sync-stamps.js matches sync-merge.js', () => {
       const a = version(), b = version()
       expect(S.mergeEntry(clone(a), clone(b))).toEqual(mergeEntry(clone(a), clone(b)))
       expect(S.mergeEntry(clone(b), clone(a))).toEqual(mergeEntry(clone(b), clone(a)))
+    }
+  })
+
+  it('joins, caps and ages out the kept content of removed entries the same', () => {
+    expect([S.TOMB_MAX, S.TOMB_KEEP_MS, Object.keys(S.TOMB_LISTS)]).toEqual([TOMB_MAX, TOMB_KEEP_MS, Object.keys(TOMB_LISTS)])
+    const DAY = 86400000, T = 1_800_000_000_000
+    for (let seed = 1; seed < 60; seed++) {
+      const R = rng(seed)
+      const pick = xs => xs[Math.floor(R() * xs.length)]
+      const media = () => ({ hash: pick(['a', 'b', 'c']).repeat(64), kind: 'image' })
+      const entry = (f, id) => {
+        const x = { id, _f: { note: 1 + Math.floor(R() * 3) }, note: pick(['x', 'y', 'z']) }
+        if (f === 'workouts' && R() < 0.5) x.media = [media(), media()]
+        if (R() < 0.2) x.extra = 'unstamped'
+        return x
+      }
+      const side = () => {
+        const out = {}
+        for (const f of [...Object.keys(TOMB_LISTS), 'bodyweight']) {
+          if (R() < 0.3) continue
+          out[f] = {}
+          for (let i = 0; i < 1 + Math.floor(R() * 260); i++) out[f][`k${Math.floor(R() * 300)}`] = R() < 0.05 ? 'junk' : entry(f, `k${i}`)
+        }
+        return out
+      }
+      const del = {}
+      for (const f of Object.keys(TOMB_LISTS)) {
+        del[f] = {}
+        for (let i = 0; i < 300; i++) if (R() < 0.9) del[f][`k${i}`] = (T - Math.floor(R() * 40) * DAY) * (R() < 0.1 ? -1 : 1)
+      }
+      const a = side(), b = side()
+      const mine = mergeTombs(clone(a), clone(b), del)
+      expect(S.mergeTombs(clone(a), clone(b), del)).toEqual(mine)
+      expect(mergeTombs(clone(b), clone(a), del)).toEqual(mine)
+      expect(S.pruneTombs(clone(mine), del, T)).toEqual(pruneTombs(clone(mine), del, T))
     }
   })
 })

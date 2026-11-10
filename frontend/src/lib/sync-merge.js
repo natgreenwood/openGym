@@ -765,11 +765,11 @@ export const TOMB_KEEP_MS = 30 * 86400000
 const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null)
 
 // What is kept of `x`, a version of an entry of list `f`, or null when nothing of it can matter.
-// The edit time stays out: it only tells which version's unstamped fields win, and none are kept.
+// The edit time and the id stay out: the time only tells which version's unstamped fields win, and
+// none are kept; the key in the map names the entry.
 function tombOf(f, x) {
   if (!isMap(x)) return null
   const t = {}
-  if (x.id != null) t.id = x.id
   const stamped = Object.keys(isMap(x._f) ? x._f : {}).filter(k => !ENTRY_META.has(k))
   if (stamped.length) t._f = clone(x._f)
   if (isMap(x._u)) t._u = clone(x._u)
@@ -1249,15 +1249,16 @@ export function stampReplace(next, others = [], now = Date.now()) {
   stampDeletions(known, next, now)
   for (const f of ['workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards']) {
     const versions = new Map()
-    for (const o of others) for (const x of list(o?.[f])) if (x && typeof x === 'object' && x.id != null) versions.set(x.id, [...(versions.get(x.id) || []), x])
+    const add = (k, x) => versions.set(k, [...(versions.get(k) || []), x])
+    for (const o of others) for (const x of list(o?.[f])) if (x && typeof x === 'object' && x.id != null) add(String(x.id), x)
     // What either copy kept of a removed entry (`tombs`) is a version too: the backup's must win
     // over it as well when an edit made after the removal brings it back on another device.
-    for (const o of others) for (const x of Object.values(isMap(o?.tombs?.[f]) ? o.tombs[f] : {})) if (isMap(x) && x.id != null) versions.set(x.id, [...(versions.get(x.id) || []), x])
+    for (const o of others) for (const [k, x] of Object.entries(isMap(o?.tombs?.[f]) ? o.tombs[f] : {})) if (isMap(x)) add(k, x)
     for (const x of list(next[f])) {
-      if (!x || typeof x !== 'object' || x.id == null || !versions.has(x.id)) continue
+      if (!x || typeof x !== 'object' || x.id == null || !versions.has(String(x.id))) continue
       const fields = isMap(x._f) ? { ...x._f } : {}
       let moved = false
-      for (const old of versions.get(x.id)) {
+      for (const old of versions.get(String(x.id))) {
         for (const k of new Set([...Object.keys(old), ...Object.keys(x)])) {
           if (ENTRY_META.has(k)) continue
           if ((k in old) !== (k in x) || !sameJSON(old[k], x[k])) { fields[k] = now; moved = true }
