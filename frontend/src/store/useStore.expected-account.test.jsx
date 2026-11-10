@@ -525,3 +525,48 @@ describe('an operation never carries on for another account', () => {
     expect(api.mock.calls.filter(([, o]) => o?.expect === 'u2')).toEqual([])
   })
 })
+
+// NATG-670's `sync.unsettled`: an edit whose effect on the server's share verdict has not been seen
+// here. A 412 settles nothing: a refused push leaves the edit unsettled for any later answer, and a
+// refused poll or share list is no word from the server on a push that did land.
+describe('a 412 and sync.unsettled', () => {
+  const unsettled = () => [useStore.getState().sync.unsettled, localStorage.getItem('gym_unsettled')]
+
+  it('a refused push leaves the edit unsettled, and share lists heard afterwards do not settle it', async () => {
+    await signedIn()
+    useStore.setState({ shares: { uid: 'u1', outgoing: [], incoming: [], etag: 'e1', fetchedAt: 0, names: {} } })
+    useStore.getState().update(s => { s.restSec = 45 })
+    expect(unsettled()).toEqual([true, '1'])
+    api.mockRejectedValueOnce(mismatch())
+    await useStore.getState().pushState()
+    expect(unsettled()).toEqual([true, '1'])
+    expect(localStorage.getItem('gym_dirty')).toBe('1')
+    api.mockResolvedValueOnce({ outgoing: [], incoming: [], etag: 'e1' })
+    await useStore.getState().loadShares()
+    expect(unsettled()).toEqual([true, '1'])
+  })
+
+  it('a push that landed is not settled by a refused revision poll or a refused share list', async () => {
+    await signedIn()
+    useStore.setState({ shares: { uid: 'u1', outgoing: [], incoming: [], etag: 'e1', fetchedAt: 0, names: {} } })
+    useStore.getState().update(s => { s.restSec = 45 })
+    api.mockResolvedValueOnce({ ok: true, rev: 4 })
+    await useStore.getState().pushState()
+    expect(unsettled()).toEqual([true, '1'])   // landed, lists not heard from since
+    api.mockRejectedValue(mismatch())
+    window.dispatchEvent(new Event('online'))   // the poll
+    await settle()
+    await useStore.getState().loadShares()
+    expect(calls()).toEqual(['PUT /api/data', 'GET /api/data/rev', 'GET /api/shares'])
+    expect(unsettled()).toEqual([true, '1'])
+    // The control: the next poll answered settles it. The refused lists forgot their etag, so that
+    // poll loads them again, and their answer is the word from the server.
+    api.mockReset()
+    api.mockResolvedValueOnce({ rev: 4, shares: 'e1' })
+    api.mockResolvedValueOnce({ outgoing: [], incoming: [], etag: 'e1' })
+    window.dispatchEvent(new Event('online'))
+    await settle()
+    expect(calls()).toEqual(['GET /api/data/rev', 'GET /api/shares'])
+    expect(unsettled()).toEqual([false, null])
+  })
+})
