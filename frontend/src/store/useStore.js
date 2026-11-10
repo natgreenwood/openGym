@@ -410,6 +410,9 @@ export const useStore = create((set, get) => {
   let replaceRev = null
   // The write of a sign-in's adoption over a profile that read as empty (runAdopt): a 409 on it is
   // not merged, it hands the profile that appeared back to the adoption to ask about (adoptRaced).
+  // It stays armed, with the sign-in's mark and hold, until it lands or its 409 is handed back: a
+  // write that failed on the way leaves the question open, and the next check asks it again
+  // (resumeAdoption). Only releaseAdopt, a sign-out or another sign-in clears it before that.
   let adoptWrite = null
   let adoptRaced = null
   let importRead = null    // what importConflict last read: { token, state, rev }
@@ -458,7 +461,7 @@ export const useStore = create((set, get) => {
   // Sync held or not, and the screens told (`sync.held`, status 'held').
   const setHold = on => { adoptHold = on; if (get()?.sync) setSync({ held: on }) }
   // The question is answered: sync as usual from here.
-  const releaseAdopt = () => { setHold(false); writeAdopt(null) }
+  const releaseAdopt = () => { setHold(false); writeAdopt(null); adoptWrite = null }
   // The marker names the account it was written for (`uid`, see writeSync). One that names nobody,
   // as every marker from before this did, or an account other than the browser's owner is no base
   // at all: the copy takes the first-sync path, a merge at worst (NATG-556). The owner key only
@@ -969,8 +972,7 @@ export const useStore = create((set, get) => {
     // than whatever another device had written in the meantime.
     const asReplace = replaceRev
     replaceRev = null
-    const adopting = adoptWrite?.uid === uid
-    adoptWrite = null
+    const adoption = adoptWrite?.uid === uid
     // `stamped`: this client stamps its own changes; the server stamps only for one that does not
     // (api/sync-stamps.js).
     // An older app's owed copy over the revision it read: the server stamps what that app changed
@@ -990,6 +992,8 @@ export const useStore = create((set, get) => {
       // next push to, and the marker must not pretend otherwise.
       if (r.rev == null) dropSync()
       else writeSync(r.rev, S._ts, r.wid)
+      // The adoption's write landed: its question is settled, and the sign-in's mark goes.
+      if (adoption) { adoptWrite = null; writeAdopt(null) }
       if (legacy) clearLegacy()
       markOwed(false)
       toldTooLarge = false
@@ -1006,11 +1010,17 @@ export const useStore = create((set, get) => {
       // (another device, another tab). Merged, this copy would win its settings and add its entries
       // to a profile nobody was asked about: it goes back to the adoption instead, held again before
       // anything else can sync, and the adoption asks about it (runAdopt).
-      if (adopting && e.status === 409 && e.data?.state) {
+      if (adoption && e.status === 409 && e.data?.state) {
+        adoptWrite = null
         adoptRaced = { uid, state: e.data.state, rev: e.data.rev || 0 }
         setHold(true)
         return
       }
+      // Any other failure of that write (no network, a server error) settles nothing: held again,
+      // with the sign-in's mark still there, so no ordinary push can take its place. The next check
+      // runs the adoption again from a fresh read (checkRev, resumeAdoption), and a profile that
+      // appeared meanwhile is asked about, never merged unasked (NATG-655).
+      if (adoption) setHold(true)
       if (e.status === 409 && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
         // merge and push once more against that revision. A second refusal in a row leaves the
@@ -1094,6 +1104,7 @@ export const useStore = create((set, get) => {
     clearTimeout(pushTm)
     pushTm = null
     replaceRev = null   // a replace armed for the previous owner is not the next one's (NATG-570)
+    adoptWrite = null   // nor is an adoption's write
     // A guest's workout running here went along with the sign-in in the other tab (it joined this
     // browser's saved copy first, setUser), and this tab shows it again once that tab is done
     // (followSignIn). Said, so a workout that leaves the screen mid-set is not taken for lost; only
@@ -1491,6 +1502,9 @@ export const useStore = create((set, get) => {
     if (held && held.uid !== uid) { refuse('adopt', held.uid, uid); return { adopted: false, added: false, refused: true } }
     let { state, rev } = res
     reached()
+    // This read decides again; a write armed by an earlier run of this adoption is re-armed below
+    // only if it is still the one to send.
+    adoptWrite = null
     let asked = false
     const askAbout = async extras => {
       if (!(extras.workouts || extras.bodyweight || extras.customEx || extras.routines || extras.setup) || typeof ask !== 'function') return false
@@ -1515,8 +1529,16 @@ export const useStore = create((set, get) => {
     if (!state) {
       const push = hasData(S0) && (!alwaysAsk || sameAccount || await askAbout(localExtras(S0, null)))
       if (left()) return gone
-      const mark = readAdopt()
-      releaseAdopt()
+      // The write over the empty profile, unless the question was just asked and answered, keeps
+      // the sign-in's mark until it lands or its 409 is handed back (adoptWrite); only the hold is
+      // lifted, for that write to go. A bare call that marked nothing marks it now, so a write that
+      // fails on the way is resumed like a sign-in's.
+      const guarded = push && rev != null && !asked
+      if (!guarded) releaseAdopt()
+      else {
+        if (!adoptOwed()) writeAdopt({ uid, rejoined: sameAccount, alwaysAsk, pre: owedMark?.pre || preOf(S0) })
+        setHold(false)
+      }
       if (hasData(get().S) && !push) {
         if (asked) await keepDeviceCopy()
         if (left()) return gone
@@ -1534,20 +1556,22 @@ export const useStore = create((set, get) => {
       // Pushed against the revision the read returned (0: no profile), never without a base
       // (NATG-533). A profile that appeared since answers 409, and unless this copy's question was
       // just asked and answered, that 409 is not merged (doPush): the profile is asked about once,
-      // as one found by the read would have been (below), with the sign-in's mark back in place
-      // while the question is open. A 409 after an answer is two devices' conflict, merged as ever.
-      if (rev != null) { writeSync(rev, 0); if (!asked) adoptWrite = { uid } }
+      // as one found by the read would have been (below). A 409 after an answer is two devices'
+      // conflict, merged as ever.
+      if (rev != null) writeSync(rev, 0)
+      if (guarded) adoptWrite = { uid }
       adoptRaced = null
       await get().pushState()
-      adoptWrite = null
       const raced = adoptRaced?.uid === uid ? adoptRaced : null
       adoptRaced = null
       if (left()) return gone
+      // Not landed and not raced (no network, a server error): held, still owed, and the next
+      // check resumes it. What a sign-out kept for this account waits for that run too.
+      if (!raced && guarded && adoptWrite?.uid === uid) return { adopted: false, added: false }
       if (!raced) {
         await applyStash()
         return { adopted: false, added: false }
       }
-      if (mark) writeAdopt(mark)
       ;({ state, rev } = raced)
     }
     if (sameAccount) {
@@ -2205,6 +2229,7 @@ export const useStore = create((set, get) => {
           clearTimeout(pushTm)
           pushTm = null
           replaceRev = null
+          adoptWrite = null
         } else {
           // Boot signing the account back in: an adoption it still owes holds sync until it is
           // answered (resumeAdoption); one another account left behind is void.
