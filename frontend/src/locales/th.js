@@ -2729,4 +2729,9 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'มี {0} ท่าที่เกินกว่าที่แอปอนุญาต จะถูกเพิ่มโดยมีสูงสุด {1} เซ็ตหรืออินเทอร์วัล {2} ดรอป และ {3} ครั้งเรสต์-พอส',
   'People you share this with won’t be able to open it': 'คนที่คุณแชร์ให้จะเปิดรูทีนนี้ไม่ได้',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินไปสำหรับการแชร์ คุณยังแชร์ได้อยู่ เมื่อมีเซ็ตหรือท่าน้อยลง พวกเขาจะเปิดได้',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'คนที่คุณแชร์ด้วยจะเปิดรูทีนนี้ไม่ได้',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์ได้ ย่อโน้ตของท่าลงหรือลบบางท่าออก แล้วเขาจะเปิดได้',
+  'This routine is now too large to share.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์แล้ว',
+  'Show': 'แสดง',
 }

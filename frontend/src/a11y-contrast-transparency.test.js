@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import fc from 'fast-check'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { customAccentVars } from './lib/accent.js'
@@ -206,6 +207,170 @@ describe('Icon-only controls (WCAG 1.4.11)', () => {
     const decls = rule(read(file), sel)
     expect(decls).toContain('var(--label-2)')
     expect(decls).not.toContain('--label-3')
+  })
+})
+
+// NATG-488: text drawn on an accent tint (--acc-soft) or a status pill's tint reads at 4.5:1, in
+// both themes, with and without Increase Contrast, over every surface a tint can sit on. The ink
+// colours are the Designer's (AC8); the ratios are measured here, the way the browser paints them.
+describe('Text on accent and status tints (NATG-488)', () => {
+  const css = read('index.css')
+  const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
+  const ACCENTS = ['lime', 'sky', 'orange', 'violet', 'pink', 'red', 'teal', 'gold']
+  const SURFACES = ['--bg', '--bg-el', '--surface', '--surface-2']
+  const decls = (r) => [...r.matchAll(/(--[\w-]+):\s*([^;}]+)/g)].map((m) => [m[1], m[2].trim()])
+  // The root's custom properties for a theme, mode and accent, in cascade order: by specificity
+  // first, then by source order. (:root 0,1,0; the theme, an accent and the media block's two
+  // theme rules 0,2,0; a theme and an accent together 0,3,0.)
+  const rootVars = (theme, more, accent) => {
+    const light = theme === 'light'
+    const rules = [
+      rule(css, ':root'),
+      more && rule(hc, ':root'),
+      light && rule(css, ':root[data-theme="light"]'),
+      accent && rule(css, `:root[data-accent="${accent}"]`),
+      more && !light && rule(hc, ':root:not([data-theme="light"])'),
+      more && light && rule(hc, ':root[data-theme="light"]'),
+      light && accent && [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+        .filter((m) => m[1].split(',').map((x) => x.trim()).includes(`:root[data-theme="light"][data-accent="${accent}"]`))
+        .map((m) => m[2]).join(';'),
+    ]
+    return Object.fromEntries(rules.filter(Boolean).flatMap(decls))
+  }
+  // A colour as painted: var() followed, color-mix() with transparent kept as the colour at that
+  // alpha (what mixing with transparent premultiplied comes to), rgba() kept with its alpha.
+  const paint = (value, vars) => {
+    value = value.trim()
+    const v = value.match(/^var\((--[\w-]+)\)$/)
+    if (v) return paint(vars[v[1]], vars)
+    const m = value.match(/^color-mix\(in srgb,\s*(.+?)\s+([\d.]+)%,\s*transparent\)$/)
+    if (m) { const c = paint(m[1], vars); return { rgb: c.rgb, a: c.a * m[2] / 100 } }
+    return value.startsWith('rgba') ? rgba(value) : { rgb: hex(value), a: 1 }
+  }
+  // `c` laid over each opaque background. A browser stores the result in 8-bit channels and
+  // rounds its own way (Chromium paints some tints a shade darker than rounding to nearest), so
+  // every result is kept three ways, unrounded, rounded down and rounded up, and scored by the worst.
+  const layer = (c, bgs) => bgs.flatMap((bg) => { const r = over(c, bg); return [r, r.map(Math.floor), r.map(Math.ceil)] })
+  const worst = (ink, bgs) => Math.min(...bgs.map((b) => ratio(ink, b)))
+  const modes = [['dark', false], ['dark', true], ['light', false], ['light', true]]
+  const label = (theme, more) => `${theme}${more ? ' increased contrast' : ''}`
+  // The last declaration of `name` in a rule (a plain fallback comes first, color-mix() second).
+  const last = (decl, name) => [...decl.matchAll(new RegExp(`(?:^|[;{\\s])${name}:\\s*([^;}]+)`, 'g'))].pop()?.[1]?.trim()
+
+  it('the inks are the Designer\'s (AC8), and Increase Contrast sets none', () => {
+    const light = { lime: '#006b25', sky: '#0156c9', orange: '#8f4b00', violet: '#813ba2', pink: '#b5002d', red: '#b70010', teal: '#006290', gold: '#9a4400' }
+    const dark = { lime: 'var(--acc)', sky: '#73b0ff', orange: 'var(--acc)', violet: '#d892ff', pink: '#ff8c95', red: '#ff8172', teal: 'var(--acc)', gold: 'var(--acc)' }
+    for (const k of ACCENTS) {
+      expect(rootVars('light', false, k)['--acc-ink'], `light ${k}`).toBe(light[k])
+      expect(rootVars('dark', false, k)['--acc-ink'], `dark ${k}`).toBe(dark[k])
+    }
+    const status = (theme) => Object.fromEntries(['ok', 'warn', 'bad'].map((s) => [s, rootVars(theme, false)[`--${s}-ink`]]))
+    expect(status('light')).toEqual({ ok: '#006b26', warn: '#715900', bad: '#b70005' })
+    expect(status('dark')).toEqual({ ok: 'var(--green)', warn: 'var(--yellow)', bad: '#ff8172' })
+    expect(hc).not.toMatch(/--(acc|ok|warn|bad)-ink/)
+  })
+
+  it('with no accent chosen, the root falls back to lime\'s ink (AC9)', () => {
+    expect(rootVars('light', false)['--acc-ink']).toBe('#006b25')
+    expect(rootVars('dark', false)['--acc-ink']).toBe('var(--acc)')
+  })
+
+  const accentCases = modes.flatMap(([theme, more]) => [undefined, ...ACCENTS].map((k) => [label(theme, more), k || 'no accent', theme, more, k]))
+  it.each(accentCases)('%s, %s: --acc-ink reads at 4.5:1 on --acc-soft over every surface', (_l, _k, theme, more, k) => {
+    const vars = rootVars(theme, more, k)
+    const ink = paint('var(--acc-ink)', vars)
+    expect(ink.a).toBe(1)
+    for (const s of SURFACES) {
+      expect(worst(ink.rgb, layer(paint('var(--acc-soft)', vars), [hex(vars[s])])), s).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  const pillCases = modes.flatMap(([theme, more]) => ['ok', 'warn', 'bad'].map((p) => [label(theme, more), p, theme, more]))
+  it.each(pillCases)('%s: .adm-pill.%s reads at 4.5:1 on its tint over every surface', (_l, pill, theme, more) => {
+    const decl = rule(read('admin.css'), `.adm-pill.${pill}`)
+    const vars = rootVars(theme, more)
+    const ink = paint(last(decl, 'color'), vars)
+    for (const s of SURFACES) {
+      expect(worst(ink.rgb, layer(paint(last(decl, 'background'), vars), [hex(vars[s])])), s).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  // AC1, AC2, AC5: the text rules on the tint use the ink. Their icons and dots follow the text's
+  // colour; .ob-choice's icon and .cal-d's dot set --acc themselves and stay.
+  const inked = {
+    'admin.css': ['.adm-pill.acc', '.adm-chip-key', '.adm-chips .chip.on'],
+    'index.css': ['.btn.tinted', '.tag.acc', '.iconbtn.on-ss', '.conn-bar.quiet .conn-a', '.swhint button', '.cal-d.has',
+      '.ss-pos', '.sp-avatar.on', '.efftbl .r.on .n'],
+    'coach.css': ['.ob-wd.on', '.ob-chips .chip.on', '.pcard-wd.on', '.recap-state.mix'],
+    'views/FocusView.css': ['.focus-badge.plan'],
+  }
+  it.each(Object.entries(inked).flatMap(([f, sels]) => sels.map((s) => [f, s])))('%s: %s is text in --acc-ink', (file, sel) => {
+    expect(last(rule(read(file), sel), 'color')).toBe('var(--acc-ink)')
+  })
+
+  it.each(['index.css', 'admin.css', 'coach.css', 'views/FocusView.css'])('%s: no rule puts --acc text on --acc-soft', (file) => {
+    const all = [...read(file).matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((m) => ({ sels: m[1].split(',').map((x) => x.trim()), decl: m[2] }))
+    const tinted = all.filter((r) => /background(-color)?:\s*var\(--acc-soft/.test(r.decl)).flatMap((r) => r.sels)
+    expect(tinted.length).toBeGreaterThan(0)
+    for (const r of all) {
+      if (last(r.decl, 'color') !== 'var(--acc)') continue
+      // the rule itself, or text inside an element that has the tint
+      for (const sel of r.sels) expect(tinted.some((t) => sel === t || sel.startsWith(t + ' ')), sel).toBe(false)
+    }
+  })
+
+  // A background laid over an element that has the tint, with text on it: the text reads at 4.5:1
+  // through both layers. Each such rule names the tinted element it sits in.
+  const CSS_FILES = ['index.css', 'admin.css', 'coach.css', 'views/FocusView.css']
+  const layered = [['admin.css', '.chip.on .adm-chip-key', '.adm-chips .chip.on']]
+  const layeredCases = modes.flatMap(([theme, more]) => layered.flatMap(([file, sel, parent]) =>
+    [undefined, ...ACCENTS].map((k) => [label(theme, more), sel, k || 'no accent', file, parent, theme, more, k])))
+  it.each(layeredCases)('%s: %s reads at 4.5:1 on its layer over the tint, %s', (_l, sel, _k, file, parent, theme, more, k) => {
+    const src = read(file)
+    const own = (theme === 'light' && rule(src, `:root[data-theme="light"] ${sel}`)) || ''
+    const decl = rule(src, sel)
+    const vars = rootVars(theme, more, k)
+    const colour = last(own, 'color') || last(decl, 'color')
+    const ink = paint(colour === 'inherit' ? last(rule(src, parent), 'color') : colour, vars)
+    const tint = paint(last(rule(src, parent), 'background'), vars)
+    const badge = paint(last(own, 'background') || last(decl, 'background'), vars)
+    for (const s of SURFACES) {
+      expect(worst(ink.rgb, layer(badge, layer(tint, [hex(vars[s])]))), s).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it('every rule that lays a background inside a tinted element is measured above', () => {
+    const rules = CSS_FILES.flatMap((file) => [...read(file).matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .map((m) => ({ file, sels: m[1].split(',').map((x) => x.trim().replace(/^:root(\[[^\]]*\])*\s+/, '')), decl: m[2] })))
+    const compounds = (sel) => sel.split(/\s*[>+~]\s*|\s+/).filter(Boolean)
+    // the element a tinted rule paints, by its own compound selector (`.chip.on` of `.adm-chips .chip.on`)
+    const tinted = new Set(rules.filter((r) => /background(-color)?:\s*var\(--acc-soft/.test(r.decl))
+      .flatMap((r) => r.sels.map((sel) => compounds(sel).pop())))
+    expect(tinted.size).toBeGreaterThan(0)
+    // A see-through background lets the tint change what the text sits on; an opaque one (the
+    // swipe pane's filled --acc button) hides it, and its text is the filled button's business.
+    const seeThrough = (v) => /rgba\(|transparent|var\(--(acc-soft|acc-line|label-[234]|sep)/.test(v || '')
+    const found = rules.filter((r) => seeThrough(last(r.decl, 'background') || last(r.decl, 'background-color')))
+      .flatMap((r) => r.sels.filter((sel) => compounds(sel).slice(0, -1).some((c) => tinted.has(c))).map((sel) => `${r.file}: ${sel}`))
+    expect(found.length).toBeGreaterThan(0)
+    for (const f of found) expect(layered.map(([file, sel]) => `${file}: ${sel}`), f).toContain(f)
+  })
+
+  // AC10: a colour of the user's own gets its ink from lib/accent.js. Its tint does not change in
+  // Increase Contrast mode (the colour is set inline), and neither do the surfaces.
+  it.each(['dark', 'light'])('%s: a custom accent\'s ink reads at 4.5:1 on its tint, across the sRGB cube', (theme) => {
+    const surfaces = [false, true].flatMap((more) => SURFACES.map((s) => hex(rootVars(theme, more)[s])))
+    const colour = fc.integer({ min: 0, max: 0xffffff }).map((n) => '#' + n.toString(16).padStart(6, '0'))
+    const corners = ['#000000', '#ffffff', '#ff0000', '#00ff00', '#0000ff', '#ffff00', '#00ffff', '#ff00ff', '#808080',
+      // the Tester's: under 4.5:1 in Chromium when the ink only cleared the tint rounded to nearest
+      '#42fc96', '#9ed64b', '#d2013d']
+    const check = (c) => {
+      const vars = customAccentVars(c, theme)
+      const tint = paint(rule(css, ':root').match(/--acc-soft:\s*([^;}]+)/)[1], vars)
+      return worst(hex(vars['--acc-ink']), layer(tint, surfaces)) >= 4.5
+    }
+    for (const c of corners) expect(check(c), c).toBe(true)
+    fc.assert(fc.property(colour, check), { numRuns: 4000 })
   })
 })
 

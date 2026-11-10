@@ -2718,4 +2718,9 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '운동 {0}개가 앱에서 허용하는 것보다 많았습니다. 최대 세트 또는 인터벌 {1}개, 드롭 {2}회, 레스트포즈 반복 {3}회로 추가됩니다.',
   'People you share this with won’t be able to open it': '공유받는 사람은 이 루틴을 열 수 없습니다',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 그래도 공유할 수는 있습니다. 세트나 운동이 줄어들면 열 수 있게 됩니다.',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': '공유받은 사람들이 이 루틴을 열 수 없습니다',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 운동 메모를 줄이거나 운동 몇 개를 빼면 다시 열 수 있습니다.',
+  'This routine is now too large to share.': '이 루틴은 이제 공유하기에 너무 큽니다.',
+  'Show': '보기',
 }

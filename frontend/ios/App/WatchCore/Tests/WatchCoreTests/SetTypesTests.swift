@@ -170,6 +170,70 @@ final class SetTypesTests: XCTestCase {
         XCTAssertEqual(snap2.active?.start, 5)
     }
 
+    /// A snapshot too big for the application context comes without its null keys, and with each
+    /// superset as a short token (frontend lib/watch-sync.js fitSnapshot, NATG-613): it reads the
+    /// same as with the nulls, and the superset still goes in turns.
+    func testASnapshotWithoutItsNullKeysReadsTheSame() throws {
+        let lean = #"{"v":1,"active":{"id":"w","name":"A","unit":"kg","cur":0,"restSec":90,"entries":["#
+            + #"{"id":"curl","name":"Curl","mode":"reps","group":"g1","sets":[{"r":10,"done":false,"warmup":false},{"r":10,"done":false,"warmup":false}]},"#
+            + #"{"id":"push","name":"Pushdown","mode":"reps","group":"g1","sets":[{"r":12,"done":false,"warmup":false},{"r":12,"done":false,"warmup":false}]},"#
+            + #"{"id":"raise","name":"Lateral raise","mode":"reps","sets":[{"w":8,"r":15,"done":false,"warmup":false}]}]}}"#
+        let snap = try JSONDecoder().decode(Snapshot.self, from: Data(lean.utf8))
+        let curl = snap.active!.entries[0]
+        XCTAssertNil(curl.restSec)
+        XCTAssertNil(curl.last)
+        XCTAssertNil(curl.sets[0].w)
+        XCTAssertNil(curl.sets[0].sec)
+        XCTAssertNil(curl.sets[0].at)
+        XCTAssertEqual(curl.sets[0].r, 10)
+        XCTAssertNil(snap.active?.rest)
+        XCTAssertNil(snap.ready)
+        // the same as the phone sends it when it fits, nulls and all
+        let full = #"{"id":"curl","name":"Curl","mode":"reps","restSec":null,"last":null,"group":"g1","sets":[{"w":null,"r":10,"sec":null,"done":false,"warmup":false},{"w":null,"r":10,"sec":null,"done":false,"warmup":false}]}"#
+        XCTAssertEqual(try JSONDecoder().decode(Entry.self, from: Data(full.utf8)), curl)
+
+        var s = SessionCore.applySnapshot(SessionState(), snap)
+        s = SessionCore.tick(s, entry: 0, set: 0, w: nil, r: 10, at: 1, id: "1").0
+        var n = SessionCore.next(after: s, entry: 0, set: 0)
+        XCTAssertEqual(n.entry, 1, "on to the partner")
+        XCTAssertFalse(n.rest, "no rest inside a round")
+        s = SessionCore.tick(s, entry: 1, set: 0, w: nil, r: 12, at: 2, id: "2").0
+        n = SessionCore.next(after: s, entry: 1, set: 0)
+        XCTAssertEqual(n.entry, 0, "back to the first for the next round")
+        XCTAssertTrue(n.rest, "the rest after the round")
+    }
+
+    /// A workout grown too big to send: the phone sends the last one it sent again, without its rest
+    /// and with new settings (frontend lib/watch-sync.js fallbackSnapshot, SEC-613-01). The watch's
+    /// own ticks since stay, it stays where it is, and Apple Health off takes.
+    func testTheLastWorkoutSentAgainKeepsTheWatchsTicksAndTakesTheSettings() {
+        var w = ActiveWorkout(id: "w1", name: "Big", unit: "kg", cur: 0, restSec: 90, rest: RestInfo(endsAt: 5_000),
+                              entries: [entry("bench", "Bench", sets: [row(60, 8), row(60, 8)]), entry("row", "Row", sets: [row(50, 10)])], start: 0)
+        let s1 = SessionCore.applySnapshot(SessionState(), Snapshot(v: 1, unit: "kg", restSec: 90, active: w, ready: nil, settings: WatchSettings(health: true)))
+        XCTAssertEqual(s1.settings.health, true)
+        let ticked = SessionCore.tick(s1, entry: 0, set: 0, w: 62.5, r: 7, at: 10, id: "t").0
+        w.rest = nil
+        let s = SessionCore.applySnapshot(ticked, Snapshot(v: 1, unit: "kg", restSec: 90, active: w, ready: nil, settings: WatchSettings(health: false)))
+        let set = s.workout!.entries[0].sets[0]
+        XCTAssertTrue(set.done, "the watch's tick is not taken back")
+        XCTAssertEqual(set.w, 62.5)
+        XCTAssertEqual(set.r, 7)
+        XCTAssertEqual(set.at, 10)
+        XCTAssertNotNil(s.pending[SessionCore.key("bench", 0)], "still waiting for the phone to have it")
+        XCTAssertEqual(s.entryIndex, ticked.entryIndex)
+        XCTAssertEqual(s.settings.health, false)
+    }
+
+    /// No workout from the phone while one started here is not confirmed yet: it stays, and the
+    /// settings still take (SEC-613-01, the phone's "another workout, or none" case).
+    func testNoWorkoutFromThePhoneKeepsOneStartedHereAndTakesTheSettings() {
+        let ready = ReadySession(routineIds: ["r"], name: "Push", entries: [entry("bench", "Bench", sets: [row(60, 8)])])
+        let started = SessionCore.start(SessionState(), ready, wid: "watch-1", at: 5, id: "s").0
+        let s = SessionCore.applySnapshot(started, Snapshot(v: 1, unit: "kg", restSec: 90, active: nil, ready: nil, settings: WatchSettings(health: false)))
+        XCTAssertEqual(s.workout?.id, "watch-1")
+        XCTAssertEqual(s.settings.health, false)
+    }
+
     func testAStateSavedByTheLastBuildStillLoads() throws {
         let saved = #"{"settings":{},"unit":"kg","restSec":90,"finishedHere":[],"pending":{"x#0":{"w":1,"r":2,"at":3}},"entryIndex":0}"#
         let s = try JSONDecoder().decode(SessionState.self, from: Data(saved.utf8))

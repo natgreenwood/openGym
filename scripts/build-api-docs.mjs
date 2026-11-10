@@ -212,7 +212,9 @@ function endpointCard (pathKey, method, op) {
     }
   }
 
-  const params = (op.parameters || []).map(p => ({
+  // A shared parameter is a $ref into components.parameters, the way responses are above.
+  const opParams = (op.parameters || []).map(p => p.$ref ? spec.components.parameters[refName(p.$ref)] : p)
+  const params = opParams.map(p => ({
     name: p.name + (p.in && p.in !== 'query' ? ` <span class="p-hint">(${esc(p.in)})</span>` : ''),
     required: !!p.required,
     type: fmtType(p.schema),
@@ -220,7 +222,7 @@ function endpointCard (pathKey, method, op) {
   }))
   // p.name may contain markup now; ptab escapes r.name, so build rows pre-escaped instead:
   const paramTab = params.length
-    ? `<p class="ep-h">Query parameters</p><div class="ptab">` + params.map(r => `
+    ? `<p class="ep-h">${opParams.every(p => !p.in || p.in === 'query') ? 'Query parameters' : 'Parameters'}</p><div class="ptab">` + params.map(r => `
   <div class="prow">
     <span class="p-name">${r.name}${r.required ? '<em class="p-req" title="required">required</em>' : ''}</span>
     <span class="p-type">${r.type}</span>

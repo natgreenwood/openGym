@@ -120,3 +120,26 @@ test('the docs generator takes the website ?v= from index.html, and every page a
     }
   }
 });
+
+// A current generated file can still lose a referenced parameter's name and location.
+// Check the published contract, not just whether generation produces identical bytes.
+for (const [method, route] of [['get', '/api/data'], ['put', '/api/data'], ['get', '/api/data/rev'], ['get', '/api/nudge-check'], ['get', '/api/shares']]) {
+  const operation = `${method.toUpperCase()} ${route}`;
+  test(`the published ${operation} parameters document the optional expected-account header`, () => {
+    const html = read(path.join(ROOT, 'website', 'api.html'));
+    const cards = [...html.matchAll(/<details class="ep"[^>]*>([\s\S]*?)<\/details>/g)].map(m => m[1]);
+    const card = cards.find(c => {
+      const summary = c.split('</summary>')[0];
+      return summary.includes(`class="m ${method}"`) && summary.includes(`<code>${route}</code>`);
+    });
+    assert.ok(card, `missing endpoint card for ${operation}`);
+    const rows = [...card.matchAll(/<div class="prow">([\s\S]*?)<\/div>/g)].map(m => m[1]);
+    const header = rows.find(row => /class="p-name">X-Expected-Account\b/.test(row));
+    assert.ok(header, `${operation}: missing X-Expected-Account parameter row`);
+    assert.match(header, /\(header\)/, 'show that this is an HTTP header');
+    assert.match(header, /class="p-type">string<\/span>/);
+    assert.doesNotMatch(header, /class="p-req"/, 'the header is optional');
+    assert.match(header, /412/, 'describe the mismatch refusal');
+    assert.doesNotMatch(card, /class="p-name">undefined<\/span>/);
+  });
+}
