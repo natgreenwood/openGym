@@ -1527,7 +1527,13 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="ep-body">
 <p>Returns the caller's entire app state as one JSON blob, or <code>{&quot;state&quot;: null}</code> if nothing has been synced yet, together with <code>rev</code>, the server's revision of that document (0 when there is none). A client keeps the <code>rev</code> it last read or wrote and sends it back as <code>baseRev</code> on the next push, which lets the server refuse a write over a document the client never saw (see the 409 on PUT).</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
-
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
 
     <p class="ep-h">Responses</p>
     <div class="ptab">
@@ -1538,6 +1544,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">401</span>
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">412</span>
+    <span class="p-desc"><code>account-mismatch</code>: <code>X-Expected-Account</code> names an account the session is not for. The browser's session cookie is shared by every tab, and another tab signed in as someone else after this request's tab last checked. Nothing was read or written; the body carries nothing of either account.<span class="r-sig"><code>{&quot;error&quot;:&quot;session is for another account&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -1558,7 +1568,13 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 <p>Every accepted write also starts the grace period of each stored file (tag <code>media</code>) the new state no longer references, and stops it for each one it references again. That bookkeeping never changes the answer.</p>
 <p>Routine sharing (tag <code>shares</code>): a shared routine lives only in the sharer's document. The keys <code>shared</code>, <code>sharedRoutines</code> and <code>shares</code>, and any routine whose id starts with <code>shared:</code>, are dropped from the state before it is stored. The <code>shared:&lt;id&gt;</code> pointers in <code>week</code>, <code>dayPlan</code> and the queue are kept. After the write, every share you made of a routine that is no longer in <code>routines</code> is deleted, whatever its state, and recorded in the activity log as <code>share.revoke</code> (<code>act</code> <code>routine-gone</code>). Neither changes the answer. A shared routine over the 64 KiB sharing cap (see <code>POST /api/shares</code>) is stored as sent, never refused or cut: its recipients see it as <code>unavailable: too-large</code> until it is back under the cap, and so do your own outgoing shares of it (<code>ShareOutgoing</code>).</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
-
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
 <p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
   <div class="prow">
     <span class="p-name">state<em class="p-req" title="required">required</em></span>
@@ -1599,6 +1615,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="r-code s4">409</span>
     <span class="p-desc"><code>baseRev</code> is not the current revision: another client wrote since this one last read. Carries the current document so the client can merge and retry.</span>
   </div>
+  <div class="prow rrow">
+    <span class="r-code s4">412</span>
+    <span class="p-desc"><code>account-mismatch</code>: <code>X-Expected-Account</code> names an account the session is not for. The browser's session cookie is shared by every tab, and another tab signed in as someone else after this request's tab last checked. Nothing was read or written; the body carries nothing of either account.<span class="r-sig"><code>{&quot;error&quot;:&quot;session is for another account&quot;}</code></span></span>
+  </div>
     </div>
   </div>
 </details>
@@ -1614,7 +1634,13 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 <p>The <code>rev</code> that <code>GET /api/data</code> would return, without the document. Signed-in clients poll this while open and on every return to the foreground and fetch the document only when the number changed.</p>
 <p>While routine sharing is on, <code>shares</code> is the etag <code>GET /api/shares</code> would answer, so a new share, an answer, a revoke or a sharer's edit of a shared routine is noticed with no request of its own (and nothing else the sharer syncs is); fetch <code>GET /api/shares</code> when it moved. Nothing is written by this route.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
-
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
 
     <p class="ep-h">Responses</p>
     <div class="ptab">
@@ -1625,6 +1651,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">401</span>
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">412</span>
+    <span class="p-desc"><code>account-mismatch</code>: <code>X-Expected-Account</code> names an account the session is not for. The browser's session cookie is shared by every tab, and another tab signed in as someone else after this request's tab last checked. Nothing was read or written; the body carries nothing of either account.<span class="r-sig"><code>{&quot;error&quot;:&quot;session is for another account&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -1646,6 +1676,11 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-type">string <span class="p-hint">(date)</span></span>
     <span class="p-desc">The day, YYYY-MM-DD, in the phone's own calendar.</span>
   </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
 </div>
 
     <p class="ep-h">Responses</p>
@@ -1661,6 +1696,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">401</span>
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">412</span>
+    <span class="p-desc"><code>account-mismatch</code>: <code>X-Expected-Account</code> names an account the session is not for. The browser's session cookie is shared by every tab, and another tab signed in as someone else after this request's tab last checked. Nothing was read or written; the body carries nothing of either account.<span class="r-sig"><code>{&quot;error&quot;:&quot;session is for another account&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -2215,7 +2254,13 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 <p>An outgoing share whose routine is over the 64 KiB sharing cap carries <code>unavailable: too-large</code>, whatever the recipient did with it, and loses it once the routine is back under the cap. It is your routine's verdict, the one its recipients see, however the routine got there: a save from any device, or a restored or edited file.</p>
 <p><code>etag</code> moves whenever either list changes for you, when what a share shows you changes (the routine or the sharer's unit once accepted, the name or the exercise count while pending) and when a share's availability changes. Nothing else the sharer syncs moves it. The sharer's half covers ids and the <code>too-large</code> flag only, so a recipient's answer does not move it, and a routine going over the cap or back under it does. <code>GET /api/data/rev</code> carries the same etag. While sharing is off the answer is <code>{ incoming: [], outgoing: [], etag: &quot;off&quot; }</code> rather than an error.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
-
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
 
     <p class="ep-h">Responses</p>
     <div class="ptab">
@@ -2226,6 +2271,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">401</span>
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">412</span>
+    <span class="p-desc"><code>account-mismatch</code>: <code>X-Expected-Account</code> names an account the session is not for. The browser's session cookie is shared by every tab, and another tab signed in as someone else after this request's tab last checked. Nothing was read or written; the body carries nothing of either account.<span class="r-sig"><code>{&quot;error&quot;:&quot;session is for another account&quot;}</code></span></span>
   </div>
     </div>
   </div>

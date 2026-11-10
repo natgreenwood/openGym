@@ -1584,6 +1584,8 @@ paths:
         that document (0 when there is none). A client keeps the `rev` it last read or
         wrote and sends it back as `baseRev` on the next push, which lets the server
         refuse a write over a document the client never saw (see the 409 on PUT).
+      parameters:
+        - $ref: '#/components/parameters/ExpectedAccount'
       responses:
         '200':
           description: The stored state, or null, and its revision.
@@ -1600,6 +1602,7 @@ paths:
                     type: integer
                     description: Server revision of the stored document; 0 when there is none.
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '412': { $ref: '#/components/responses/AccountMismatch' }
     put:
       tags: [data]
       operationId: putData
@@ -1679,6 +1682,8 @@ paths:
                     True when the client stamps its own changes in `deleted`, `edited` and
                     each entry's `_ts`/`_f`, as the app does. Omit it to have the server
                     stamp what changed against the stored document.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedAccount'
       responses:
         '200':
           description: Saved.
@@ -1730,6 +1735,7 @@ paths:
                 missing: { value: { error: "state required" } }
                 invalid: { value: { error: "invalid state" } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '412': { $ref: '#/components/responses/AccountMismatch' }
 
   /api/data/rev:
     get:
@@ -1744,6 +1750,8 @@ paths:
         new share, an answer, a revoke or a sharer's edit of a shared routine is noticed with no
         request of its own (and nothing else the sharer syncs is); fetch `GET /api/shares` when it moved. Nothing is written by this
         route.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedAccount'
       responses:
         '200':
           description: The current revision (0 when the profile has no state yet).
@@ -1756,6 +1764,7 @@ paths:
                   wid: { type: string, description: 'The write id (`_wid`) of the stored document; absent before its first write.' }
                   shares: { type: string, description: 'The etag of your shares (16 hex characters), the one `GET /api/shares` answers. Absent while routine sharing is off.' }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '412': { $ref: '#/components/responses/AccountMismatch' }
 
   /api/nudge-check:
     get:
@@ -1775,6 +1784,7 @@ paths:
           required: true
           schema: { type: string, format: date }
           description: The day, YYYY-MM-DD, in the phone's own calendar.
+        - $ref: '#/components/parameters/ExpectedAccount'
       responses:
         '200':
           description: How that day stands.
@@ -1795,6 +1805,7 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: "date must be YYYY-MM-DD", code: "date-invalid" }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '412': { $ref: '#/components/responses/AccountMismatch' }
 
   /api/media/{hash}:
     parameters:
@@ -2835,6 +2846,8 @@ paths:
         `GET /api/data/rev` carries the same etag.
         While sharing is off the answer is `{ incoming: [], outgoing: [], etag: "off" }` rather
         than an error.
+      parameters:
+        - $ref: '#/components/parameters/ExpectedAccount'
       responses:
         '200':
           description: Both lists.
@@ -2851,6 +2864,7 @@ paths:
                     items: { $ref: '#/components/schemas/ShareOutgoing' }
                   etag: { type: string, description: 16 hex characters, or `off`. }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '412': { $ref: '#/components/responses/AccountMismatch' }
     post:
       tags: [shares]
       operationId: createShares
@@ -3757,6 +3771,16 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: "this share is no longer waiting for an answer", code: "share-state" }
+    AccountMismatch:
+      description: >-
+        `account-mismatch`: `X-Expected-Account` names an account the session is not for. The
+        browser's session cookie is shared by every tab, and another tab signed in as someone
+        else after this request's tab last checked. Nothing was read or written; the body
+        carries nothing of either account.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "session is for another account", code: "account-mismatch" }
 
   parameters:
     ShareId:
@@ -3765,6 +3789,18 @@ components:
       required: true
       description: The share id, 16 lowercase hex characters.
       schema: { type: string, pattern: '^[0-9a-f]{16}$' }
+    ExpectedAccount:
+      name: X-Expected-Account
+      in: header
+      required: false
+      description: >-
+        The id of the account this request is for. When it is sent and the session is for
+        another account, the request is refused with 412 before anything is read or written.
+        It never grants access on its own: with no session the answer is 401 as without it.
+        Without it nothing changes. It is meant for the web app's session cookie, which every
+        tab shares; a paired phone or an API script, whose token already names the account,
+        need not send it.
+      schema: { type: string }
 
   schemas:
     Error:
