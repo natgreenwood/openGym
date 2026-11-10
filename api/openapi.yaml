@@ -1652,7 +1652,7 @@ paths:
         the activity log as `share.revoke` (`act` `routine-gone`). Neither changes the answer.
         A shared routine over the 64 KiB sharing cap (see `POST /api/shares`) is stored as sent,
         never refused or cut: its recipients see it as `unavailable: too-large` until it is
-        back under the cap.
+        back under the cap, and so do your own outgoing shares of it (`ShareOutgoing`).
       requestBody:
         required: true
         content:
@@ -2822,10 +2822,16 @@ paths:
         whose routine was deleted is not listed, and is deleted here (`share.revoke`, `act`
         `routine-gone`).
 
+        An outgoing share whose routine is over the 64 KiB sharing cap carries
+        `unavailable: too-large`, whatever the recipient did with it, and loses it once the
+        routine is back under the cap. It is your routine's verdict, the one its recipients see,
+        however the routine got there: a save from any device, or a restored or edited file.
+
         `etag` moves whenever either list changes for you, when what a share shows you changes
         (the routine or the sharer's unit once accepted, the name or the exercise count while
         pending) and when a share's availability changes. Nothing else the sharer syncs moves
-        it. The sharer's half covers ids only, so a recipient's answer does not move it.
+        it. The sharer's half covers ids and the `too-large` flag only, so a recipient's answer
+        does not move it, and a routine going over the cap or back under it does.
         `GET /api/data/rev` carries the same etag.
         While sharing is off the answer is `{ incoming: [], outgoing: [], etag: "off" }` rather
         than an error.
@@ -4361,6 +4367,14 @@ components:
         to: { $ref: '#/components/schemas/ShareUser' }
         routineId: { type: string }
         created: { type: string, format: date-time }
+        unavailable:
+          type: string
+          enum: [too-large]
+          description: >-
+            Present only while the routine is over the 64 KiB sharing cap, so its recipients
+            see the share as `unavailable: too-large`. It depends on the routine alone: every
+            share of the routine carries it, pending, accepted, declined or removed alike. Absent
+            when the routine is under the cap, and when it cannot be read or measured.
 
     Invite:
       type: object

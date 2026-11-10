@@ -2236,9 +2236,10 @@ function resolveShare(s, docs) {
 }
 // Whether `uid`'s routine `routineId` is over the cap, as of their document now: true or false,
 // or null when the document cannot be read, holds no such routine or the routine cannot be
-// measured. Measures at most once per document version and never hashes.
-function routineOverCap(uid, routineId) {
-  const doc = sharerDoc(uid);
+// measured. Measures at most once per document version and never hashes. `docs` as for
+// sharerDoc, so a list of outgoing items looks the document up once.
+function routineOverCap(uid, routineId, docs) {
+  const doc = sharerDoc(uid, docs);
   if (doc === UNREADABLE) return null;
   const routine = records(doc.S.routines).find(r => r.id === routineId);
   if (!routine) return null;
@@ -2270,9 +2271,15 @@ function incomingItem(s, p, { meta = false } = {}) {
   item.hash = p.shared.hash;
   return meta ? item : { ...item, unit: p.unit, routine: p.shared.routine };
 }
-function outgoingItem(s) {
+// The sharer's item carries `unavailable: 'too-large'` exactly while the routine is over the cap
+// (NATG-645), from the routine's cached verdict alone, so it is the same whatever the share's
+// state and says nothing about the recipient. `meta` is the revision poll's form: the id and the
+// flag, all the etag reads.
+function outgoingItem(s, { meta = false, docs } = {}) {
   const to = userRef(s.to);
-  return to ? { id: s.id, to, routineId: s.routineId, created: s.created } : null;
+  if (!to) return null;
+  const item = meta ? { id: s.id } : { id: s.id, to, routineId: s.routineId, created: s.created };
+  return routineOverCap(s.from, s.routineId, docs) === true ? { ...item, unavailable: 'too-large' } : item;
 }
 // One incoming item, contained (SEC-01): the sharer's document is the sharer's to write, so
 // whatever in it the projection cannot handle (a value nested too deep to hash, a shape nothing
@@ -2297,7 +2304,7 @@ function sharesOf(uid, { meta = false, docs = new Map() } = {}) {
   const incoming = db.shares.filter(s => s.to === uid && !isTombstone(s))
     .map(s => projectIncoming(s, docs, { meta })).filter(Boolean);
   const outgoing = db.shares.filter(s => s.from === uid)
-    .map(s => (meta ? (userRef(s.to) ? { id: s.id } : null) : outgoingItem(s))).filter(Boolean);
+    .map(s => outgoingItem(s, { meta, docs })).filter(Boolean);
   return { incoming, outgoing };
 }
 // The lazy cleanup, for a sharer's document changed outside PUT /api/data (a restored file, a
@@ -2368,7 +2375,8 @@ function sharedRoutineFor(uid, rid) {
   return name ? { name, emoji: text(r.emoji) } : null;
 }
 // Moves whenever something either side can see changes, and only then: the sharer's half is the
-// ids alone, so a decline does not move it. The recipient's half moves with what each item shows
+// ids and whether each routine is over the cap, so a decline does not move it. An item under the
+// cap hashes as its id alone, as it did before the flag. The recipient's half moves with what each item shows
 // (`hash`, pending items included) and with availability, and with nothing else the sharer
 // syncs. It reads nothing a meta item lacks, so the revision poll gets the same etag as
 // GET /api/shares.
@@ -2376,7 +2384,7 @@ function sharesEtag({ incoming, outgoing }) {
   const byId = (a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const src = [
     [...incoming].sort(byId).map(i => [i.id, i.state, i.hash ?? null, i.unavailable ?? null]),
-    [...outgoing].sort(byId).map(o => [o.id])
+    [...outgoing].sort(byId).map(o => (o.unavailable ? [o.id, o.unavailable] : [o.id]))
   ];
   return crypto.createHash('sha256').update(JSON.stringify(src)).digest('hex').slice(0, 16);
 }
@@ -2475,13 +2483,14 @@ const shareRoutes = {
     }
     const now = new Date().toISOString();
     const written = [];
+    const docs = new Map();
     const shares = plan.map(({ r, s }) => {
       if (!s) {
         s = { id: newShareId(), from: user.id, to: r.id, routineId, state: 'pending', created: now };
         db.shares.push(s);
         written.push(s);
       }
-      return outgoingItem(s);
+      return outgoingItem(s, { docs });
     });
     if (written.length) {
       saveDb();
