@@ -19,7 +19,9 @@
 //      removed on purpose, since it never knew it (keepUnknown): a v1.3.9 phone saving a routine
 //      no longer deletes the pyramid sets made on an updated one;
 //   1. never lets the records shrink: `deleted` and `edited` are joined with the stored ones (but
-//      a reset, which starts the profile over, keeps its own);
+//      a reset, which starts the profile over, keeps its own), and so is `tombs`, the content kept
+//      of removed entries, which is also capped, aged out and held to a byte budget here
+//      (TOMB_LISTS below);
 //   2. for a writer that does not stamp (no `stamped: true` in the body) and wrote over the
 //      revision it read: stamps what it changed against the stored copy, at the server's time —
 //      entries removed, settings and plan days changed, entries edited. A setting, plan day or
@@ -39,6 +41,8 @@
 //      such a document, so this is an older app's merge (or its Coach undo, or a backup it
 //      restored) bringing an entry back, and that cannot be told apart from a deliberate re-add:
 //      a deleted entry that comes back is one tap to remove again, a wanted one dropped is lost.
+
+import { canonical } from './shared-routine.js';
 
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const list = v => (Array.isArray(v) ? v : []);
@@ -65,7 +69,7 @@ const capStamps = m => {
   return m;
 };
 const OWN_MERGE = new Set([
-  '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'edited', 'undone', 'routineOrder',
+  '_ts', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'unit', 'unitSet', 'resetAt', 'resetIds', 'deleted', 'tombs', 'edited', 'undone', 'routineOrder',
   'workouts', 'routines', 'customEx', 'equipProfiles', 'gymCards', 'bodyweight', 'measurements', 'favEx',
   'exWeights', 'balanceOverrides', 'loadKind', 'plates', 'dbLoad', 'dumbbells', 'stackWeights', 'dayNotes', 'dayPhotos',
 ]);
@@ -148,11 +152,75 @@ function settleMarks(marks, stamps, now) {
     if (!Array.isArray(m)) continue;
     const at = Number(stamps?.[k]) || 0;
     if (m.length === 2 && at === now) out[k] = [Number(m[0]) || 0, Number(m[1]) || 0, now];
-    else if (m.length === 3 && at > 0 && Number(m[2]) === at) out[k] = m;
+    else if ((m.length === 3 || m.length === 4) && at > 0 && Number(m[2]) === at) out[k] = m;
   }
   return Object.keys(out).length ? out : null;
 }
 const sameEntry = (a, b) => same({ ...a, _ts: 0, _f: 0, _u: 0 }, { ...b, _ts: 0, _f: 0, _u: 0 });
+
+// Two versions of one entry, field by field (sync-merge.js mergeEntry, "Undo" and "Exact ties"):
+// each field from the side that changed it last, an Undo's marker deciding a tie it covers, then
+// the value whose canonical JSON sorts higher, so a tie comes out the same whichever argument is
+// first. A field neither side stamped follows the version edited last (`a`'s when neither has an
+// edit time at all).
+const fieldTime = (x, k) => Number(x?._f?.[k]) || 0;
+const tieKey = v => (v === undefined ? '' : JSON.stringify(canonical(v)));
+const tieWin = (x, y) => (same(x, y) || tieKey(x) >= tieKey(y) ? x : y);
+// An Undo's marker `[base, del, at]`, or `[base, del, at, won]` once an unseen change overruled it
+// (sync-merge.js "Undo"), while it still describes the field's stamp.
+const undoOf = (marks, k, at) => {
+  const u = isMap(marks) ? marks[k] : null;
+  return Array.isArray(u) && (u.length === 3 || u.length === 4) && at > 0 && Number(u[2]) === at ? u : null;
+};
+// Which side's value stays ('x', 'y', or '' for the values to decide), its stamp, and the marker
+// that goes with it (undefined: the winning side's own), as sync-merge.js undoPick.
+function undoPick(tx, ux, ty, uy) {
+  if (ty > tx) {
+    const [side, at, mark] = undoPick(ty, uy, tx, ux);
+    return [side === 'x' ? 'y' : side === 'y' ? 'x' : side, at, mark];
+  }
+  if (tx > ty) {
+    if (!ux || !(ty > Number(ux[0]) && ty < Number(ux[1]))) return ['x', tx, ux || null];
+    const base = Number(ux[0]) || 0, del = Number(ux[1]) || 0;
+    if (ux.length === 3) return ['y', tx + 1, [base, del, tx + 1, ty]];
+    const won = Number(ux[3]) || 0;
+    return ty > won ? ['y', tx, [base, del, tx, ty]] : ty < won ? ['x', tx, ux] : ['', tx, ux];
+  }
+  const kx = ux ? ux.length : 0, ky = uy ? uy.length : 0;
+  if (kx === 3 && ky !== 3) return ['x', tx, ux];
+  if (ky === 3 && kx !== 3) return ['y', ty, uy];
+  if (kx === 4 && !ky) return ['y', ty, null];
+  if (ky === 4 && !kx) return ['x', tx, null];
+  if (kx === 4 && ky === 4 && Number(ux[3]) !== Number(uy[3])) return Number(ux[3]) > Number(uy[3]) ? ['x', tx, ux] : ['y', ty, uy];
+  return ['', tx, undefined];
+}
+/** Two versions of one entry merged field by field (sync-merge.js mergeEntry). Returns a new object. */
+export function mergeEntry(a, b) {
+  const ta = Number(a?._ts) || 0, tb = Number(b?._ts) || 0;
+  const tie = ta === tb && ta > 0;
+  const [n, o] = tb > ta || (tie && tieWin(a, b) !== a) ? [b, a] : [a, b];
+  const out = clone(n);
+  const f = { ...(isMap(o._f) ? o._f : {}) };
+  for (const [k, v] of Object.entries(isMap(n._f) ? n._f : {})) if (!((Number(f[k]) || 0) > (Number(v) || 0))) f[k] = v;
+  const u = {};
+  let bumped = 0;
+  for (const k of new Set([...Object.keys(n), ...Object.keys(o), ...Object.keys(f)])) {
+    if (ENTRY_META.has(k)) continue;
+    const tn = fieldTime(n, k), to = fieldTime(o, k);
+    const un = undoOf(n._u, k, tn), uo = undoOf(o._u, k, to);
+    let [side, at, mark] = undoPick(tn, un, to, uo);
+    if (side === '' && (tn > 0 || tie) && !same(n[k], o[k])) side = tieWin(n[k], o[k]) === n[k] ? 'x' : 'y';
+    if (side === 'y') { if (k in o) out[k] = clone(o[k]); else delete out[k]; }
+    if (at > Math.max(tn, to)) { f[k] = at; bumped = Math.max(bumped, at); }
+    const kept = mark !== undefined ? mark : side === 'y' ? uo : side === 'x' ? un : tieWin(un || undefined, uo || undefined);
+    if (kept) u[k] = clone(kept);
+  }
+  if (Object.keys(f).length) out._f = f; else delete out._f;
+  if (Object.keys(u).length) out._u = u; else delete out._u;
+  const ts = Math.max(ta, tb, bumped);
+  if (ts) out._ts = ts;
+  return out;
+}
 
 // What the server stamped for the last push of a writer that does not stamp (`_unstamped` on the
 // stored document): an older app takes the revision it is told for its own push and reads the
@@ -445,7 +513,7 @@ const V139_DROPS = {
 // The lists inside an entry that are walked too, and how their items are matched.
 const NESTED = { routines: ['ex'], workouts: ['entries'], 'workouts.entries': ['sets'] };
 // Server bookkeeping and the records merged on their own: never put back from the stored copy.
-const NOT_KEPT = new Set(['_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'resetAt', 'resetIds', 'deleted', 'edited']);
+const NOT_KEPT = new Set(['_rev', '_wid', '_wids', '_unstamped', '_prior', 'active', 'resetAt', 'resetIds', 'deleted', 'tombs', 'edited']);
 
 // `x` with every key of `old` it lacks and the writer cannot have dropped on purpose. Mutates `x`.
 function keepKeys(old, x, place) {
@@ -500,6 +568,157 @@ export function keepUnknown(cur, next) {
   return next;
 }
 
+// What the app keeps of removed entries (`tombs`, sync-merge.js "The content of removed
+// entries"): per list and key, the stamped fields of the version removed (and a workout's media), so
+// an edit made after the removal on another device brings the entry back with all of them. The
+// server only keeps it from shrinking: it joins the stored map with the one written, the way
+// `deleted` is joined, so an app that does not know it (v1.3.9, or any app before it) cannot drop
+// it; it caps it as the app does, so a stale or faulty writer cannot grow the document; and it ages
+// it out at its own time, since the join would otherwise bring back what a device had dropped.
+export const TOMB_LISTS = { workouts: workoutKey, routines: x => x?.id, customEx: x => x?.id, gymCards: x => x?.id, equipProfiles: x => x?.id };
+export const TOMB_MAX = 200;
+// Judged against the server's `t`, which is lifted past the highest stamp it sees: a device whose
+// clock runs more than this far ahead ages kept content out early (sync-merge.js TOMB_KEEP_MS).
+export const TOMB_KEEP_MS = 30 * 86400000;
+// Byte budgets of kept content, as UTF-8 JSON: one kept entry, and every list's entries together,
+// each counted with its key (sync-merge.js TOMB_BYTES_MAX, where the numbers come from: measured
+// on the AC6 document, the busiest entry is 6,058 bytes and the whole map 1,870,081). Without
+// them, a push under the request limit could add a fresh stamped field to the same kept entry each
+// time, and the join kept them all: the stored document grew without bound (NATG-561 SEC-01).
+export const TOMB_BYTES_MAX = 64 * 1024;
+export const TOMBS_BYTES_MAX = 2.5 * 1024 * 1024;
+const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null);
+function tombOf(f, x) {
+  if (!isMap(x)) return null;
+  const t = {};
+  const stamped = Object.keys(isMap(x._f) ? x._f : {}).filter(k => !ENTRY_META.has(k));
+  if (stamped.length) t._f = clone(x._f);
+  if (isMap(x._u)) t._u = clone(x._u);
+  for (const k of stamped) if (k in x) t[k] = clone(x[k]);
+  if (f === 'workouts' && 'media' in x) {
+    const by = new Map();
+    for (const m of list(x.media)) { const h = mediaHash(m); if (h && !by.has(h)) by.set(h, clone(m)); }
+    if (by.size) t.media = [...by.keys()].sort().map(h => by.get(h)); else delete t.media;
+  }
+  return stamped.length || t.media ? t : null;
+}
+function joinTomb(f, a, b) {
+  if (!isMap(a)) return tombOf(f, b);
+  if (!isMap(b)) return tombOf(f, a);
+  const t = mergeEntry(a, b);
+  if (f === 'workouts') t.media = [...list(a.media), ...list(b.media)];
+  return tombOf(f, t);
+}
+function capTombs(tombs, deleted) {
+  for (const f of Object.keys(TOMB_LISTS)) {
+    const m = tombs[f];
+    if (!isMap(m)) continue;
+    const ks = Object.keys(m);
+    if (!ks.length) { delete tombs[f]; continue; }
+    if (ks.length <= TOMB_MAX) continue;
+    const at = k => Math.abs(Number(deleted?.[f]?.[k]) || 0);
+    ks.sort((x, y) => at(y) - at(x) || (x < y ? -1 : x > y ? 1 : 0));
+    for (const k of ks.slice(TOMB_MAX)) delete m[k];
+  }
+  return tombs;
+}
+/** Both maps joined key by key and capped against `deleted` (sync-merge.js mergeTombs). Anything else is nothing. */
+export function mergeTombs(a, b, deleted) {
+  const out = {};
+  for (const f of Object.keys(TOMB_LISTS)) {
+    const m = {};
+    for (const side of [a, b]) {
+      const src = isMap(side) && isMap(side[f]) ? side[f] : {};
+      for (const [k, t] of Object.entries(src)) {
+        if (k === '__proto__' || !isMap(t)) continue;
+        const j = joinTomb(f, m[k], t);
+        if (j) m[k] = j; else delete m[k];
+      }
+    }
+    if (Object.keys(m).length) out[f] = m;
+  }
+  return capTombs(out, deleted);
+}
+// Kept content of a key that is in its list again and that the entry already holds (the app merged
+// it back in, or an Undo put back the very version removed) is let go of, as the app's merge does.
+// What an entry does not hold yet stays: an app from before `tombs` brings an entry back without
+// merging it, and the next app that does still finds it here.
+function dropAbsorbed(tombs, next) {
+  for (const [f, key] of Object.entries(TOMB_LISTS)) {
+    const m = tombs[f];
+    if (!isMap(m)) continue;
+    for (const x of list(next[f])) {
+      if (!isMap(x)) continue;
+      const k = String(key(x)), t = m[k];
+      if (!isMap(t)) continue;
+      const noMedia = e => ({ ...e, media: undefined });
+      if (tieKey(noMedia(mergeEntry(x, t))) !== tieKey(noMedia(x))) continue;
+      const have = new Set(list(x.media).map(mediaHash));
+      if (f === 'workouts' && list(t.media).some(r => mediaHash(r) && !have.has(mediaHash(r)))) continue;
+      delete m[k];
+    }
+    if (!Object.keys(m).length) delete tombs[f];
+  }
+  return tombs;
+}
+function utf8Bytes(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n++;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
+}
+const byKey = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+/**
+ * Within the byte budgets (sync-merge.js budgetTombs): an entry over TOMB_BYTES_MAX goes whole, then
+ * whole entries go, oldest removal first, ties by key and list, until all fit TOMBS_BYTES_MAX.
+ */
+export function budgetTombs(tombs, deleted) {
+  if (!isMap(tombs)) return tombs;
+  const kept = [];
+  let total = 0, changed = false;
+  for (const f of Object.keys(tombs)) {
+    if (!TOMB_LISTS[f] || !isMap(tombs[f])) { changed = true; continue; }
+    for (const [k, t] of Object.entries(tombs[f])) {
+      if (k === '__proto__') { changed = true; continue; }
+      const size = utf8Bytes(JSON.stringify(t) ?? '');
+      if (size > TOMB_BYTES_MAX) { changed = true; continue; }
+      const cost = utf8Bytes(JSON.stringify(k)) + 2 + size;
+      total += cost;
+      kept.push({ f, k, cost, at: Math.abs(Number(isMap(deleted?.[f]) ? deleted[f][k] : 0) || 0) });
+    }
+  }
+  if (!changed && total <= TOMBS_BYTES_MAX) return tombs;
+  kept.sort((x, y) => x.at - y.at || byKey(x.k, y.k) || byKey(x.f, y.f));
+  let i = 0;
+  while (total > TOMBS_BYTES_MAX && i < kept.length) total -= kept[i++].cost;
+  const out = {};
+  for (const { f, k } of kept.slice(i)) (out[f] || (out[f] = {}))[k] = tombs[f][k];
+  return out;
+}
+/** Without what was removed more than TOMB_KEEP_MS before `now`, at most TOMB_MAX a list (sync-merge.js pruneTombs). */
+export function pruneTombs(tombs, deleted, now) {
+  if (tombs === undefined) return tombs;
+  if (!isMap(tombs)) return null;
+  let changed = false;
+  const out = {};
+  for (const f of Object.keys(tombs)) {
+    const m = tombs[f], all = isMap(m) ? Object.keys(m) : [];
+    if (!TOMB_LISTS[f] || !all.length) { changed = true; continue; }
+    const at = k => Math.abs(Number(isMap(deleted?.[f]) ? deleted[f][k] : 0) || 0);
+    let ks = all.filter(k => at(k) > 0 && now - at(k) <= TOMB_KEEP_MS);
+    if (ks.length > TOMB_MAX) ks = ks.sort((x, y) => at(y) - at(x) || (x < y ? -1 : x > y ? 1 : 0)).slice(0, TOMB_MAX);
+    if (ks.length === all.length) { out[f] = m; continue; }
+    changed = true;
+    if (ks.length) out[f] = Object.fromEntries(ks.map(k => [k, m[k]]));
+  }
+  return changed ? out : tombs;
+}
+
 // Step 3: an entry held while a removal on record says it was deleted after its last edit is
 // kept, and marked as added back.
 function keepHeld(next, now) {
@@ -529,7 +748,7 @@ function keepHeld(next, now) {
  */
 // What a document says, without its stamps and the server's bookkeeping: whether the server put
 // back anything of what a writer sent (stampPut's `report`).
-const BOOKKEEPING = new Set(['_ts', '_f', '_u', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'edited', 'deleted', 'undone']);
+const BOOKKEEPING = new Set(['_ts', '_f', '_u', '_rev', '_wid', '_wids', '_unstamped', '_prior', 'edited', 'deleted', 'tombs', 'undone']);
 const content = S => JSON.stringify(S, (k, v) => (BOOKKEEPING.has(k) ? undefined : v));
 
 export function stampPut(cur, next, { overRead = false, stamped = false, now = Date.now(), report = null } = {}) {
@@ -568,6 +787,12 @@ export function stampPut(cur, next, { overRead = false, stamped = false, now = D
     if (before != null && content(next) !== before) report.changed = true;
   }
   keepHeld(next, t);
+  // Kept content of removed entries: joined with the stored copy's (a reset starts over without
+  // it), capped, without what an entry back in its list already holds, aged out at the server's
+  // time, and held to its byte budgets (see TOMB_LISTS above). What is over budget is dropped, not
+  // refused: the entry falls back to what a removal did before, and the save goes through.
+  const tombs = budgetTombs(pruneTombs(dropAbsorbed(mergeTombs(cur && !reset ? cur.tombs : null, next.tombs, next.deleted), next), next.deleted, t), next.deleted);
+  if (tombs && Object.keys(tombs).length) next.tombs = tombs; else delete next.tombs;
   if (cur && !reset) notePrior(cur, next);
   return next;
 }

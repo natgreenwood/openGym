@@ -1966,6 +1966,11 @@ export const useStore = create((set, get) => {
       const server = read?.state || null
       const now = Math.max(Date.now(), highestStamp(cur) + 1, highestStamp(server) + 1, highestStamp(backup) + 1)
       const next = sanitizeAccent(Object.assign(clone(DEF), backup))
+      // What a sync kept of removed entries (lib/sync-merge.js `tombs`) is never taken from a file:
+      // exports leave it out, and one that carries it anyway would bring back content this device
+      // or the server may have let go of. This copy's and the server's own still reach the result,
+      // through the merge and the server's join, as their removals do.
+      delete next.tombs
       // A workout running here lives on this device only: no backup and no server copy holds it,
       // so the import keeps it (in the backup's unit). Only with none running does a backup taken
       // mid-workout bring its own session back. Both the replace and "Merge them in" dropped it.

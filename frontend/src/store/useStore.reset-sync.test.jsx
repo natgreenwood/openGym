@@ -78,6 +78,31 @@ describe('Reset everything', () => {
   })
 })
 
+// NATG-561 AC7: what the sync keeps of removed entries (`tombs`) goes with the reset, at once: from
+// this copy, from what the reset pushes, and from a device that has not seen it.
+describe('Reset everything and the content kept of removed entries', () => {
+  const kept = { workouts: { w0: { _f: { note: 5 }, note: 'deleted note' } } }
+  it('leaves none in this copy or the copy it pushes, and none in the merge of a device that had some', async () => {
+    signedIn({ ...clone(PROFILE), deleted: { workouts: { w0: 90 } }, tombs: clone(kept) }, 3)
+    api.mockResolvedValueOnce({ state: { ...clone(PROFILE), tombs: clone(kept), _rev: 3 }, rev: 3 })
+    api.mockResolvedValueOnce({ ok: true, rev: 4 })
+    await useStore.getState().resetEverything()
+    expect(useStore.getState().S.tombs).toBeUndefined()
+    await useStore.getState().pushState()
+    expect(puts()[0].state.tombs).toBeUndefined()
+
+    // another device, with kept content of its own, pushes a change from before the reset
+    const reset = { ...puts()[0].state, _rev: 4 }
+    signedIn({ ...clone(PROFILE), deleted: { workouts: { w0: 90 } }, tombs: clone(kept) }, 3)
+    useStore.getState().update(s => { s.restSec = 45 })
+    api.mockRejectedValueOnce(conflict(reset, 4))
+    api.mockResolvedValueOnce({ ok: true, rev: 5 })
+    await useStore.getState().pushState()
+    expect(puts().at(-1).state.tombs).toBeUndefined()
+    expect(useStore.getState().S.tombs).toBeUndefined()
+  })
+})
+
 describe('a backup restored after a reset', () => {
   it('the replace keeps the reset stamp, so it is not taken for a copy from before the reset', async () => {
     const T1 = Date.now() - 3600e3

@@ -37,7 +37,7 @@ vi.mock('@capacitor/filesystem', () => ({
   },
 }))
 
-const { writeAutoBackup, AUTO_BACKUP_DIR, AUTO_BACKUP_KEEP } = await import('./mobile.js')
+const { writeAutoBackup, nativeSave, AUTO_BACKUP_DIR, AUTO_BACKUP_KEEP } = await import('./mobile.js')
 
 const day = n => { const d = new Date(2026, 0, 1); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10) }
 const backup = d => 'opengym-backup-' + d + '.json'
@@ -110,6 +110,27 @@ describe('writeAutoBackup', () => {
 
 // A reinstall (or the test build beside the real app) left today's name owned by the other install,
 // and every backup that day failed with EACCES and was dropped without a word (Android QA, v1.3.9).
+// NATG-561: a copy made to leave the phone leaves out what the sync keeps of removed entries
+// (`tombs`), as Export backup does. The private mirror in Directory.Data is no backup file and keeps it.
+describe('the content the sync keeps of removed entries', () => {
+  const S = { workouts: [{ id: 'w1' }], deleted: { workouts: { w2: 5 } }, tombs: { workouts: { w2: { _f: { note: 3 }, note: 'deleted note' } } } }
+
+  it('is not in the auto-backup copy, and the state handed in keeps it', async () => {
+    await writeAutoBackup(S)
+    const json = JSON.parse(h.files.get('DOCUMENTS/openGym/' + backup(todayISO())))
+    expect(json.tombs).toBeUndefined()
+    expect(json).toEqual({ workouts: [{ id: 'w1' }], deleted: { workouts: { w2: 5 } } })
+    expect(S.tombs.workouts.w2.note).toBe('deleted note')
+  })
+
+  it('is in the private mirror, which is no backup file', async () => {
+    await nativeSave(S)
+    const mirror = [...h.files].find(([k]) => k.startsWith('DATA/'))
+    expect(mirror).toBeTruthy()
+    expect(JSON.parse(mirror[1])).toEqual(S)
+  })
+})
+
 describe('writeAutoBackup where today\'s name belongs to another install', () => {
   it('writes the copy under the day\'s second name, and again there on the next write', async () => {
     const other = 'openGym/' + backup(todayISO())

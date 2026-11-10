@@ -282,7 +282,8 @@ export function mp4Info(fd, size) {
 
 /**
  * Every blob a state refers to: customEx[].media.hash and .poster.hash, and the same two of every
- * entry of workouts[].media (the photos and videos of a logged workout). Deliberately loose —
+ * entry of workouts[].media (the photos and videos of a logged workout), of dayPhotos, and of what
+ * the sync keeps of a removed workout or custom exercise (tombs). Deliberately loose —
  * each field counts on its own as long as it is a well-formed hash, even when the rest of the ref
  * would not pass the client's normalizeMediaRef, and a workout's list counts past the client's
  * cap of six. This set decides what is KEPT, so erring towards more is the safe direction.
@@ -306,6 +307,15 @@ export function referencedHashes(state) {
   // Progress photos filed under a day rather than a workout (frontend lib/day-photos.js):
   // dayPhotos[<hash>] = { d, m, _ts }, a cleared one only { _ts }.
   if (isObj(state.dayPhotos)) for (const e of Object.values(state.dayPhotos)) if (isObj(e) && isObj(e.m)) ref(e.m);
+  // What the sync keeps of a removed workout or custom exercise (frontend lib/sync-merge.js
+  // `tombs`): an edit made after the removal on another device brings it back, photo included, so
+  // its file stays as long as the content does.
+  const tombs = isObj(state.tombs) ? state.tombs : {};
+  for (const c of isObj(tombs.customEx) ? Object.values(tombs.customEx) : []) if (isObj(c) && isObj(c.media)) ref(c.media);
+  for (const w of isObj(tombs.workouts) ? Object.values(tombs.workouts) : []) {
+    if (!isObj(w) || !Array.isArray(w.media)) continue;
+    for (const m of w.media) if (isObj(m)) ref(m);
+  }
   return out;
 }
 

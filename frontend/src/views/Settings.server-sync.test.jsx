@@ -212,6 +212,22 @@ describe('leaving the server', () => {
     expect(mocks.toast).toHaveBeenLastCalledWith('The changes your server has not seen are kept on this device, and added back when it connects as this account again.')
   })
 
+  // NATG-561 AC11: the content the sync keeps of removed entries never goes into a backup file.
+  it('the backup it exports leaves out what the sync keeps of removed entries', async () => {
+    mocks.S = { ...mocks.S, deleted: { workouts: { w9: 5 } }, tombs: { workouts: { w9: { _f: { note: 3 }, note: 'deleted note' } } } }
+    mocks.disconnectServer.mockResolvedValueOnce({ owed: true, count: 2 })
+    const page = mount(<Settings page="account" />)
+    act(() => rowByTitle(page, 'Disconnect').click())
+    await act(async () => { await confirm().onConfirm() })
+    const sheet = openSheet()
+    await act(async () => { buttonByText(sheet, 'Export backup (JSON)').click() })
+    expect(mocks.shareExport).toHaveBeenCalledTimes(1)
+    const json = JSON.parse(mocks.shareExport.mock.calls[0][0])
+    expect(json.tombs).toBeUndefined()
+    expect(json.deleted).toEqual({ workouts: { w9: 5 } })
+    expect(mocks.S.tombs.workouts.w9.note).toBe('deleted note')
+  })
+
   it('"Try again" syncs, and leaves once the server has everything', async () => {
     mocks.disconnectServer.mockResolvedValueOnce({ owed: true, count: 1 })
     const page = mount(<Settings page="account" />)

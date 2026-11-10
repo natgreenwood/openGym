@@ -110,6 +110,12 @@ describe('writing into the chosen folder', () => {
     expect([...h.files.keys()].some(k => k.startsWith('DOCUMENTS/'))).toBe(false)
   })
 
+  it('writes no content the sync keeps of removed entries there (NATG-561)', async () => {
+    await writeAutoBackup({ n: 2, tombs: { routines: { r1: { _f: { name: 3 }, name: 'deleted' } } } })
+    const write = h.calls.find(c => c[0] === 'write')[1]
+    expect(JSON.parse(write.data)).toEqual({ n: 2 })
+  })
+
   it('a folder whose permission is gone: the copy goes to Documents/openGym and Settings hears', async () => {
     const heard = []
     onBackupFolderChange(s => heard.push(s))

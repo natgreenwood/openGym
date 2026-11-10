@@ -114,5 +114,17 @@ export function convertStateUnit(S, to) {
   if (Array.isArray(S.routines)) out.routines = S.routines.map(r => ({ ...r, ex: (r.ex || []).map(cfg => convTarget(cfg, from, to)) }))
   if (Array.isArray(S.workouts)) out.workouts = S.workouts.map(convSession)
   if (S.active) out.active = convSession(S.active)
+  // What the sync keeps of a removed workout or routine (lib/sync-merge.js `tombs`) is in this unit
+  // too, and comes back into the list when the entry is restored. It holds only some fields, so
+  // only those it holds are converted.
+  if (S.tombs && typeof S.tombs === 'object') {
+    const tombs = { ...S.tombs }
+    const each = (f, conv) => {
+      if (tombs[f] && typeof tombs[f] === 'object') tombs[f] = Object.fromEntries(Object.entries(tombs[f]).map(([k, x]) => [k, x && typeof x === 'object' ? conv(x) : x]))
+    }
+    each('workouts', x => (Array.isArray(x.entries) ? convSession(x) : x.bw != null ? { ...x, bw: bw(x.bw) } : x))
+    each('routines', x => (Array.isArray(x.ex) ? { ...x, ex: x.ex.map(cfg => convTarget(cfg, from, to)) } : x))
+    out.tombs = tombs
+  }
   return out
 }

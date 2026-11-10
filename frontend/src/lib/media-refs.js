@@ -114,7 +114,7 @@ export function workoutMediaOf(w, max = WORKOUT_MEDIA_MAX) {
  * Every MediaRef-like object a state holds, as it stands (not normalised): each custom
  * exercise's `media` and each entry of each logged workout's `media` list. The one walk behind
  * referencedHashes, referencedFiles and the owed count, so they can never disagree about where
- * media live. The session in progress is not walked: it never syncs (the server drops `active`),
+ * media live (referencedHashes adds only what the sync keeps of removed entries, keptMediaRefs). The session in progress is not walked: it never syncs (the server drops `active`),
  * media are only ever attached to a saved workout, and the history editor's copy of one leaves
  * them on the saved record (lib/session-edit.js).
  */
@@ -137,16 +137,34 @@ export function stateMediaRefs(state) {
 /**
  * Every blob hash a state refers to, the same answer as api/media.js referencedHashes (the shared
  * fixture api/test/fixtures/media-refs.json pins both): customEx[].media and every entry of
- * workouts[].media. Deliberately looser than normalizeMediaRef and workoutMediaOf: each hash and
+ * workouts[].media, and the same of the content kept of removed ones (`tombs`). Deliberately looser than normalizeMediaRef and workoutMediaOf: each hash and
  * poster hash counts on its own as long as it is well-formed, and a workout's list counts past
  * its cap, because this set decides what is KEPT, and keeping too much is the safe side.
  */
 export function referencedHashes(state) {
   const out = new Set()
   const add = r => { if (r && typeof r === 'object' && typeof r.hash === 'string' && HASH_RE.test(r.hash)) out.add(r.hash) }
-  for (const m of stateMediaRefs(state)) {
+  for (const m of [...stateMediaRefs(state), ...keptMediaRefs(state)]) {
     add(m)
     add(m.poster)
+  }
+  return out
+}
+
+/**
+ * The refs in what the sync keeps of a removed workout or custom exercise (lib/sync-merge.js
+ * `tombs`). Only referencedHashes walks them: the files stay, on the server and here, so an entry
+ * an edit on another device brings back still shows its photo. Nothing else counts them: they are
+ * not uploaded, downloaded, owed or exported for content nobody can see.
+ */
+function keptMediaRefs(state) {
+  const out = []
+  const isObj = v => !!v && typeof v === 'object' && !Array.isArray(v)
+  const tombs = isObj(state?.tombs) ? state.tombs : {}
+  for (const c of isObj(tombs.customEx) ? Object.values(tombs.customEx) : []) if (isObj(c) && isObj(c.media)) out.push(c.media)
+  for (const w of isObj(tombs.workouts) ? Object.values(tombs.workouts) : []) {
+    if (!isObj(w) || !Array.isArray(w.media)) continue
+    for (const m of w.media) if (isObj(m)) out.push(m)
   }
   return out
 }

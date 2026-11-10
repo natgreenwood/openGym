@@ -37,6 +37,12 @@ describe('counting what the server has not seen', () => {
     expect(countChanges(state({ _ts: 999, _rev: 7, active: { id: 'running' } }), fp)).toBe(0)
   })
 
+  it('a removed workout is one change, not two with the content the sync keeps of it', () => {
+    const fp = syncFingerprint(state())
+    const S = state({ workouts: [workout('w2', '2026-09-02')], deleted: { workouts: { w1: 200 } }, tombs: { workouts: { w1: { id: 'w1', _f: { note: 150 }, note: 'n' } } } })
+    expect(countChanges(S, fp)).toBe(1)
+  })
+
   it('unknown without a fingerprint to compare with', () => {
     expect(countChanges(state(), null)).toBeNull()
   })
