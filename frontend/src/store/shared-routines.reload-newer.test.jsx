@@ -687,3 +687,96 @@ it('NATG-522: a reload for one account settles when its own request lands, not o
   await expect(b).resolves.toMatchObject({ uid: B.id })
   expect(ui.toast).not.toHaveBeenCalled()
 })
+
+// NATG-559: a Remove whose DELETE fails and whose reload fails too keeps its share marked until
+// the next sweep for that user, so the load that finally lands does not tell the user's own
+// removal as a revoke. That sweep releases the mark whatever it finds.
+// While `gets.on`, each GET /api/shares waits for the test to answer or fail it (`gets.held`).
+const heldLoads = () => {
+  const real = api.getMockImplementation()
+  const gets = { on: true, held: [] }
+  api.mockImplementation((path, o = {}) => gets.on && path === '/api/shares'
+    ? new Promise((resolve, reject) => gets.held.push({ resolve, reject }))
+    : real(path, o))
+  return gets
+}
+const offline = () => new TypeError('Failed to fetch')
+
+it('NATG-559: a DELETE the server applied but whose answer failed, with its reload failing too, is not told as a revoke by the next load', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete('applied-then-failed')
+  const gets = heldLoads()
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  del.answer()
+  await expect(removing).rejects.toThrow('server')
+  expect(gets.held).toHaveLength(1)
+  gets.held[0].reject(offline())
+  await tick()
+  expect(useStore.getState().sharesError).toBe(true)
+  expect(useStore.getState().shares.incoming.map(i => i.id)).toEqual(['s1'])
+  // The connection is back; the next load lands without s1.
+  gets.on = false
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-559: the same, when the reload joins an older request that lands stale and the follow-up it starts fails', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const held = heldDeletes()
+  const gets = heldLoads()
+  const older = useStore.getState().loadShares()
+  const removing = useStore.getState().removeShare('s1')
+  const failed = expect(removing).rejects.toThrow('server')
+  // Applied on the server, answered with an error.
+  net.incoming = []; net.etag = 'e2'
+  held[0].reject(serverError())
+  await failed
+  // The older request, stale since the Remove joined it, lands with s1; its follow-up fails.
+  gets.held[0].resolve(lists([share('s1')], 'e1'))
+  await older
+  await tick(0)
+  expect(gets.held).toHaveLength(2)
+  gets.held[1].reject(offline())
+  await tick()
+  expect(useStore.getState().sharesError).toBe(true)
+  expect(ui.toast).not.toHaveBeenCalled()
+  gets.on = false
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().shares.incoming).toEqual([])
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).not.toHaveBeenCalled()
+})
+
+it('NATG-559: when the failed DELETE was not applied and its reload failed, the mark goes with the next sweep, and a later revoke is told', async () => {
+  await signedIn({ ...clone(DEF), week: { 1: ['shared:s1'] } })
+  await useStore.getState().loadShares()
+  const del = holdDelete('unapplied')
+  const gets = heldLoads()
+  const removing = useStore.getState().removeShare('s1')
+  await tick(0)
+  del.answer()
+  await expect(removing).rejects.toThrow('server')
+  gets.held[0].reject(offline())
+  await tick()
+  // The next load still lists s1: its sweep finds nothing gone, and releases the mark.
+  gets.on = false
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().shares.incoming.map(i => i.id)).toEqual(['s1'])
+  expect(useStore.getState().S.week[1]).toEqual(['shared:s1'])
+  expect(ui.toast).not.toHaveBeenCalled()
+  // Later, its owner revokes it.
+  net.incoming = []; net.etag = 'e2'
+  await useStore.getState().loadShares()
+  await tick()
+  expect(useStore.getState().S.week[1]).toBeUndefined()
+  expect(ui.toast).toHaveBeenCalledTimes(1)
+  expect(ui.toast.mock.calls[0][0]).toBe('Leg Day is no longer shared with you. It’s off your schedule too.')
+})
