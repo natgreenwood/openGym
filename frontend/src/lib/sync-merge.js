@@ -852,6 +852,19 @@ export function pruneTombs(tombs, deleted, now) {
   }
   return changed ? out : tombs
 }
+/**
+ * The copy a backup file holds: the state without what the sync keeps of removed entries
+ * (`tombs`). A backup leaves the account (a share sheet, a cloud drive, a chat), and the content of
+ * entries the user deleted has no business there: nothing in the app can show it, and importing it
+ * would only bring back what the server may already have let go of. Both exports write this
+ * (views/Settings.jsx, lib/backup-media.js), and the zip takes only the files it refers to. The
+ * state itself when it holds nothing to leave out.
+ */
+export function exportableState(S) {
+  if (!S || typeof S !== 'object' || !('tombs' in S)) return S
+  const { tombs, ...rest } = S
+  return rest
+}
 // An entry of list `f` that is in its list and kept content of it too (edited after its removal,
 // or added back): the two merged. Kept content has no edit time, so the entry's own unstamped
 // fields stay as they are.
@@ -1202,7 +1215,8 @@ export function keepReset(cur, next) {
 // them in" and on the next conflict of any other device with "Replace". And a device with an older
 // unsent setting change won over the restored settings, which carried no stamp. So a restore marks
 // every entry it holds whose removal is on record (here or in `others`) as added back at `now`,
-// stamps its settings, plan days and plans as changed at `now`, and keeps the record of removals.
+// stamps its settings, plan days and plans as changed at `now`, and keeps the record of removals
+// and what `others` kept of removed entries.
 
 /** Stamps `next`, a restored backup, as described above. Mutates and returns `next`. */
 export function stampRestore(next, others = [], now = Date.now()) {
@@ -1220,6 +1234,12 @@ export function stampRestore(next, others = [], now = Date.now()) {
     }
   }
   if (Object.keys(del).length) next.deleted = del; else delete next.deleted
+  // What this device and the server kept of removed entries (`tombs`) stays too, as their removals
+  // do; a backup file's own never reaches here (importBackup drops it).
+  let tombs = joinTombs(next.tombs, null)
+  for (const o of others) tombs = joinTombs(tombs, o?.tombs)
+  capTombs(tombs, del)
+  if (Object.keys(tombs).length) next.tombs = tombs; else delete next.tombs
   const ed = isMap(next.edited) ? { ...next.edited } : {}
   for (const k of Object.keys(next)) if (!OWN_MERGE.has(k) && !PER_KEY.has(k)) ed[k] = now
   for (const f of PER_KEY) {

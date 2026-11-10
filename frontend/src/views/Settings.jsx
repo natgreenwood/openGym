@@ -27,6 +27,7 @@ import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, isAndroid, shareExport, shareExportBlob, syncReminder } from '../lib/mobile.js'
 import { NUDGE_COPY, NUDGE_TONES, toneOf } from '../lib/nudge.js'
 import { referencedFiles } from '../lib/media-refs.js'
+import { exportableState } from '../lib/sync-merge.js'
 import { mediaStore } from '../lib/media-store.js'
 import { syncMedia, fetchToStore } from '../lib/media-sync.js'
 import { getMediaStatus, subscribeMediaStatus, pendingRefCount } from '../lib/media-owed.js'
@@ -299,8 +300,9 @@ export default function Settings({ page = null, find = null, via = null, entryKe
 
   // Reads the store at the moment of the tap: the sheet that asks before a sign-out offers it too,
   // and the copy it exports is the one that has not reached the server.
+  // A backup leaves out what the sync keeps of removed entries (lib/sync-merge.js exportableState).
   const doExport = async () => {
-    const json = JSON.stringify(useStore.getState().S, null, 2)
+    const json = JSON.stringify(exportableState(useStore.getState().S), null, 2)
     const name = 'opengym-backup-' + todayISO() + '.json'
     // WKWebView can't download blob URLs — the native build hands the file to the share sheet.
     if (MOBILE) {

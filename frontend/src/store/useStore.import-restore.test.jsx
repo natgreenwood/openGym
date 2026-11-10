@@ -118,3 +118,34 @@ describe('a restored backup brings back what it holds, and it stays', () => {
     await vi.waitFor(() => expect(toast).toHaveBeenCalled())
   })
 })
+
+// NATG-561 AC12: what a sync keeps of removed entries (`tombs`) is never taken from a backup file.
+// This device's and the server's own stays, as their removals do.
+describe('a backup file\'s own kept content of removed entries', () => {
+  const kept = note => ({ _f: { note: T - 10 }, note })
+  beforeEach(() => {
+    const mine = clone(useStore.getState().S)
+    mine.deleted = { ...mine.deleted, workouts: { ...mine.deleted?.workouts, wDevice: T } }
+    mine.tombs = { workouts: { wDevice: kept('device') } }
+    useStore.setState({ S: mine })
+    doc.deleted = { ...doc.deleted, routines: { rServer: T } }
+    doc.tombs = { routines: { rServer: kept('server') } }
+    backup.deleted = { routines: { rFile: T } }
+    backup.tombs = { routines: { rFile: kept('from the file') } }
+  })
+  const keys = S => Object.fromEntries(Object.entries(S.tombs || {}).map(([f, m]) => [f, Object.keys(m).sort()]))
+
+  for (const how of ['replace', 'merge']) {
+    it(`is ignored ("${how}"): only this device's and the server's stay`, async () => {
+      const token = useStore.getState().importToken()
+      const c = await useStore.getState().importConflict(backup, token)
+      useStore.getState().importBackup(backup, how === 'merge' ? { mergeWith: c || { state: clone(doc), rev: doc._rev }, token } : { token })
+      await useStore.getState().pushState()
+      for (const S of [useStore.getState().S, doc]) {
+        expect(keys(S)).toEqual({ routines: ['rServer'], workouts: ['wDevice'] })
+        expect(JSON.stringify(S.tombs)).not.toContain('from the file')
+      }
+      expect(ids(doc.workouts)).toEqual(how === 'merge' ? ['w1', 'w2', 'w3', 'w4'] : ['w1', 'w2', 'w3'])
+    })
+  }
+})

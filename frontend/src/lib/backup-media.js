@@ -1,7 +1,8 @@
 /* Backups that carry the photos and videos of custom exercises and of logged workouts.
  *
- * "Export backup (JSON)" stays what it always was: the state, with each exercise's small
- * reference to its file and never the file. "Export with photos & videos" writes a store-only zip
+ * "Export backup (JSON)" stays what it always was: the state (lib/sync-merge.js exportableState,
+ * without what the sync keeps of removed entries), with each exercise's small reference to its
+ * file and never the file. "Export with photos & videos" writes a store-only zip
  * (lib/zip.js) instead:
  *
  *   opengym-backup.json      the very same JSON
@@ -23,6 +24,7 @@ import { sniffKind } from './media-sniff.js'
 import { sha256Hex } from './sha256.js'
 import { mediaStore } from './media-store.js'
 import { DEFAULT_LIMITS, MB } from './media-limits.js'
+import { exportableState } from './sync-merge.js'
 import { t } from './i18n-core.js'
 
 export const BACKUP_JSON = 'opengym-backup.json'
@@ -65,7 +67,8 @@ export function sanitizeCustomMedia(state) {
  * local store, or — signed in — is fetched into it first (`fetchOne`, lib/media-sync.js
  * fetchToStore). `missing` counts those that could not be had; the export goes ahead without them.
  */
-export async function exportBackupZip(S, { media = mediaStore, fetchOne = null, now } = {}) {
+export async function exportBackupZip(S0, { media = mediaStore, fetchOne = null, now } = {}) {
+  const S = exportableState(S0)
   const entries = [{ name: BACKUP_JSON, blob: new Blob([JSON.stringify(S, null, 2)], { type: 'application/json' }) }]
   let missing = 0
   for (const f of referencedFiles(S)) {

@@ -149,6 +149,28 @@ describe('a workout\'s photos and videos in the zip', () => {
   })
 })
 
+// NATG-561 AC11: a backup leaves out what the sync keeps of removed entries, and the files only
+// that content refers to.
+describe('the content kept of removed entries', () => {
+  it('is in neither the zip\'s JSON nor its files', async () => {
+    const media = createMediaStore(memoryBackend())
+    const live = jpeg(), gone = png()
+    const p = await refFor(live, 'image/jpeg'), q = await refFor(gone, 'image/png')
+    await media.put(p.hash, new Blob([live]), { mime: 'image/jpeg' })
+    await media.put(q.hash, new Blob([gone]), { mime: 'image/png' })
+    const S = { ...stateWith([]), workouts: [{ id: 'w1', d: '2026-09-20', start: 1, end: 2, entries: [], media: [p] }],
+      deleted: { workouts: { w2: 5 } }, tombs: { workouts: { w2: { _f: { note: 3 }, note: 'deleted note', media: [q] } }, customEx: { c1: { _f: { media: 3 }, media: q } } } }
+    const out = await exportBackupZip(S, { media })
+    expect(out).toMatchObject({ included: 1, missing: 0 })
+    const entries = await readZip(out.blob)
+    expect(entries.map(e => e.name)).toEqual([BACKUP_JSON, `media/${p.hash}.jpg`, 'README.txt'])
+    const json = JSON.parse(await entries[0].blob.text())
+    expect(json.tombs).toBeUndefined()
+    expect(json.deleted).toEqual(S.deleted)
+    expect(S.tombs.workouts.w2.note).toBe('deleted note')   // the store's copy is left as it was
+  })
+})
+
 // NATG-557: an import refused once its files are written (the account changed meanwhile) takes
 // back what it wrote, and only that. What was here before the import stays as it was.
 describe('a refused import\'s files', () => {
