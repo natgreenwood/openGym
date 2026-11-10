@@ -19,6 +19,7 @@ const clone = v => JSON.parse(JSON.stringify(v))
 const nav = langs => Object.defineProperty(navigator, 'languages', { value: langs, configurable: true })
 const shown = () => { const { S, config } = useStore.getState(); return effectiveLang(S, config) }
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT')
+const reads = () => api.mock.calls.filter(([path, o]) => path === '/api/data' && !o?.method)
 
 beforeEach(() => { localStorage.clear(); api.mockReset(); nav(['en-US']); useStore.setState({ config: null }) })
 afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user: null, ready: false, config: null }) })
@@ -77,6 +78,7 @@ describe('instance default language', () => {
     // Device B's browser is English; the server copy was last written from device A (German).
     nav(['en-US'])
     const server = { ...clone(DEF), _ts: 100, lang: 'de', langAuto: true, workouts: [{ id: 'w1', d: '2026-09-01', start: 1, entries: [] }] }
+    localStorage.setItem('gym_owner', 'u1')   // signed in on this device, as sign-in leaves it
     useStore.setState({ S: clone(server), user: { id: 'u1' }, ready: true, config: { invite_only: false } })
     localStorage.setItem('gym_sync', JSON.stringify({ rev: 5, ts: 100, uid: 'u1' }))
     expect(shown()).toBe('en')
@@ -86,6 +88,7 @@ describe('instance default language', () => {
     api.mockResolvedValue({ state: { ...server, _rev: 5 }, rev: 5 })
     await useStore.getState().pullState()
     await useStore.getState().pullState()
+    expect(reads()).toHaveLength(2)   // both pulls asked the server: the checks below are about their answers
     expect(puts()).toHaveLength(0)
     expect(useStore.getState().S.lang).toBe('de')
     expect(shown()).toBe('en')
