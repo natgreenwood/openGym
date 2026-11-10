@@ -411,6 +411,29 @@ stay unchanged. Chromium can round the CSS's 2.5px outline to 2px: assert that
 the offset is negative and its magnitude covers the rendered outline width.
 These checks do not establish native WebView or screen-reader behavior.
 
+## Measurement and weekly-rate focus
+
+From `frontend/`, check focus contrast, measurement inputs and sheet handling:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/views/Measurements.test.jsx src/views/Measurements.units.test.jsx src/views/Measurements.unitless.test.jsx src/components/WeightRate.test.jsx src/components/Modals.test.jsx --maxWorkers=2 --reporter=dot
+```
+
+In Chromium with a synthetic guest profile and intercepted `/api/*` responses,
+open Body measurements → Log. Tab and Shift+Tab through built-in and custom
+number fields in light and dark themes at 320px and 1024px widths. The wrapper
+ring must remain complete: a declared 2.5px `--focus-ring` outline at a 2px
+offset, with a 12px radius; the inner input retains `outline:none`. Chromium
+can round the rendered outline width to 2px. Measure the computed ring against
+the field, sheet and page backgrounds for every preset accent: each must reach
+3:1. Repeat keyboard checks in Weekly rate's Lose, Gain and Hold modes.
+
+Save a decimal measurement and a zero in a unitless custom field, reload and
+edit the entry; values and focus rings must survive. Save and reopen a weekly
+rate too. For Vite browser interception, match request paths beginning `/api/`;
+a broad `**/api/**` also matches source modules served from the sibling API
+directory. These checks do not establish server persistence or native behavior.
+
 ## Sheets and media focus
 
 From `frontend/`:
