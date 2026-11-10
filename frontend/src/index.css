@@ -959,7 +959,10 @@ body.chips-dragging *{cursor:inherit}
    :focus-visible on a tap too, so a tapped field shows the ring, as native text fields do. */
 .stp:has(.num:focus-visible){outline:2.5px solid var(--focus-ring);outline-offset:2px}
 /* The − and + draw theirs inside, where `.stp`'s overflow can't clip it. */
-.stp button:focus-visible{outline-color:var(--focus-ring);outline-offset:-4.5px;border-radius:10px}
+.stp button:focus-visible{outline:2.5px solid var(--focus-ring);outline-offset:-4.5px;border-radius:10px}
+/* The effort cell's fill is tinted by its band (Workout.jsx), and the accent's ring falls under
+   3:1 on several of those tints, so its buttons ring in the text colour, as `.dw-col` does. */
+.effcell-stp button:focus-visible{outline-color:var(--label)}
 .stp.invalid{box-shadow:inset 0 0 0 1px var(--red)}
 /* A count at its limit (Stepper capHint, NATG-503): the + is aria-disabled, not disabled, so it
    keeps focus; the "Max 50" line under it fades in. Kept in the tree while empty so it can
@@ -1273,7 +1276,10 @@ body.chips-dragging *{cursor:inherit}
 }
 .effcell-stp button{color:inherit}
 .effcell-stp>button[aria-label="Decrease"],
-.effcell-stp>button[aria-label="Increase"]{width:26px;height:44px;font-size:15px;opacity:.85;flex:0 1 auto;min-width:16px}
+.effcell-stp>button[aria-label="Increase"]{width:26px;height:44px;font-size:15px;flex:0 1 auto;min-width:16px}
+/* the icon dims, not the button, so a focused − or + keeps a full-strength ring */
+.effcell-stp>button[aria-label="Decrease"]>*,
+.effcell-stp>button[aria-label="Increase"]>*{opacity:.85}
 /* the value is the tap target for the picker, so it keeps a 28 px finger's width for "8.5" and
    the −/+ shrink first — on a 368 px phone it had collapsed to 4 px under its own digits, and a
    tap on the number stepped the rating instead of opening the picker (QA C22) */

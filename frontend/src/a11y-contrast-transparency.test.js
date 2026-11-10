@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { customAccentVars } from './lib/accent.js'
+import { EFFORT_BANDS } from './lib/effort.js'
 
 const read = (f) => readFileSync(resolve(process.cwd(), 'src', f), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '')
 
@@ -285,6 +286,7 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
     ['index.css', '.stp:has(.num:focus-visible)', '--focus-ring'],
     ['index.css', '.stp button:focus-visible', '--focus-ring'],
+    ['index.css', '.effcell-stp button:focus-visible', '--label'],
     ['index.css', '.dw-col:focus-visible::after', '--label'],
   ])('%s %s draws in %s', (file, sel, colour) => {
     expect(rule(read(file), sel)).toContain(`var(${colour})`)
@@ -296,8 +298,41 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     expect(rule(css, '.stp')).toContain('overflow:hidden')
     expect(rule(css, '.stp .num')).toContain('outline:none')
     expect(rule(css, '.stp:has(.num:focus-visible)')).toMatch(/outline:2\.5px solid var\(--focus-ring\)/)
-    const offset = parseFloat(token(rule(css, '.stp button:focus-visible'), 'outline-offset'))
-    expect(offset).toBeLessThanOrEqual(-2.5)
+    // The whole ring is declared here, so a change to the global :focus-visible can't alter it.
+    const btn = rule(css, '.stp button:focus-visible')
+    expect(btn).toMatch(/outline:2\.5px solid var\(--focus-ring\)/)
+    expect(parseFloat(token(btn, 'outline-offset'))).toBeLessThanOrEqual(-2.5)
+  })
+
+  it('the effort cell rings in --label, at 3:1 or better over every band tint (NATG-593)', () => {
+    // Workout.jsx fills the cell with color-mix(band 20%, --surface-2). The bands are the five
+    // effort colours and --acc-2 (RIR 4+), which follows the accent, so every preset is checked.
+    const tokenOf = (pal, name) => token(pal.more, name) || token(pal.base, name)
+    const palettes = [
+      ['dark', { base: dark, more: '' }], ['light', { base: light, more: '' }],
+      ['dark, Increase Contrast', { base: dark, more: rule(hc, ':root') }],
+      ['light, Increase Contrast', { base: light, more: rule(hc, ':root[data-theme="light"]') }],
+    ]
+    const named = EFFORT_BANDS.map((b) => b.color.match(/^var\((--[\w-]+)\)$/)[1])
+    expect(named).toEqual(['--purple', '--red', '--orange', '--yellow', '--green', '--acc-2'])
+    for (const [t, pal] of palettes) {
+      const ink = hex(tokenOf(pal, '--label'))
+      const fill = hex(tokenOf(pal, '--surface-2'))
+      const bands = [
+        ...named.filter((n) => n !== '--acc-2').map((n) => [n, hex(tokenOf(pal, n))]),
+        ...presets.map(([, name, , acc2]) => [`--acc-2 (${name})`, hex(acc2)]),
+      ]
+      for (const [band, rgb] of bands) {
+        const tint = rgb.map((c, i) => c * 0.2 + fill[i] * 0.8)
+        expect(ratio(ink, tint), `${t} on ${band}`).toBeGreaterThanOrEqual(3)
+      }
+    }
+  })
+
+  it('the effort cell dims its − and + icons, not the buttons, so their ring stays full strength (NATG-593)', () => {
+    // Each pair is one rule for Decrease and Increase, so the Increase selector reads its body.
+    expect(rule(css, '.effcell-stp>button[aria-label="Increase"]')).not.toContain('opacity')
+    expect(css).toMatch(/\.effcell-stp>button\[aria-label="Decrease"\]>\*,\s*\.effcell-stp>button\[aria-label="Increase"\]>\*\{opacity:\.85\}/)
   })
 
   it('a + at its cap dims its icon, not itself, so its ring stays full strength (NATG-593)', () => {
