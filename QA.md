@@ -253,6 +253,13 @@ exercised.
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
 
+For double-failure recovery, apply a recipient's DELETE but answer 500, abort its
+reload GET, then let the next load return no shares. Remove's connection-error
+toast is expected; recovery removes the row and schedule pointer without a revoke
+toast and preserves logged workouts. Repeat with an older GET held across the
+DELETE, then fail its fresh follow-up. When the DELETE was not applied, the first
+successful sweep can keep the row; an owner revoke on a later load must toast.
+
 ## Shared routine byte cap
 
 From `frontend/`, run the byte measure, notice, toast, sync settlement and adjacent
