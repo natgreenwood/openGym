@@ -287,7 +287,8 @@ export default {
   // --- login / account ---
   'Enter a name': 'Gib einen Namen ein',
   'Profile created, and this device’s data moved into it': 'Profil erstellt, die Daten von diesem Gerät sind jetzt drin',
-  'Profile created, and your data moved into it': 'Profil erstellt, deine Daten sind jetzt drin',
+  'Profile created. Moving this device’s data into it…': 'Profil erstellt. Die Daten von diesem Gerät kommen jetzt hinein…',
+  'Profile created. This device’s data is kept here and moves into it at the next sync.': 'Profil erstellt. Die Daten von diesem Gerät bleiben hier gespeichert und kommen beim nächsten Sync hinein.',
   'Welcome, {0}': 'Willkommen, {0}',
   'Welcome back, {0}': 'Willkommen zurück, {0}',
   'Registration failed': 'Registrierung fehlgeschlagen',

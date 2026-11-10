@@ -287,7 +287,8 @@ export default {
   // --- login / account ---
   'Enter a name': 'Ange ett namn',
   'Profile created, and this device’s data moved into it': 'Profilen skapad, och den här enhetens data flyttades dit',
-  'Profile created, and your data moved into it': 'Profilen skapad, och din data flyttades dit',
+  'Profile created. Moving this device’s data into it…': 'Profilen skapad. Flyttar den här enhetens data dit…',
+  'Profile created. This device’s data is kept here and moves into it at the next sync.': 'Profilen skapad. Den här enhetens data sparas här och flyttas dit vid nästa synk.',
   'Welcome, {0}': 'Välkommen, {0}',
   'Welcome back, {0}': 'Välkommen tillbaka, {0}',
   'Registration failed': 'Registreringen misslyckades',

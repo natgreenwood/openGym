@@ -1113,7 +1113,8 @@ export const PT_BR_OVERRIDES = {
   'Your muscles filed a missing-person report. Show up for {0}!': 'Seus músculos registraram seu desaparecimento. Apresente-se para {0}!',
   // Copy pass v1.3.10: the new pt-PT wording of these says tu/teu, so pt-BR says it its own way.
   'Profile created, and this device’s data moved into it': 'Perfil criado, e os dados deste dispositivo foram para ele',
-  'Profile created, and your data moved into it': 'Perfil criado, e seus dados foram para ele',
+  'Profile created. Moving this device’s data into it…': 'Perfil criado. Levando os dados deste dispositivo para ele…',
+  'Profile created. This device’s data is kept here and moves into it at the next sync.': 'Perfil criado. Os dados deste dispositivo ficam guardados aqui e vão para ele na próxima sincronização.',
   'Last set hit {0} reps, twice the target! Take a double jump of {1} {2}.': 'A última série chegou a {0} repetições, o dobro da meta! Dê um salto duplo de {1} {2}.',
   'Missed reps. {0} {1} of help while you build back up.': 'Repetições perdidas. {0} {1} de ajuda enquanto você volta a subir.',
   'Stuck for {0} sessions. Back to {1} {2} of help, then build up again.': 'Estagnado há {0} sessões. Volte para {1} {2} de ajuda e suba de novo.',

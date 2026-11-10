@@ -278,7 +278,8 @@ export default {
   // --- login / account ---
   'Enter a name': 'Adj meg egy nevet',
   'Profile created, and this device’s data moved into it': 'Profil létrehozva, és az eszközön lévő adatok átkerültek bele',
-  'Profile created, and your data moved into it': 'Profil létrehozva, és az adataid átkerültek bele',
+  'Profile created. Moving this device’s data into it…': 'Profil létrehozva. Az eszközön lévő adatok átkerülnek bele…',
+  'Profile created. This device’s data is kept here and moves into it at the next sync.': 'Profil létrehozva. Az eszközön lévő adatok itt maradnak, és a következő szinkronizáláskor kerülnek át bele.',
   'Welcome, {0}': 'Üdvözlünk, {0}',
   'Welcome back, {0}': 'Üdvözlünk újra, {0}',
   'Registration failed': 'A regisztráció sikertelen',

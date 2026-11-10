@@ -1662,7 +1662,12 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     if (inviteOnly && !code.trim()) { toast(t('An invite code is required')); return }
     try {
       const u = await passkeyRegister(n, code.trim()); setUser(u); close()
-      if (hasData(useStore.getState().S)) { await pushState(); toast(t('Profile created, and your data moved into it')) }
+      if (hasData(useStore.getState().S)) {
+        // As the sign-in screen's (views/Login.jsx): the result only once push and pull have settled.
+        toast(t('Profile created. Moving this device’s data into it…'), { ms: 90000 })
+        await pushState(); await pullState()
+        toast(useStore.getState().unsyncedChanges().owed ? t('Profile created. This device’s data is kept here and moves into it at the next sync.') : t('Profile created, and this device’s data moved into it'))
+      }
       else { await pullState(); toast(t('Welcome, {0}', u.name)) }
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') toast(passkeyError(e, t('Registration failed'))) }
   }

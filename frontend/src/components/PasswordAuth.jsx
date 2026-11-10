@@ -32,7 +32,7 @@ export const looksLikeEmail = s => {
 }
 
 const ui = () => useUI.getState()
-const toast = m => ui().toast(m)
+const toast = (...a) => ui().toast(...a)
 const length = s => [...String(s || '')].length
 const errStyle = { color: 'var(--red)', marginTop: 10 }
 
@@ -177,7 +177,12 @@ export function PasswordRegisterForm({ close, inviteOnly, name, setName, code, s
       const u = await passwordRegister(n, pw, code.trim(), mail)
       const st = useStore.getState()
       st.setUser(u); close()
-      if (hasData(useStore.getState().S)) { await st.pushState(); toast(t('Profile created, and this device’s data moved into it')) }
+      if (hasData(useStore.getState().S)) {
+        // As the passkey registration (views/Login.jsx): the result only once push and pull have settled.
+        toast(t('Profile created. Moving this device’s data into it…'), { ms: 90000 })
+        await st.pushState(); await st.pullState()
+        toast(useStore.getState().unsyncedChanges().owed ? t('Profile created. This device’s data is kept here and moves into it at the next sync.') : t('Profile created, and this device’s data moved into it'))
+      }
       else { await st.pullState(); toast(t('Welcome, {0}', u.name)) }
     } catch (e) { setErr(passwordError(e)) }
     finally { setBusy(false) }

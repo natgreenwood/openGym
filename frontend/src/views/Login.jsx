@@ -35,7 +35,13 @@ function RegisterSheet({ close }) {
     try {
       const u = await passkeyRegister(n, code.trim())
       setUser(u); close()
-      if (hasData(useStore.getState().S)) { await pushState(); useUI.getState().toast(t('Profile created, and this device’s data moved into it')) }
+      if (hasData(useStore.getState().S)) {
+        // The pending toast holds until the result replaces it: with no base yet, the push pulls
+        // first, and only once both have settled is it known whether the data reached the server.
+        useUI.getState().toast(t('Profile created. Moving this device’s data into it…'), { ms: 90000 })
+        await pushState(); await pullState()
+        useUI.getState().toast(useStore.getState().unsyncedChanges().owed ? t('Profile created. This device’s data is kept here and moves into it at the next sync.') : t('Profile created, and this device’s data moved into it'))
+      }
       else { await pullState(); useUI.getState().toast(t('Welcome, {0}', u.name)) }
     } catch (e) { if (e.name !== 'NotAllowedError' && e.name !== 'AbortError') useUI.getState().toast(passkeyError(e, t('Registration failed'))) }
   }
