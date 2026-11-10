@@ -32,6 +32,19 @@ Check test-order isolation with the whole suite, changing the seed between runs:
 npx vitest run --sequence.shuffle --sequence.seed=7
 ```
 
+When a whole run exceeds the per-command time limit, run all four shards
+sequentially with the same seed:
+
+```sh
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=1/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=2/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=3/4 --maxWorkers=3
+npx vitest run --sequence.shuffle --sequence.seed=7 --shard=4/4 --maxWorkers=3
+```
+
+Keep the default per-file isolation enabled. Each file runs in one shard, and
+shuffle still reorders tests within each file. Collect all four final summaries.
+
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
 Plate-loading properties for input replay.
 
