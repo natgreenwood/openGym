@@ -202,6 +202,44 @@ that no logout is sent, the new owner stays signed in, the sheet closes, and the
 cancellation toast names that account without leaving Settings. Also test a new,
 deliberate sign-out after the tab follows the new account.
 
+### Expected account on the cookie path (acceptance check)
+
+Every web sync request names the account it is for (`X-Expected-Account`), and
+the API refuses a session that is another account's with a 412 (NATG-558). From
+`frontend/`, the client half:
+
+```sh
+npx vitest run src/lib/api.expected-account.test.js src/store/useStore.expected-account.test.jsx src/components/SyncBanner.test.jsx --reporter=verbose
+```
+
+The end-to-end check is the NATG-558 research probe (`natg558-probe.mjs`,
+attached to NATG-558) with its assertions inverted, run in a real Chromium
+against the real API and a Vite-served store. Playwright is not a repository
+dependency: install `playwright-core` in a scratch directory outside the
+checkout and pass it as `NATG558_PLAYWRIGHT_MODULE` (with `NATG558_CHROMIUM_PATH`
+for a browser it did not download). Copy `api/` and `frontend/src` from the
+build under test into `research-scratch/` as the probe's header describes, with
+synthetic accounts A and B only. The first Vite start optimises dependencies and
+reloads the page, which fails that run; run it again with the cache kept.
+
+With both pieces in place it must show, while B's login has set the cookie and
+A's tab still owns the store:
+
+- `pullState` as A sends `X-Expected-Account: A` and gets `412` with body
+  `{ error, code: 'account-mismatch' }`.
+- A's store and `gym_state_v1` hold none of B's workouts. `sync` is `error` with
+  `lastError { status: 412, code: 'account-mismatch' }`, not `auth` or offline.
+- The API logs one `{"ev":"account-mismatch","route":"GET /api/data","transport":"cookie"}`
+  line, with no account ids and no state.
+- A bearer request for A from another origin, with B's cookie in the browser,
+  still gets A's document and sends no such header.
+- After the cookie returns to A and the tab pushes, A's server profile holds
+  `workout-A` only, and B's holds `workout-B` only.
+
+Run against a web build without the header, the first assertion fails. The
+probe covers Chromium only; Safari, Firefox and the native apps are not
+exercised.
+
 ## Shared routines
 
 - `src/store/shared-routines.reload-newer.test.jsx` holds controlled GET/DELETE
