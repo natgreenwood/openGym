@@ -4,6 +4,7 @@ import { makeSideSet, setSideField, toggleSide, WEIGHT_ORIGIN_MANUAL } from './w
 import { EXDB } from './exercises.js'
 import { todayISO, isoOf } from './format.js'
 import { pinState } from './queue.js'
+import { parsePlan } from './plan-share.js'
 
 // Real ids out of the shipped catalogue, so the body-part fallback is exercised for real.
 const CARDIO = EXDB.find(e => e.bp === 'cardio').id
@@ -443,6 +444,18 @@ describe('exLine', () => {
     expect(setsRepsOf({ id: LIFT, sets: 2, reps: 10, weight: 60 })).toBe('2 × 10')
     expect(setsRepsOf({ id: LIFT, sets: 3, reps: 12, repsMin: 8, weight: 40 })).toBe('3 × 8–12')
     expect(setsRepsOf({ id: LIFT, sets: 2, sec: 45, mode: 'time' })).toBe('2 × 0:45')
+  })
+  it('reads a slot with no reps as the 10 it starts with, not "undefined" (NATG-513)', () => {
+    // A plan file with no `reps`, or one of the wrong type that import drops, stores no reps.
+    const slot = ex => parsePlan({ opengym_plan: 1, unit: 'kg', routines: [{ id: 'r', name: 'x', ex: [ex] }] }).routines[0].ex[0]
+    expect(exLine(slot({ id: '0025', sets: 3, reps: 'eight' }), 'kg', 'km/h')).toBe('3 × 10')
+    expect(exLine(slot({ id: '0025', sets: 3 }), 'kg', 'km/h')).toBe('3 × 10')
+    expect(exLine({ id: LIFT, sets: 3, side: true }, 'kg')).toBe('3 × 10 · 5/side')
+    expect(setsRepsOf({ id: LIFT, sets: 3 })).toBe('3 × 10')
+  })
+  it('reads a range with no top as running up to 10', () => {
+    expect(setsRepsOf({ id: LIFT, sets: 3, repsMin: 8 })).toBe('3 × 8–10')
+    expect(exLine({ id: LIFT, sets: 3, repsMin: 8, weight: 40 }, 'kg')).toBe('3 × 8–10 · 40 kg')
   })
 })
 
