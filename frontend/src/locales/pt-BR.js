@@ -1801,6 +1801,11 @@ export const PT_BR_OVERRIDES = {
   'People you share this with won’t be able to open it': 'As pessoas com quem você compartilhar não vão conseguir abrir',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Ela é grande demais para uma rotina compartilhada. Você ainda pode compartilhá-la. Quando tiver menos séries ou exercícios, elas vão conseguir abrir.',
   'Something in it can’t be read in a shared routine. You can still share it.': 'Algo nela não pode ser lido em uma rotina compartilhada. Você ainda pode compartilhá-la.',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'As pessoas com quem você compartilhou não vão conseguir abrir',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Ela é grande demais para uma rotina compartilhada. Encurte as anotações dos exercícios ou remova alguns exercícios, e elas vão conseguir abrir.',
+  'This routine is now too large to share.': 'Esta rotina agora é grande demais para compartilhar.',
+  'Show': 'Mostrar',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

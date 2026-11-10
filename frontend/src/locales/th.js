@@ -2730,4 +2730,9 @@ export default {
   'People you share this with won’t be able to open it': 'คนที่คุณแชร์ให้จะเปิดรูทีนนี้ไม่ได้',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินไปสำหรับการแชร์ คุณยังแชร์ได้อยู่ เมื่อมีเซ็ตหรือท่าน้อยลง พวกเขาจะเปิดได้',
   'Something in it can’t be read in a shared routine. You can still share it.': 'มีบางอย่างในรูทีนนี้ที่อ่านไม่ได้เมื่อแชร์ คุณยังแชร์ได้อยู่',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'คนที่คุณแชร์ด้วยจะเปิดรูทีนนี้ไม่ได้',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์ได้ ย่อโน้ตของท่าลงหรือลบบางท่าออก แล้วเขาจะเปิดได้',
+  'This routine is now too large to share.': 'รูทีนนี้ใหญ่เกินกว่าจะแชร์แล้ว',
+  'Show': 'แสดง',
 }

@@ -71,6 +71,7 @@ jobs:
               - 'api/coach/prompts/**'
               - 'api/sync-stamps.js'
               - 'api/nudge-copy.js'
+              - 'api/shared-measure.js'
               - 'api/server.js'
               - 'api/test/fixtures/**'
               - 'catalogue/**'

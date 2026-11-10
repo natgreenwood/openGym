@@ -2719,4 +2719,9 @@ export default {
   'People you share this with won’t be able to open it': '공유받는 사람은 이 루틴을 열 수 없습니다',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 그래도 공유할 수는 있습니다. 세트나 운동이 줄어들면 열 수 있게 됩니다.',
   'Something in it can’t be read in a shared routine. You can still share it.': '공유 루틴에서 읽을 수 없는 내용이 들어 있습니다. 그래도 공유할 수는 있습니다.',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': '공유받은 사람들이 이 루틴을 열 수 없습니다',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 운동 메모를 줄이거나 운동 몇 개를 빼면 다시 열 수 있습니다.',
+  'This routine is now too large to share.': '이 루틴은 이제 공유하기에 너무 큽니다.',
+  'Show': '보기',
 }

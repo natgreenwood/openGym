@@ -2719,4 +2719,9 @@ export default {
   'People you share this with won’t be able to open it': 'जिनके साथ आप इसे साझा करेंगे, वे इसे खोल नहीं पाएँगे',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'साझा रूटीन के लिए यह बहुत बड़ा है। आप फिर भी इसे साझा कर सकते हैं। सेट या एक्सरसाइज़ कम होते ही वे इसे खोल पाएँगे।',
   'Something in it can’t be read in a shared routine. You can still share it.': 'साझा रूटीन में इसकी कोई चीज़ पढ़ी नहीं जा सकती। आप फिर भी इसे साझा कर सकते हैं।',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'जिनके साथ आपने इसे साझा किया है, वे इसे खोल नहीं पाएँगे',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'साझा रूटीन के लिए यह बहुत बड़ा है। इसकी एक्सरसाइज़ के नोट्स छोटे करें या कुछ एक्सरसाइज़ हटाएँ, फिर वे इसे खोल पाएँगे।',
+  'This routine is now too large to share.': 'यह रूटीन अब साझा करने के लिए बहुत बड़ा है।',
+  'Show': 'दिखाएँ',
 }

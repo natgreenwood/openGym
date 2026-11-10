@@ -108,6 +108,13 @@ describe('not available right now (AC9)', () => {
     expect(host.querySelector('.routine-list')).toBeNull()
     expect(buttons()).toEqual(['Plan', 'Remove from my plan'])
   })
+  it('says it is too large when the server says it is over the size cap (NATG-659)', async () => {
+    await mount({ incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable: 'too-large' }], names: { s1: 'Leg Day' } })
+    const notice = host.querySelector('.shared-notice[role="status"]')
+    expect(notice.textContent).toBe('Not available right nowLeg Day has more sets, drops or exercises than this app can open. It stays in your plan and comes back once Sam makes it smaller.')
+    expect(host.querySelector('.routine-list')).toBeNull()
+    expect(buttons()).toEqual(['Plan', 'Remove from my plan'])
+  })
 })
 
 describe('a share that has ended', () => {

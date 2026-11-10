@@ -19,6 +19,9 @@ COPY frontend/package.json frontend/package-lock.json* ./
 # tool is now run with npx, docs/MOBILE.md, and not installed here).
 RUN npm ci --ignore-scripts
 COPY api/coach/core/ /app/api/coach/core/
+# The shared routine's projection and size cap (NATG-670): the routine page measures with the
+# server's own code, imported as ../../../api/shared-measure.js the same way.
+COPY api/shared-measure.js /app/api/shared-measure.js
 COPY frontend/ ./
 # Which build this is, shown in the app as "1.3.8+<build>" next to the version. Without it every
 # image built between two releases calls itself the same thing, and "which build are you running?"

@@ -2766,4 +2766,9 @@ export default {
   'People you share this with won’t be able to open it': 'De du delar den med kommer inte att kunna öppna den',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'Den är för stor för en delad rutin. Du kan ändå dela den. När den har färre set eller övningar kan de öppna den.',
   'Something in it can’t be read in a shared routine. You can still share it.': 'Något i den kan inte läsas i en delad rutin. Du kan ändå dela den.',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': 'De du har delat den med kan inte öppna den',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Den är för stor för en delad rutin. Korta ner övningarnas anteckningar eller ta bort några övningar, så kan de öppna den.',
+  'This routine is now too large to share.': 'Den här rutinen är nu för stor för att delas.',
+  'Show': 'Visa',
 }

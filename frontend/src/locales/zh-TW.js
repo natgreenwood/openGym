@@ -2712,4 +2712,9 @@ export default {
   'People you share this with won’t be able to open it': '你分享給的人將無法開啟它',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '它對共享訓練計畫來說太大了。你仍然可以分享它。等組數或動作減少後，他們就能開啟了。',
   'Something in it can’t be read in a shared routine. You can still share it.': '其中有些內容在共享訓練計畫中無法讀取。你仍然可以分享它。',
+  // --- routine page: too large to share (NATG-670) ---
+  'People you’ve shared this with won’t be able to open it': '你分享的對象將無法開啟它',
+  'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '它太大了，無法作為分享的課表。縮短動作備註或刪掉一些動作，對方就能開啟了。',
+  'This routine is now too large to share.': '這個課表現在太大，無法分享。',
+  'Show': '查看',
 }

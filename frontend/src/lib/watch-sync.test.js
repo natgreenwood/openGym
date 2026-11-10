@@ -115,7 +115,7 @@ describe('text from routine data is bounded', () => {
     expect(bytesOf(snap)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
   })
 
-  it('cuts a shared slot\'s superset group id, and keeps the superset together', () => {
+  it('never sends a shared slot\'s superset group id, and keeps the superset together', () => {
     const routineWithGroup = sg => ({ id: 'r9', name: 'Short', ex: [{ id: '0025', sets: 3, reps: 8, sg }, { id: '0001', sets: 2, reps: 10, sg }] })
     const snapOf = sg => {
       const S = { unit: 'kg', restSec: 90, workouts: [], routines: [], week: {}, dayPlan: {} }
@@ -123,13 +123,13 @@ describe('text from routine data is bounded', () => {
       return buildSnapshot({ ...S, active: { id: 'w-9', name: 'Short', cur: 0, entries } })
     }
     const big = snapOf(HUGE)
-    // both exercises still carry the same group, so the watch still runs them in turns
-    expect(big.active.entries.map(e => e.group)).toEqual([CUT, CUT])
+    // both exercises still carry the same group, so the watch still runs them in turns; the
+    // sharer's text itself is a short token on the watch (NATG-613)
+    expect(big.active.entries.map(e => e.group)).toEqual(['g1', 'g1'])
+    expect(JSON.stringify(big)).not.toContain('xxxx')
     expect(bytesOf(big)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
     expect(fitSnapshot(big)).toBe(big)
-    // a group id at or under the limit is unchanged
-    expect(snapOf('A').active.entries.map(e => e.group)).toEqual(['A', 'A'])
-    expect(snapOf('g'.repeat(MAX_WIDGET_TEXT)).active.entries[0].group).toBe('g'.repeat(MAX_WIDGET_TEXT))
+    expect(snapOf('A').active.entries.map(e => e.group)).toEqual(['g1', 'g1'])
   })
 
   it('counts code points, so an emoji at the cut is kept or dropped whole, and leaves short names alone', () => {
@@ -154,6 +154,108 @@ describe('text from routine data is bounded', () => {
     }
     // a catalogue exercise keeps its own title-cased name
     expect(buildSnapshot(state()).active.entries[0].name).toBe('Barbell Bench Press')
+  })
+})
+
+// A workout too big for the watch is made to fit without losing anything the watch uses, or not
+// sent at all; never sent too big for the app context, which the watch would then never hear of
+// (NATG-613).
+describe('a workout too big for the watch', () => {
+  const bytesOf = v => new TextEncoder().encode(JSON.stringify(v)).length
+  const base = () => ({ unit: 'kg', restSec: 90, workouts: [], routines: [], week: {}, dayPlan: {} })
+  // The issue's fixture: an accepted shared routine of n one-set catalogue rows, each with the
+  // given superset group id, started the way sheets.jsx beginWorkout starts one.
+  let views = 0
+  const sharedWorkout = (n, sg) => {
+    const S = base()
+    const routine = { id: 'r', name: 'Short', ex: Array.from({ length: n }, (_, i) => ({ id: i % 2 ? '0001' : '0025', sets: 1, reps: 8, ...(sg ? { sg } : {}) })) }
+    const view = sharedViewOf({ S, user: { id: 'to' }, shares: { uid: 'to', etag: 'e', incoming: [{ id: 's', state: 'accepted', from: { id: 'from' }, unit: 'kg', hash: `big-${++views}`, routine }] } })
+    const { entries } = buildCombinedEntries(S, ['shared:s'], view)
+    expect(entries).toHaveLength(n)
+    return { ...S, active: { id: 'w', start: 1000, name: 'Short', cur: 0, entries } }
+  }
+  const setsOf = snap => snap.active.entries.map(e => e.sets.length)
+  const hasNull = v => v === null || (typeof v === 'object' && Object.values(v).some(hasNull))
+
+  describe('superset groups go as short tokens', () => {
+    const grouped = (...groups) => ({ ...base(), active: { id: 'w', name: 'G', cur: 0,
+      entries: groups.map(sg => ({ id: '0025', ...(sg ? { sg } : {}), target: { sets: 1, reps: 8 }, sets: [{ w: 60, r: 8, done: false }] })) } })
+
+    it('the same group the same token, another group another, in the order they first appear', () => {
+      const snap = buildSnapshot(grouped('💪'.repeat(200), '💪'.repeat(200), null, 'B', 'B', '💪'.repeat(200)))
+      expect(snap.active.entries.map(e => e.group)).toEqual(['g1', 'g1', undefined, 'g2', 'g2', 'g1'])
+      expect('group' in snap.active.entries[2]).toBe(false)
+    })
+
+    it('two ids that only differ after the cut stay two supersets', () => {
+      const long = 'a'.repeat(MAX_WIDGET_TEXT)
+      expect(buildSnapshot(grouped(long + 'x', long + 'y')).active.entries.map(e => e.group)).toEqual(['g1', 'g2'])
+    })
+
+    it('the same workout gives the same snapshot, byte for byte', () => {
+      const S = grouped('A', 'A', 'C', 'C')
+      expect(JSON.stringify(buildSnapshot(S))).toBe(JSON.stringify(buildSnapshot(S)))
+    })
+
+    it('in each session the watch can start, counted in each on its own, and what is ready is not changed', () => {
+      const routines = [
+        { id: 'r-a', name: 'A', ex: [{ id: '0025', sets: 1, reps: 8, sg: 'long text' }, { id: '0001', sets: 1, reps: 8, sg: 'long text' }] },
+        { id: 'r-b', name: 'B', ex: [{ id: '0025', sets: 1, reps: 8, sg: 'other' }, { id: '0001', sets: 1, reps: 8, sg: 'other' }, { id: '0043', sets: 1, reps: 5 }] },
+      ]
+      const S = { ...base(), routines, week: { 2: ['r-a'] } }
+      const ready = buildReady(S, '2026-10-13')
+      const before = JSON.stringify(ready)
+      const snap = buildSnapshot(S, { ready })
+      expect(snap.ready.today.entries.map(e => e.group)).toEqual(['g1', 'g1'])
+      expect(snap.ready.others[0].entries.map(e => e.group)).toEqual(['g1', 'g1', undefined])
+      expect(JSON.stringify(ready)).toBe(before)
+    })
+  })
+
+  it('fits the issue\'s 50, 51 and 100 rows of 200-emoji groups, every set there', () => {
+    for (const n of [50, 51, 100]) {
+      const fit = fitSnapshot(buildSnapshot(sharedWorkout(n, '💪'.repeat(200))))
+      expect(fit).not.toBeNull()
+      expect(bytesOf(fit)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+      expect(setsOf(fit)).toEqual(Array(n).fill(1))
+      expect(new Set(fit.active.entries.map(e => e.group))).toEqual(new Set(['g1']))
+    }
+  })
+
+  it('fits 322 and 435 rows without groups with every set there, or sends none of it', () => {
+    for (const n of [322, 435]) {
+      const snap = buildSnapshot(sharedWorkout(n))
+      expect(bytesOf(snap)).toBeGreaterThan(SNAPSHOT_MAX_BYTES)
+      const fit = fitSnapshot(snap)
+      if (fit === null) continue
+      expect(bytesOf(fit)).toBeLessThanOrEqual(SNAPSHOT_MAX_BYTES)
+      expect(setsOf(fit)).toEqual(Array(n).fill(1))
+    }
+  })
+
+  it('sends none of a workout that cannot fit, and leaves the phone\'s copy alone', () => {
+    // 500 custom exercises with 200-emoji names (800 bytes each), four sets each
+    const S = { ...base(), active: { id: 'w', name: 'Big', cur: 0, entries: Array.from({ length: 500 }, (_, i) => ({
+      id: 'c' + i, target: { name: '💪'.repeat(300) }, sets: Array.from({ length: 4 }, () => ({ w: 60, r: 8, done: false })) })) } }
+    const snap = buildSnapshot(S)
+    const before = JSON.stringify(snap)
+    expect(fitSnapshot(snap)).toBeNull()
+    expect(JSON.stringify(snap)).toBe(before)
+  })
+
+  it('leaves out the keys that are null first, and keeps done and warm-up on every set', () => {
+    const snap = buildSnapshot(sharedWorkout(322))
+    expect(hasNull(snap)).toBe(true)
+    // a budget only that first step is needed for
+    const squeezed = JSON.parse(JSON.stringify(snap))
+    ;(function drop (v) { if (v && typeof v === 'object') for (const k of Object.keys(v)) { if (v[k] === null) delete v[k]; else drop(v[k]) } })(squeezed)
+    const fit = fitSnapshot(snap, bytesOf(squeezed))
+    expect(fit).toEqual(squeezed)
+    expect(hasNull(fit)).toBe(false)
+    for (const e of fit.active.entries) for (const set of e.sets) expect(set).toMatchObject({ done: false, warmup: false })
+    // nothing else is dropped or renamed: every key that was not null is there with its value
+    const keys = v => (v && typeof v === 'object' ? Object.entries(v).flatMap(([k, x]) => (x === null ? [] : [k, ...keys(x)])) : [])
+    expect(keys(fit)).toEqual(keys(snap))
   })
 })
 
