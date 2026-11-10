@@ -404,6 +404,10 @@ export const useStore = create((set, get) => {
   // account's Remove (NATG-523) keeps the mark.
   // Not reset in clearLocalSession on purpose: signing out and back in mid-DELETE would bring the toast back.
   const sharesRemoving = new Map()
+  // The shares a failed Remove could not reload after, uid → share ids: still marked as being
+  // removed until the next sweep for that user, which releases them whatever it finds (NATG-559).
+  // The DELETE may have been applied, and the lists held still name the share.
+  const sharesAwaitingSweep = new Map()
   let sharesFresh = null   // whose lists were loaded from the server since this page started (a saved copy is not)
   // A load landed before boot was through: `{ uid, known }`, whose lists they were and the pointers
   // their clean-up may judge, run at finishBoot while that account is still this tab's (SEC-04).
@@ -1594,7 +1598,11 @@ export const useStore = create((set, get) => {
       try { const r = await syncApi('/api/data', { expect: uid }); if (r && r.state) ({ state, rev } = r) }
       catch (e) { if (mismatched(e)) { if (left()) return; failed(e); throw e } /* otherwise the first read */ }
     }
+    // A reset or import made while the hold kept its push back armed a replace of the copy this
+    // throws away: left armed, the next ordinary edit went out as that replace, over what another
+    // device had written since the server's copy was taken (NATG-596).
     const takeServer = () => {
+      replaceRev = null
       const copy = sanitizeAccent(Object.assign(clone(DEF), state))
       copy.active = carryActive(get().S, copy)
       if (rev != null) adopt(copy, rev)
@@ -1624,6 +1632,10 @@ export const useStore = create((set, get) => {
       }
       markOwed(false)
       if (!push) {
+        // As takeServer: a reset or import the hold kept back armed a replace of a copy that does
+        // not go. Left armed, the next ordinary edit went out as that replace, over what another
+        // device had written to the new profile since (NATG-596).
+        replaceRev = null
         if (rev != null) writeSync(rev, 0)
         confirmed(get().S)
         await stash()
@@ -2214,7 +2226,9 @@ export const useStore = create((set, get) => {
       if (gone.length) get().update(s => { for (const id of gone) deleteRoutine(s, id) })
       if (gone.length < orphans.length && !sharesFetch) get().loadShares()
       const removing = sharesRemoving.get(user.id)
-      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !(removing?.get(i.id) > 0))
+      const awaiting = sharesAwaitingSweep.get(user.id)
+      const left = (before?.incoming || []).filter(i => i && i.state === 'accepted' && !mine.incoming.some(x => x && x.id === i.id) && !(removing?.get(i.id) > 0) && !awaiting?.has(i.id))
+      sharesAwaitingSweep.delete(user.id)
       if (!left.length) return
       import('./useUI.js').then(({ useUI }) => {
         for (const i of left) {
@@ -2240,25 +2254,38 @@ export const useStore = create((set, get) => {
     },
     async removeShare(id) {
       // Marked as being removed until the reload below has settled, on every path: a DELETE the
-      // server applied but whose answer failed is covered too (sharesRemoving).
+      // server applied but whose answer failed is covered too (sharesRemoving). After a failed
+      // DELETE whose reload failed as well, until the next sweep (sharesAwaitingSweep).
       const uid = get().user?.id
       if (uid) {
         const counts = sharesRemoving.get(uid) || new Map()
         counts.set(id, (counts.get(id) || 0) + 1)
         sharesRemoving.set(uid, counts)
       }
-      const reload = () => get().loadSharesNewer().finally(() => {
+      const unmark = () => {
         if (!uid) return
         const counts = sharesRemoving.get(uid)
         if (!counts?.has(id)) return
         if (counts.get(id) > 1) counts.set(id, counts.get(id) - 1)
         else { counts.delete(id); if (!counts.size) sharesRemoving.delete(uid) }
-      })
+      }
+      const reload = () => get().loadSharesNewer().finally(unmark)
       try {
         await api('/api/shares/' + encodeURIComponent(id), { method: 'DELETE' })
       } catch (e) {
         // Already gone on the server (revoked meanwhile): the outcome asked for, so it is no error.
-        if ((e?.data?.code || e?.code) !== 'share-missing') { reload(); throw e }
+        if ((e?.data?.code || e?.code) !== 'share-missing') {
+          // The DELETE may still have been applied. If the reload fails too, the lists held keep
+          // the share, and the next load that lands would name it as gone: the mark passes to that
+          // load's sweep (sharesAwaitingSweep), which releases it (NATG-559).
+          get().loadSharesNewer().then(answer => {
+            if (answer || !uid) return
+            const ids = sharesAwaitingSweep.get(uid) || new Set()
+            ids.add(id)
+            sharesAwaitingSweep.set(uid, ids)
+          }).finally(unmark)
+          throw e
+        }
       }
       // The reload runs whatever happens here, so nothing thrown below can leave the mark held.
       try {

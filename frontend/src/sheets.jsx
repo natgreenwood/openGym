@@ -1993,8 +1993,9 @@ function ExConfig({ ex, existing, onSave, onDelete, onReplace, close, routine, i
     if (bw !== isBodyweightEq(ex.id)) flags.bodyweight = bw
     // Free text, e.g. a pyramid's per-set loading ("bar only, +1 plate/side each set") — the
     // sets/reps/weight fields are one flat target and have no room for that on their own.
-    // Mode-independent, so it is spread in below rather than folded into `flags`.
-    const note = (c.note || '').trim().slice(0, 500)
+    // Mode-independent, so it is spread in below rather than folded into `flags`. An older or
+    // hand-edited routine can hold a note that isn't a string: dropped, as the textarea shows it.
+    const note = (typeof c.note === 'string' ? c.note : '').trim().slice(0, 500)
     const withNote = note ? { note } : {}
     // Only written when there are any, so a plan that never asked for warm-ups keeps the exact
     // shape it had — and reads back as 0 either way (buildSets).
@@ -2385,7 +2386,7 @@ function ExConfig({ ex, existing, onSave, onDelete, onReplace, close, routine, i
       : <ProgressionFields ex={ex} mode={mode} c={c} setC={setC} routine={routine} unit={st.unit} perSide={perSide} bw={bw} />}
     <textarea className="input" rows={3} maxLength={500} style={{ marginBottom: 18 }}
       placeholder={t('Note (optional): loading cues, "bar only, then +1 plate/side each set", anything worth remembering')}
-      value={c.note || ''} onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
+      value={typeof c.note === 'string' ? c.note : ''} onChange={e => setC(x => ({ ...x, note: e.target.value }))} />
     {/* What saving does, when it is neither of the two usual things: the routine editor's
         Replace (#110) seeds this sheet with the slot it replaces, and saving puts the exercise
         into that slot. */}

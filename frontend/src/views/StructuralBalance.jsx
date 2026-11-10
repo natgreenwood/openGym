@@ -14,7 +14,7 @@ const STATUS_COLOR = {
   balanced: 'var(--green)',
   borderline: 'var(--yellow)',
   weak: 'var(--red)',
-  'no-data': 'var(--label-3)',
+  'no-data': 'var(--label-2)',
 }
 
 // A role pointed at a custom exercise since deleted (on this device or another) still names

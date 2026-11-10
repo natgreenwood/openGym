@@ -22,6 +22,9 @@ const rule = (css, sel) => {
   const esc = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   return css.match(new RegExp(`(?:^|[}\\s])${esc}\\s*\\{([^}]*)\\}`))?.[1] || ''
 }
+// Every rule whose selector list is exactly `sel`, wherever it sits (top level or in an @media).
+const rules = (src, sel) => [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+  .filter((m) => m[1].trim() === sel).map((m) => m[2])
 const token = (decls, name) => decls.match(new RegExp(`${name}:\\s*([^;}]+)`))?.[1]?.trim()
 
 const hex = (h) => { h = h.replace('#', ''); if (h.length === 3) h = [...h].map((c) => c + c).join(''); return [0, 2, 4].map((i) => parseInt(h.slice(i, i + 2), 16)) }
@@ -128,9 +131,6 @@ describe('Secondary text contrast (NATG-644)', () => {
   const hc = block(css, /@media\s*\(prefers-contrast:\s*more\)/)
   const dark = rule(css, ':root')
   const light = rule(css, ':root[data-theme="light"]')
-  // Every rule whose selector list is exactly `sel`, wherever it sits (top level or in an @media).
-  const rules = (src, sel) => [...src.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
-    .filter((m) => m[1].trim() === sel).map((m) => m[2])
   const colour = (decls) => decls.match(/(?:^|;)\s*color:\s*([^;}]+)/)?.[1]?.trim()
 
   it('light --label-2 is .76; the dark and increased-contrast values are unchanged', () => {
@@ -204,9 +204,18 @@ describe('Icon-only controls (WCAG 1.4.11)', () => {
     ['views/FocusView.css', '.focus-side-check'],
     ['views/FocusView.css', '.focus-dots button::after'],
   ])('%s: %s paints with --label-2', (file, sel) => {
-    const decls = rule(read(file), sel)
-    expect(decls).toContain('var(--label-2)')
-    expect(decls).not.toContain('--label-3')
+    // Every rule for the selector, so a later override (a theme, an @media) can't slip back to
+    // --label-3. Some of them only set layout, so one has to carry the ink and none the old one.
+    const found = rules(read(file), sel)
+    expect(found.some((d) => d.includes('var(--label-2)'))).toBe(true)
+    for (const d of found) expect(d).not.toContain('--label-3')
+  })
+
+  // The drag handles darken to --label when hovered (pointer devices only) or pressed.
+  it.each(['.routine-grip:hover', '.plan-handle:active'])('%s darkens to --label', (sel) => {
+    const found = rules(css, sel)
+    expect(found.length).toBeGreaterThan(0)
+    for (const d of found) expect(d).toContain('var(--label)')
   })
 })
 
@@ -446,6 +455,7 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     ['index.css', '.share-person:focus-visible', '--focus-ring'],
     ['index.css', '.shared-list .item:focus-visible', '--focus-ring'],
     ['index.css', '.field:focus,.input:focus', '--focus-ring'],
+    ['index.css', '.measure-input:has(.num:focus-visible)', '--focus-ring'],
     ['coach.css', '.composer textarea:focus', '--focus-ring'],
     ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
     ['index.css', '.dw-col:focus-visible::after', '--label'],
