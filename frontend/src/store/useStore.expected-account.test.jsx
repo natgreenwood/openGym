@@ -397,3 +397,71 @@ describe('a 412 after a 401', () => {
     expect(calls()).toEqual(['GET /api/data', 'GET /api/data'])
   })
 })
+
+// Tester, PR #115 round 2: a refusal stops only what acts for the account it was for. A late 412
+// for the account this tab has just switched from says nothing about the new account's session.
+describe('a 412 for one account stops nothing for another', () => {
+  const lists = uid => ({ uid, outgoing: [], incoming: [], etag: 'e-' + uid, fetchedAt: 0, names: {} })
+
+  it('A\'s refused share lists landing during B\'s "Sync now" do not stop B\'s pull', async () => {
+    await signedIn()
+    useStore.setState({ shares: lists('u1') })
+    let refuseA, answerB
+    api.mockImplementation((path, o) => {
+      if (path === '/api/shares' && o?.expect === 'u1') return new Promise((_, reject) => { refuseA = () => reject(mismatch()) })
+      if (path === '/api/shares' && o?.expect === 'u2') return new Promise(resolve => { answerB = () => resolve({ outgoing: [], incoming: [], etag: 'eB' }) })
+      if (path === '/api/data') return Promise.resolve({ state: clone(SERVER), rev: 4 })
+      return Promise.resolve({})
+    })
+    const forA = useStore.getState().loadShares()
+    await settle()
+    useStore.getState().setUser({ id: 'u2', name: 'B' })   // this tab signs in as B meanwhile
+    useStore.setState({ shares: lists('u2') })
+    const now = useStore.getState().syncNow()
+    await vi.waitFor(() => expect(answerB).toBeTypeOf('function'))
+    refuseA()
+    await forA
+    answerB()
+    await now
+    const reads = api.mock.calls.filter(([p, o]) => p === '/api/data' && !o?.method).map(([, o]) => o.expect)
+    expect(reads).toEqual(['u2'])
+  })
+
+  it('A\'s push refused after this tab switched to B does not stop B\'s pull that waited for it', async () => {
+    await signedIn()
+    let refuseA
+    api.mockImplementation((path, o) => {
+      if (o?.method === 'PUT' && o.expect === 'u1') return new Promise((_, reject) => { refuseA = () => reject(mismatch()) })
+      if (path === '/api/data') return Promise.resolve({ state: clone(SERVER), rev: 4 })
+      return Promise.resolve({})
+    })
+    useStore.getState().update(s => { s.restSec = 45 })
+    const pushA = useStore.getState().pushState()
+    await vi.waitFor(() => expect(refuseA).toBeTypeOf('function'))
+    useStore.getState().setUser({ id: 'u2', name: 'B' })
+    const pullB = useStore.getState().pullState()   // waits for the push still out
+    refuseA()
+    await pushA; await pullB
+    const reads = api.mock.calls.filter(([p, o]) => p === '/api/data' && !o?.method).map(([, o]) => o.expect)
+    expect(reads).toEqual(['u2'])
+  })
+})
+
+// Architect, round 2: a sign-in's second read refused after the tab has been handed over answers
+// as the first read does then (gone), not with a rejection for a toast in a tab that has moved on.
+describe('a refused second read once the tab has left', () => {
+  it('answers gone, and says nothing in the sync state', async () => {
+    await signingIn()
+    let refuse
+    api.mockResolvedValueOnce({ state: clone(SERVER), rev: 4 })
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    const adopt = useStore.getState().adoptProfile(async () => true)
+    await vi.waitFor(() => expect(refuse).toBeTypeOf('function'))
+    localStorage.setItem('gym_owner', 'u2')   // another tab signs in as someone else
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gym_owner', oldValue: 'u1', newValue: 'u2' }))
+    refuse()
+    await expect(adopt).resolves.toEqual({ adopted: false, added: false, gone: true })
+    expect(calls()).toEqual(['GET /api/data', 'GET /api/data'])
+    expect(useStore.getState().sync.lastError?.code).not.toBe('account-mismatch')
+  })
+})
