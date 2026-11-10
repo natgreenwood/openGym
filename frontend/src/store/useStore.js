@@ -373,6 +373,13 @@ export function restoredStateFor(local, remote, dirty = false) {
   return next
 }
 
+// The copies an edit in this tab put in place (update), as against one a pull, a merge, another
+// tab or a restore brought: the routine page raises its "too large to share" toast only for a
+// change made here (NATG-670 AC6). Held weakly, so a copy no longer in use is not kept for it.
+const editedHere = new WeakSet()
+/** Whether `S` is a copy an edit in this tab made (update), not one that came from elsewhere. */
+export const madeHere = S => !!S && editedHere.has(S)
+
 export const useStore = create((set, get) => {
   let pushTm = null
   let saveTm = null
@@ -1682,6 +1689,7 @@ export const useStore = create((set, get) => {
       S._ts = stampChange(prev, S, Date.now())
       if (prevJson !== null && JSON.stringify(prev) !== prevJson) throw new Error('update(): the previous state was changed in place')
       persist(S, push)
+      if (get().S !== prev) editedHere.add(get().S)
       // A photo or video added to a workout is a change worth the day's backup too: the one
       // finishing wrote went before the finish screen's pictures (autoBackupNow). Not a removal,
       // nor a workout deleted: the day's copy then still holds what was taken off, as a backup should.
