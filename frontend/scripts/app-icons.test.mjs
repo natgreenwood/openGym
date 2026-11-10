@@ -33,11 +33,12 @@ describe('generated icon files', () => {
     }
   })
 
+  // 0.2 to 3.1 s alone, 0.7 to 2.5 s in the suite under CPU load, 5.4 s at worst seen (NATG-660).
   it('match a fresh draw (the small ones; --check compares them all)', () => {
     for (const v of APP_ICON_VARIANTS) {
       expect(readFileSync(join(ROOT, `public/app-icons/${v.id}.png`)).equals(draw(v, PREVIEW)), v.id).toBe(true)
     }
-  })
+  }, 30_000)
 })
 
 describe('node scripts/app-icons.mjs --check', () => {
