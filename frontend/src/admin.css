@@ -15,10 +15,10 @@
   background:var(--surface-2);color:var(--label-2)
 }
 .adm-pill::before{content:'';width:7px;height:7px;border-radius:50%;background:currentColor;flex:none}
-.adm-pill.ok{background:rgba(48,209,88,0.16);background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--green)}
-.adm-pill.warn{background:rgba(255,214,10,0.18);background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--yellow)}
-.adm-pill.bad{background:rgba(255,69,58,0.16);background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--red)}
-.adm-pill.acc{background:var(--acc-soft);color:var(--acc)}
+.adm-pill.ok{background:rgba(48,209,88,0.16);background:color-mix(in srgb,var(--green) 16%,transparent);color:var(--ok-ink)}
+.adm-pill.warn{background:rgba(255,214,10,0.18);background:color-mix(in srgb,var(--yellow) 18%,transparent);color:var(--warn-ink)}
+.adm-pill.bad{background:rgba(255,69,58,0.16);background:color-mix(in srgb,var(--red) 16%,transparent);color:var(--bad-ink)}
+.adm-pill.acc{background:var(--acc-soft);color:var(--acc-ink)}
 
 /* the one-line "what state is this in" under the card title */
 .adm-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:14px;color:var(--label-2);margin:4px 0 14px;line-height:1.4}
@@ -57,9 +57,13 @@
 .adm-chips .chip{min-height:38px;display:inline-flex;align-items:center;gap:7px}
 .adm-chip-key{
   font-size:10.5px;font-weight:700;letter-spacing:.02em;padding:1px 6px;border-radius:999px;
-  background:var(--acc-soft);color:var(--acc)
+  background:var(--acc-soft);color:var(--acc-ink)
 }
 .chip.on .adm-chip-key{background:rgba(0,0,0,.18);color:inherit}
+/* In light theme the chip's ink is dark, so a dark layer under the badge took it to 3:1. A white
+   one sets the badge apart about as much and keeps the ink above 5:1 on every accent and surface
+   (a11y-contrast-transparency.test.js). */
+:root[data-theme="light"] .chip.on .adm-chip-key{background:rgba(255,255,255,.3)}
 
 /* label + control pairs inside a step */
 .adm-field{display:flex;flex-direction:column;gap:6px;margin:0 0 10px}
@@ -148,7 +152,7 @@
   background:var(--surface-2);border:1.5px solid transparent;color:var(--label);
   font-weight:500;text-transform:none
 }
-.adm-chips .chip.on{background:var(--acc-soft);border-color:var(--acc);color:var(--acc);font-weight:600}
+.adm-chips .chip.on{background:var(--acc-soft);border-color:var(--acc);color:var(--acc-ink);font-weight:600}
 .adm-chips .chip:active{transform:scale(.97)}
 
 /* a finished step's summary reads as a receipt, not a control */
