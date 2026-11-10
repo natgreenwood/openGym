@@ -231,6 +231,47 @@ describe('a second tab while the first one changes owner', () => {
     expect((srv.doc.bodyweight || []).some(e => e.w === 80)).toBe(false)
   })
 
+  // NATG-600: the same switch kept the new account's workouts but put a fresh profile's settings
+  // in both tabs and in storage, and the first tab's next boot pushed them over the account's.
+  it('a direct sign-in to another account with "Keep profile as is" keeps that account\'s settings in both tabs, and after the other tab boots', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const bea = { id: 'B-' + OWNER, name: 'Bea' }
+    srv.doc = { ...clone(DEF), _ts: 10, gifSize: 'full', weighIn: true, workouts: [w('bW1', '2026-09-05')], _rev: 7 }
+    // The server now answers as Bea's account, boot's requests included.
+    const answer = h.api
+    h.api = async (path, opts = {}) => {
+      if (path === '/api/config') return {}
+      if (path === '/api/me') return { user: bea }
+      if (path === '/api/shares') return { incoming: [], outgoing: [], etag: 'shares-' + bea.id }
+      return answer(path, opts)
+    }
+    const prefs = s => ({ gifSize: s?.gifSize, weighIn: s?.weighIn })
+    const beas = { gifSize: 'full', weighIn: true }
+
+    await act(B, () => B.getState().setUser(bea, { adopt: true }))
+    await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+    await act(A, () => new Promise(r => setTimeout(r, 20)))
+    expect(prefs(A.getState().S)).toEqual(beas)
+    expect(prefs(B.getState().S)).toEqual(beas)
+    expect(prefs(saved())).toEqual(beas)
+    expect(ids(A.getState().S)).toEqual(['bW1'])
+    expect(ids(B.getState().S)).toEqual(['bW1'])
+
+    A.setState({ ready: false })
+    await act(A, () => A.getState().boot())
+    expect(A.getState().user?.id).toBe(bea.id)
+    expect(prefs(srv.doc)).toEqual(beas)
+    expect(ids(srv.doc)).toEqual(['bW1'])
+    expect(prefs(A.getState().S)).toEqual(beas)
+    expect(prefs(B.getState().S)).toEqual(beas)
+    expect(prefs(saved())).toEqual(beas)
+  })
+
   it('a guest tab left open after "Keep profile as is" puts none of the guest copy into the account', async () => {
     DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 3 })
