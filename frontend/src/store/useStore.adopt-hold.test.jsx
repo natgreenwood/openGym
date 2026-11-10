@@ -13,6 +13,7 @@
    plugins (an in-memory Directory.Data), the question sheet, and fetch, which plays the server. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -91,9 +92,6 @@ function serverWith(doc) {
 // The account: twelve workouts at rev 5. The phone: local mode, one workout of its own, newer.
 const TWELVE = Array.from({ length: 12 }, (_, i) => workout('s' + i, `2026-09-${String(i + 1).padStart(2, '0')}`))
 const SERVER = { _ts: 1000, _rev: 5, unit: 'kg', workouts: TWELVE, routines: [], bodyweight: [] }
-// At collection, not in a hook: the cold transform of the store's imports (the 1 MB exercise
-// table among them) takes seconds, and under a parallel run it went past the hook's timeout.
-const { DEF } = await import('./useStore.js')
 function localPhone() {
   h.files.clear()
   localStorage.clear()

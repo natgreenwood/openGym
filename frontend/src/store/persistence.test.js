@@ -5,16 +5,14 @@
 // drops the history without erroring anywhere. That is the failure this file exists to catch:
 // quiet at the time, and only visible a restore later, when the history is already gone.
 //
-// The store reaches for localStorage and document the moment it is imported, so both are stubbed
-// before the dynamic import below. Everything under test is the real DEF and the real normalizer,
-// not a restatement of them — a restatement would still pass with the key missing from DEF.
+// DEF and hasData come from store/defaults.js, which loads no store. Everything under test is the
+// real DEF and the real normalizer, not a restatement of them — a restatement would still pass
+// with the key missing from DEF.
 import { describe, it, expect } from 'vitest'
 import {
   normalizeMeasurementsState, DEFAULT_MEASUREMENT_KEYS, measurementValue
 } from '../lib/measurements.js'
-
-
-const { DEF, hasData } = await import('./useStore.js')
+import { DEF, hasData } from './defaults.js'
 
 const clone = o => JSON.parse(JSON.stringify(o))
 

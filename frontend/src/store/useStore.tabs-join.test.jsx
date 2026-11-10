@@ -8,6 +8,7 @@
    the store sharing one localStorage, as in the other tab tests. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -29,14 +30,12 @@ const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1'))
 
-let DEF
 // Tabs of earlier tests are closed after them (test-utils/fresh-store.js). Each test is another
 // account as well, so one left listening would take no part (a tab joins only copies of the
 // account it last saw).
 let OWNER = 'u0'
 async function openTab(user = { id: OWNER }) {
   const m = await freshStore()
-  DEF = m.DEF
   m.useStore.setState({ user, ready: true })
   return m.useStore
 }
@@ -71,11 +70,10 @@ const savedCopy = (doc, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: OWNER }))
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   localStorage.clear()
   OWNER = 'u' + (Number(OWNER.slice(1)) + 1)
   localStorage.setItem('gym_owner', OWNER)
-  DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => { localStorage.clear() })
 

@@ -18,6 +18,7 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn(() => Promise.resolve({ ok: true })
 
 import { useUI } from './useUI.js'
 import { useStore } from './useStore.js'
+import { DEF } from './defaults.js'
 import { armRestAlert } from '../lib/rest-alert.js'
 import { alertBuzz, chime, vibrate } from '../lib/sound.js'
 import { toneNative } from '../lib/rest-alert.js'
@@ -90,8 +91,7 @@ describe('vibrate on silent', () => {
     expect(alertBuzz).not.toHaveBeenCalled()
   })
 
-  it('is off for a profile that never chose', async () => {
-    const { DEF } = await import('./useStore.js')
+  it('is off for a profile that never chose', () => {
     expect(DEF.vibrateOnSilent).toBe(false)
   })
 })

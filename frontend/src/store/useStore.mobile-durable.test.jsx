@@ -7,6 +7,7 @@
    plugins, with an in-memory Directory.Data. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -38,7 +39,6 @@ const workout = id => ({ id, d: '2026-10-10', start: 1, end: 2, entries: [] })
 
 // A phone in local mode with a history and a workout running, in localStorage and in the file.
 async function localPhone() {
-  const { DEF } = await import('./useStore.js')
   const S = { ...JSON.parse(JSON.stringify(DEF)), _ts: 5000, workouts: [workout('w1'), workout('w2')],
     active: { id: 'run', d: '2026-10-14', start: 4000, cur: 0, entries: [{ id: '0025', target: { mode: 'reps' }, sets: [{ w: 60, r: 8, done: false }, { w: 60, r: 8, done: false }] }] } }
   h.files.clear()

@@ -7,6 +7,7 @@
    current document when `baseRev` is given and not the current revision. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -28,12 +29,10 @@ const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1'))
 
-let DEF
 // A tab opened now: it loads the saved copy and its marker from storage, as a page load does.
 // freshStore's clean-up (test-utils/fresh-store.js) closes it after the test.
 async function openTab(user = { id: 'u1' }) {
   const m = await freshStore()
-  DEF = m.DEF
   m.useStore.setState({ user, ready: true })
   return m.useStore
 }
@@ -71,10 +70,9 @@ const savedCopy = (doc, rev) => {
   localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: 'u1' }))
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   localStorage.clear()
   localStorage.setItem('gym_owner', 'u1')
-  DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => { localStorage.clear() })
 

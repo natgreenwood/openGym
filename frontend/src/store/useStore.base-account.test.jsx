@@ -11,7 +11,7 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF } from './useStore.js'
+import { DEF } from './defaults.js'
 
 const clone = value => JSON.parse(JSON.stringify(value))
 const workout = (id, d = '2026-09-01') => ({ id, d, start: 1, entries: [] })

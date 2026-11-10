@@ -5,6 +5,7 @@
    synced meanwhile, and pushed without stamps when none had. lib/sync-legacy.js. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -43,7 +44,6 @@ function server(doc) {
   return s
 }
 
-let DEF
 // What v1.3.9 left in the browser: its copy with offline changes, owed, the marker of the revision
 // it last synced and the fingerprint of that copy. No write id: that app never wrote one.
 function leaveOldCopy(base, mut) {
@@ -63,9 +63,8 @@ async function openApp() {
   return useStore
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   localStorage.clear()
-  DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => localStorage.clear())
 

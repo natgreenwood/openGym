@@ -11,7 +11,7 @@ const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF } from './useStore.js'
+import { DEF } from './defaults.js'
 import { editCompletedSession } from '../lib/session-edit.js'
 import { freshStore } from '../test-utils/fresh-store.js'
 

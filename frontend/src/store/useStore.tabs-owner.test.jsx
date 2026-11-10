@@ -9,6 +9,7 @@
    storage events are replayed in the order the writes happened, as the browser delivers them. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
 import { localTZ } from '../lib/format.js'
 import { sharedPointer } from '../lib/routine-lookup.js'
 
@@ -24,7 +25,6 @@ const ids = st => (st?.workouts || []).map(x => x.id).sort()
 const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP ' + status), { status, data })
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1') || 'null')
 
-let DEF
 let OWNER = 'o0'
 
 /* The browser's storage events, per tab. Each tab's 'storage' listeners are kept apart (openTab),
@@ -73,7 +73,6 @@ async function openTab(user) {
   window.addEventListener = function (type, l, o) { if (type === 'storage') tab.ls.push(l); else add.call(this, type, l, o) }
   try {
     const m = await freshStore()
-    DEF = m.DEF
     tab.store = m.useStore
   } finally { window.addEventListener = add }
   tabs.push(tab)
@@ -147,10 +146,9 @@ const hold = (method, path = '/api/data') => {
   return g
 }
 
-beforeEach(async () => {
+beforeEach(() => {
   localStorage.clear()
   OWNER = 'o' + (Number(OWNER.slice(1)) + 1)
-  DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => {
   tabs = []
@@ -159,7 +157,6 @@ afterEach(() => {
 
 describe('a second tab while the first one changes owner', () => {
   it('sign-out with a second tab open leaves nothing of the account in the browser', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -184,7 +181,6 @@ describe('a second tab while the first one changes owner', () => {
   })
 
   it('a device-link sign-in to another account with a second tab open copies nothing of the old account', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -213,7 +209,6 @@ describe('a second tab while the first one changes owner', () => {
   })
 
   it('a guest tab left open after "Keep profile as is" puts none of the guest copy into the account', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 3 })
     localStorage.setItem('gym_state_v1', JSON.stringify({
       ...clone(DEF), _ts: Date.now(), restSec: 90, accent: 'lime',
@@ -259,7 +254,6 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
   afterEach(() => { location.hash = '' })
 
   it('a profile created in the other tab shows in the guest tab at once, and the workout with it', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server(null)
     localStorage.setItem('gym_state_v1', JSON.stringify(guestCopy(running())))
     localStorage.setItem('gym_guest', '1')
@@ -281,7 +275,6 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
   })
 
   it('a sign-in to an existing account: the guest tab gets the account, the running workout included, once it is answered', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 3 })
     localStorage.setItem('gym_state_v1', JSON.stringify(guestCopy(running())))
     localStorage.setItem('gym_guest', '1')
@@ -301,7 +294,6 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
   })
 
   it('a guest tab on another screen is not told about a workout it does not show', async () => {
-    DEF = (await import('./useStore.js')).DEF
     server(null)
     localStorage.setItem('gym_state_v1', JSON.stringify(guestCopy(running())))
     localStorage.setItem('gym_guest', '1')
@@ -316,7 +308,6 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
   })
 
   it('a new profile with nothing in it: the other tab takes it without waiting for a save', async () => {
-    DEF = (await import('./useStore.js')).DEF
     server(null)
     localStorage.setItem('gym_state_v1', JSON.stringify({ ...clone(DEF), _ts: Date.now(), restSec: 75 }))
     const A = await openTab(null)
@@ -336,7 +327,6 @@ describe('a guest tab while the other tab signs in or creates a profile', () => 
 describe('a pull still on its way when another tab changes the owner', () => {
   // hold('GET'): the pull's GET /api/data is answered as the account it was sent for, then held.
   it('an answer landing after a sign-out in the other tab is dropped, in both tabs and in storage', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -374,7 +364,6 @@ describe('a pull still on its way when another tab changes the owner', () => {
   // found nothing to clear, a fresh tab loaded the account's copy, and the next sign-in was asked
   // to adopt its workouts.
   it('an answer landing before this tab has heard of the sign-out is dropped too, and stays dropped', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -417,7 +406,6 @@ describe('a pull still on its way when another tab changes the owner', () => {
   // The pull sends a change still waiting in the debounce first. That push's 409 carries the
   // account's document; merged in after the owner left, it went into the browser the same way.
   it('a conflict answer to the pull\'s own push, landing before this tab has heard of the sign-out, merges nothing in', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -450,7 +438,6 @@ describe('a pull still on its way when another tab changes the owner', () => {
   })
 
   it('an answer landing after the other tab signed in to another account is dropped', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -476,7 +463,6 @@ describe('a pull still on its way when another tab changes the owner', () => {
   })
 
   it('the account signed in after the switch gets a pull of its own, not the old one', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -503,7 +489,6 @@ describe('a pull still on its way when another tab changes the owner', () => {
   })
 
   it('an answer for the account still signed in is taken as before', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -573,7 +558,6 @@ describe('a request sent after its account has left the browser', () => {
   // queued behind it went anyway, without a revision, under B's session, and replaced B's profile
   // with A's copy.
   it('SEC-01: a push queued behind a dropped answer is not sent under the next account\'s session', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 5 }
     const srv = accounts({ [bId]: bDoc })
@@ -612,7 +596,6 @@ describe('a request sent after its account has left the browser', () => {
   // tab signed in as B (this tab not having heard yet), it asked the server again under B's
   // session, then answered the question for the browser, wiping B's own sign-in question.
   it('a sign-in question answered after the other tab signed in as someone else settles nothing', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const srv = accounts({
       [aId]: { ...account(), _rev: 3 },
@@ -654,7 +637,6 @@ describe('a request sent after its account has left the browser', () => {
   // document (their write ids do not descend from each other) and pushed them with B's own
   // revision, which the server accepted.
   it('SEC-03: a boot whose first answer lands after the other tab signed in as B syncs nothing into B', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
     const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], routines: [routine('br')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
@@ -767,7 +749,6 @@ describe('a request sent after its account has left the browser', () => {
 
   for (const [label, toB] of [['signs out', false], ['signs out and in as B', true]]) {
     it(`SEC-04: boot's timezone refresh writes nothing of A once the other tab ${label}`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const aId = OWNER
       const aDoc = {
         ...account(), reminder: { ...clone(DEF).reminder, on: true, tz: otherTz },
@@ -778,7 +759,6 @@ describe('a request sent after its account has left the browser', () => {
     })
 
     it(`SEC-04: boot's owed pointer sweep writes nothing of A once the other tab ${label}`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const aId = OWNER
       // A's plan still names a share that has since been revoked: the lists' answer finds it gone.
       const aDoc = { ...account(), week: { 1: sharedPointer('gone') }, _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
@@ -796,7 +776,6 @@ describe('a request sent after its account has left the browser', () => {
   // nobody signed in, the surviving cookie answered as A, and A's copy was taken as the signed-out
   // browser's own: an answer for nobody matched nobody signed in.
   it('SEC-02: a revision answer landing after a sign-out whose logout failed pulls nothing in', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const aId = OWNER
     const srv = accounts({ [aId]: { ...account(), _rev: 1 } })
     srv.session = aId
@@ -833,7 +812,6 @@ describe('a request sent after its account has left the browser', () => {
   // own copy of A's session expired (`reSignIn`, the owner key left at A). The owner key ends where
   // it was, so only the sign-in token shows boot that the 401 is about A's old session.
   async function bootRefused({ toB, roundTrip, reSignIn }) {
-    DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
     const bDoc = { ...clone(DEF), _ts: 10, workouts: [w('bW1', '2026-09-05')], _rev: 7, _wid: bId + '-w7', _wids: [bId + '-w6'] }
@@ -924,7 +902,6 @@ describe('a request sent after its account has left the browser', () => {
   // A browser without the token yet (opened before this was deployed) is not given one either.
   for (const gen of ['g-before', null]) {
     it(`NATG-606: a boot that signs A back in leaves the sign-in token ${gen ? 'as it was' : 'unset'}`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const aId = OWNER
       const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
       const srv = accounts({ [aId]: aDoc })
@@ -975,7 +952,6 @@ describe('an edit saved before this tab has heard that the other tab changed the
   const stashed = () => stashedEntries().map(e => e.state)
 
   it('after a sign-out: nothing of the account is saved or pushed, and the tab still hands over', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -1016,7 +992,6 @@ describe('an edit saved before this tab has heard that the other tab changed the
   })
 
   it('after a sign-in to another account: nothing of the old account is saved or pushed, and the tab takes the new one', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 1)
@@ -1091,7 +1066,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   }
 
   it('after a sign-out: the waiting push is not sent, and the tab hands over', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     const { A, B } = await twoTabs(srv)
     const puts = []
@@ -1112,7 +1086,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   })
 
   it('after a sign-in to another account: the waiting push is not sent under the new session', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     const { A, B } = await twoTabs(srv)
     const yan = 'Y-' + OWNER
@@ -1139,7 +1112,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   // push goes. The sign-out's settle already sent the edit (revision 2); A's own push is the one
   // sent against the revision A holds (1), refused and retried after the merge.
   it('after the other tab signed out and back in as the same account: the waiting push still goes', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     const { A, B } = await twoTabs(srv)
     const puts = []
@@ -1203,7 +1175,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
   for (const [via, send] of Object.entries(sends)) {
     for (const [move, { switchOwner }] of Object.entries(moves)) {
       it(`${via} after ${move} in the other tab: the waiting push is not sent`, async () => {
-        DEF = (await import('./useStore.js')).DEF
         const srv = server({ ...account(), _rev: 1 })
         const { A, B } = await twoTabs(srv)
         const puts = []
@@ -1243,7 +1214,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     // (pushAgain). The other tab moves the owner before the first one's answer lands: the
     // follow-up is for Xavi, and does not go.
     it(`a follow-up push queued behind one in flight is not sent after ${move} in the other tab`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const srv = server({ ...account(), _rev: 1 })
       const { A, B, tabA } = await twoTabs(srv)
       const held = hold('PUT')
@@ -1271,7 +1241,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     // AC2: the push's 409, carrying Xavi's newer document, lands after the move. Merged and
     // retried, the retry went out for Xavi under whatever session the browser holds now.
     it(`a conflict answer landing after ${move} in the other tab is not merged and retried`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const srv = server({ ...account(), _rev: 1 })
       const { A, B, tabA } = await twoTabs(srv)
       srv.doc = { ...srv.doc, routines: [routine('xr'), routine('xr-newer')], _ts: 200, _rev: 2 }   // another device's edit: A's push gets a 409
@@ -1301,7 +1270,6 @@ describe('a push waiting in the debounce when the other tab changes the owner', 
     // the owner before the pull's answer lands: that push is for Xavi, and does not go. Without the
     // change the sign-out owes nothing and has no push to drop (NATG-573).
     it(`A's own sign-out waiting on a pull sends nothing after ${move} in the other tab`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const srv = server({ ...account(), _rev: 1 })
       const { A, B, tabA } = await twoTabs(srv)
       const held = hold('GET')
@@ -1344,7 +1312,6 @@ describe('a reset or import refused before this tab has heard that the other tab
      profile while A's storage callbacks wait; the account A held is at revision 5, Yan at 4.
      `replace` runs as A in that window, and `inWindow` checks A before its queued events run. */
   const refusedThenEdit = async (replace, inWindow) => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 5 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 5)
@@ -1416,7 +1383,6 @@ describe('a reset or import followed, before its push, by this tab signing in to
      over what another device had synced to it. The account this tab held is at revision 5, Yan at
      4; another device then takes Yan to 5. */
   const signInBeforePush = async replace => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 5 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 5)
@@ -1462,7 +1428,6 @@ describe('a reset or import followed, before its push, by this tab signing in to
   })
 
   it('with no sign-in in between, the reset still goes out as a replace of the account\'s copy', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 5 })
     localStorage.setItem('gym_owner', OWNER)
     savedCopy(srv.doc, 5)
@@ -1497,7 +1462,6 @@ describe('a signed-out tab while the other tab finishes signing in to another ac
   }
   for (const [order, deliver] of Object.entries(orders)) {
     it(`${order}: tab 1 ends signed in as Yan, and Yan's marker, settings and base revision stay`, async () => {
-      DEF = (await import('./useStore.js')).DEF
       const srv = server({ ...account(), _rev: 1 })
       localStorage.setItem('gym_owner', OWNER)
       savedCopy(srv.doc, 1)
@@ -1542,7 +1506,6 @@ describe('a signed-out tab while the other tab finishes signing in to another ac
 // ends as it takes that account's copy, or it went on refusing every save it was asked for.
 describe('a tab already signed in as the account the other tab makes the owner', () => {
   it('takes the account\'s copy and goes on saving and pushing its own changes', async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server(null)
     const xavi = { id: OWNER, name: 'Xavi' }
     // Loaded with the account's user but no owner recorded beside the copy (a guest's copy).
@@ -1579,7 +1542,6 @@ describe('a sign-out overtaken by another tab signing in as a different account'
   // Xavi's, Yan's once B signs in, nobody's after a logout. `logouts`: each one, with whose
   // session it went out under.
   const setup = async () => {
-    DEF = (await import('./useStore.js')).DEF
     const srv = server({ ...account(), _rev: 1 })
     localStorage.setItem('gym_owner', OWNER)
     localStorage.setItem('gym_owner_name', 'Xavi')
