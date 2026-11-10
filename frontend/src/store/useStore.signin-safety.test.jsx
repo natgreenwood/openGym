@@ -11,9 +11,12 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
 import { api } from '../lib/api.js'
-import { DEF } from './useStore.js'
+import { DEF } from './defaults.js'
 import { mergeStates, stampEdits } from '../lib/sync-merge.js'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { warmStoreImports } from '../test-utils/warm-store.js'
+
+await warmStoreImports()
 
 // A fresh store per test (test-utils/fresh-store.js): whose copy the browser holds is the module's
 // to remember, and a test that signs in left that behind for the next one, whose guest edit then

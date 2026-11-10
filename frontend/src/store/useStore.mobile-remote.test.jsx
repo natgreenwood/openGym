@@ -14,6 +14,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { syncFingerprint } from '../lib/sync-changes.js'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
+import { warmStoreImports } from '../test-utils/warm-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')   // lib/mobile.js: MOBILE = import.meta.env.VITE_MOBILE === '1'
@@ -105,9 +107,9 @@ const ids = xs => (xs || []).map(x => x.id)
 
 // Server rev 5 holds w1 and the push-day routine at 10 reps; the phone is paired and in step.
 const SERVER_STATE = { _ts: 1000, _rev: 5, unit: 'kg', restSec: 90, workouts: [workout('w1', '2026-09-10')], routines: [routine('push', 10)], bodyweight: [] }
-// At collection, not in a hook: the cold transform of the store's imports (the 1 MB exercise
-// table among them) takes seconds, and under a parallel run it went past the hook's timeout.
-const { DEF } = await import('./useStore.js')
+
+await warmStoreImports()
+
 // `synced`: it last agreed with the server under this version, so it knows what that copy was.
 function pairedPhone({ localStorage: withLocal = true, mirror, synced = true } = {}) {
   h.files.clear()

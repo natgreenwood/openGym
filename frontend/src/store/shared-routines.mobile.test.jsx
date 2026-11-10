@@ -3,6 +3,8 @@
 // Native file reads and the API use synthetic fixtures; no physical device is required.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { freshStore } from '../test-utils/fresh-store.js'
+import { DEF } from './defaults.js'
+import { warmStoreImports } from '../test-utils/warm-store.js'
 
 const h = vi.hoisted(() => {
   vi.stubEnv('VITE_MOBILE', '1')
@@ -46,7 +48,9 @@ vi.mock('../lib/api.js', () => ({
 }))
 
 const USER = { id: 'test-recipient', name: 'Test Recipient' }
-const { DEF } = await import('./useStore.js')
+
+await warmStoreImports()
+
 const file = name => JSON.parse(h.files.get('DATA/' + name))
 let store
 beforeEach(() => {
