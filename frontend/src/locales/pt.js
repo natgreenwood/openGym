@@ -2718,6 +2718,7 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} exercícios tinham mais do que a app permite. Vão ser adicionados com no máximo {1} séries ou intervalos, {2} quedas e {3} repetições rest-pause.',
   'People you share this with won’t be able to open it': 'As pessoas com quem a partilhares não a vão conseguir abrir',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'É grande demais para uma rotina partilhada. Podes partilhá-la na mesma. Quando tiver menos séries ou exercícios, vão conseguir abri-la.',
+  'Something in it can’t be read in a shared routine. You can still share it.': 'Há algo nela que não pode ser lido numa rotina partilhada. Podes partilhá-la na mesma.',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': 'As pessoas com quem a partilhaste não a vão conseguir abrir',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'É grande demais para uma rotina partilhada. Encurta as notas dos exercícios ou remove alguns exercícios, e vão conseguir abri-la.',

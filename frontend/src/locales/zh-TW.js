@@ -2711,6 +2711,7 @@ export default {
   '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 個動作超出了應用程式允許的範圍。加入時最多 {1} 組或間歇、{2} 次遞減和 {3} 次休息暫停。',
   'People you share this with won’t be able to open it': '你分享給的人將無法開啟它',
   'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '它對共享訓練計畫來說太大了。你仍然可以分享它。等組數或動作減少後，他們就能開啟了。',
+  'Something in it can’t be read in a shared routine. You can still share it.': '其中有些內容在共享訓練計畫中無法讀取。你仍然可以分享它。',
   // --- routine page: too large to share (NATG-670) ---
   'People you’ve shared this with won’t be able to open it': '你分享的對象將無法開啟它',
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': '它太大了，無法作為分享的課表。縮短動作備註或刪掉一些動作，對方就能開啟了。',
