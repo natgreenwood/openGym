@@ -723,8 +723,11 @@ export function stampDeletions(prev, next, now = Date.now()) {
     if (changed) { del[f] = capStamps(m); touched = true }
   }
   if (touched) next.deleted = del
-  // Kept content past its time or past the cap goes here, never in the merge (see `tombs`).
-  const t = pruneTombs(tombs || next.tombs, del, now)
+  // Kept content past its time, the cap or its byte budgets goes here, never in the merge (see
+  // `tombs`), by the same rules as the server's, so this device does not send what it would drop.
+  let t = pruneTombs(tombs || next.tombs, del, now)
+  if (isMap(t) && !withinBudget.has(t)) t = budgetTombs(t, del)
+  if (isMap(t)) withinBudget.add(t)
   if (t !== next.tombs) { if (isMap(t) && Object.keys(t).length) next.tombs = t; else delete next.tombs }
   return next
 }
@@ -806,6 +809,19 @@ export const TOMB_MAX = 200
 // and on every copy once its stamps spread. Raising the constant does not help with that; the same
 // holds for EDIT_KEEP_MS.
 export const TOMB_KEEP_MS = 30 * 86400000
+// Byte budgets of kept content, as UTF-8 JSON (`_f`, `_u` and a workout's joined media included):
+// one kept entry, and every list's entries together (each counted with its key). The count cap
+// alone (TOMB_MAX) did not bound the bytes: the server joins each push into what it stores, so
+// pushes each under the request limit could grow one kept entry, field by field, without end
+// (NATG-561 SEC-01). Measured on the AC6 document (api/test/sync-tombs.test.js, 200 busy entries
+// in each of the five lists): the largest entry is a workout of 6,058 bytes (eight exercises of
+// five sets, a long note, six photo refs with posters), the whole map 1,870,081 bytes. So 64 KiB
+// is more than ten times the busiest entry, and 2.5 MiB holds that document with 40 % to spare and
+// is half the server's 5 MiB request limit (MAX_BODY), leaving the other half for the profile
+// itself. Past either, content goes as budgetTombs says, applied by stampDeletions and the server
+// (stampPut), never in the merge.
+export const TOMB_BYTES_MAX = 64 * 1024
+export const TOMBS_BYTES_MAX = 2.5 * 1024 * 1024
 const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null)
 
 // What is kept of `x`, a version of an entry of list `f`, or null when nothing of it can matter.
@@ -910,6 +926,51 @@ export function exportableState(S) {
   const { tombs, ...rest } = S
   return rest
 }
+// The UTF-8 length of `s`, without encoding it (api/sync-stamps.js has the same).
+function utf8Bytes(s) {
+  let n = 0
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i)
+    if (c < 0x80) n++
+    else if (c < 0x800) n += 2
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++ }
+    else n += 3
+  }
+  return n
+}
+const byKey = (x, y) => (x < y ? -1 : x > y ? 1 : 0)
+/**
+ * `tombs` within its byte budgets (TOMB_BYTES_MAX, TOMBS_BYTES_MAX): an entry over the first goes
+ * whole; then, while the lists together are over the second, whole entries go, the oldest removal
+ * in `deleted` first, ties by key and then list. A key that goes falls back to what removals did
+ * before for that one entry. The same object when nothing goes, a new one otherwise.
+ */
+export function budgetTombs(tombs, deleted) {
+  if (!isMap(tombs)) return tombs
+  const kept = []
+  let total = 0, changed = false
+  for (const f of Object.keys(tombs)) {
+    if (!TOMB_LISTS[f] || !isMap(tombs[f])) { changed = true; continue }
+    for (const [k, t] of Object.entries(tombs[f])) {
+      if (k === '__proto__') { changed = true; continue }
+      const size = utf8Bytes(JSON.stringify(t) ?? '')
+      if (size > TOMB_BYTES_MAX) { changed = true; continue }
+      const cost = utf8Bytes(JSON.stringify(k)) + 2 + size
+      total += cost
+      kept.push({ f, k, cost, at: Math.abs(Number(isMap(deleted?.[f]) ? deleted[f][k] : 0) || 0) })
+    }
+  }
+  if (!changed && total <= TOMBS_BYTES_MAX) return tombs
+  kept.sort((x, y) => x.at - y.at || byKey(x.k, y.k) || byKey(x.f, y.f))
+  let i = 0
+  while (total > TOMBS_BYTES_MAX && i < kept.length) total -= kept[i++].cost
+  const out = {}
+  for (const { f, k } of kept.slice(i)) (out[f] || (out[f] = {}))[k] = tombs[f][k]
+  return out
+}
+// Kept maps already found within budget: the store hands the same map to every change that does
+// not touch it, and measuring it again on each would cost a serialisation per tick of a set.
+const withinBudget = new WeakSet()
 // An entry of list `f` that is in its list and kept content of it too (edited after its removal,
 // or added back): the two merged. Kept content has no edit time, so the entry's own unstamped
 // fields stay as they are.

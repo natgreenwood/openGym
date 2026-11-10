@@ -20,7 +20,8 @@
 //      no longer deletes the pyramid sets made on an updated one;
 //   1. never lets the records shrink: `deleted` and `edited` are joined with the stored ones (but
 //      a reset, which starts the profile over, keeps its own), and so is `tombs`, the content kept
-//      of removed entries, which is also capped and aged out here (TOMB_LISTS below);
+//      of removed entries, which is also capped, aged out and held to a byte budget here
+//      (TOMB_LISTS below);
 //   2. for a writer that does not stamp (no `stamped: true` in the body) and wrote over the
 //      revision it read: stamps what it changed against the stored copy, at the server's time —
 //      entries removed, settings and plan days changed, entries edited. A setting, plan day or
@@ -579,6 +580,13 @@ export const TOMB_MAX = 200;
 // Judged against the server's `t`, which is lifted past the highest stamp it sees: a device whose
 // clock runs more than this far ahead ages kept content out early (sync-merge.js TOMB_KEEP_MS).
 export const TOMB_KEEP_MS = 30 * 86400000;
+// Byte budgets of kept content, as UTF-8 JSON: one kept entry, and every list's entries together,
+// each counted with its key (sync-merge.js TOMB_BYTES_MAX, where the numbers come from: measured
+// on the AC6 document, the busiest entry is 6,058 bytes and the whole map 1,870,081). Without
+// them, a push under the request limit could add a fresh stamped field to the same kept entry each
+// time, and the join kept them all: the stored document grew without bound (NATG-561 SEC-01).
+export const TOMB_BYTES_MAX = 64 * 1024;
+export const TOMBS_BYTES_MAX = 2.5 * 1024 * 1024;
 const mediaHash = m => (isMap(m) && typeof m.hash === 'string' ? m.hash : null);
 function tombOf(f, x) {
   if (!isMap(x)) return null;
@@ -652,6 +660,45 @@ function dropAbsorbed(tombs, next) {
     if (!Object.keys(m).length) delete tombs[f];
   }
   return tombs;
+}
+function utf8Bytes(s) {
+  let n = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) n++;
+    else if (c < 0x800) n += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length && (s.charCodeAt(i + 1) & 0xfc00) === 0xdc00) { n += 4; i++; }
+    else n += 3;
+  }
+  return n;
+}
+const byKey = (x, y) => (x < y ? -1 : x > y ? 1 : 0);
+/**
+ * Within the byte budgets (sync-merge.js budgetTombs): an entry over TOMB_BYTES_MAX goes whole, then
+ * whole entries go, oldest removal first, ties by key and list, until all fit TOMBS_BYTES_MAX.
+ */
+export function budgetTombs(tombs, deleted) {
+  if (!isMap(tombs)) return tombs;
+  const kept = [];
+  let total = 0, changed = false;
+  for (const f of Object.keys(tombs)) {
+    if (!TOMB_LISTS[f] || !isMap(tombs[f])) { changed = true; continue; }
+    for (const [k, t] of Object.entries(tombs[f])) {
+      if (k === '__proto__') { changed = true; continue; }
+      const size = utf8Bytes(JSON.stringify(t) ?? '');
+      if (size > TOMB_BYTES_MAX) { changed = true; continue; }
+      const cost = utf8Bytes(JSON.stringify(k)) + 2 + size;
+      total += cost;
+      kept.push({ f, k, cost, at: Math.abs(Number(isMap(deleted?.[f]) ? deleted[f][k] : 0) || 0) });
+    }
+  }
+  if (!changed && total <= TOMBS_BYTES_MAX) return tombs;
+  kept.sort((x, y) => x.at - y.at || byKey(x.k, y.k) || byKey(x.f, y.f));
+  let i = 0;
+  while (total > TOMBS_BYTES_MAX && i < kept.length) total -= kept[i++].cost;
+  const out = {};
+  for (const { f, k } of kept.slice(i)) (out[f] || (out[f] = {}))[k] = tombs[f][k];
+  return out;
 }
 /** Without what was removed more than TOMB_KEEP_MS before `now`, at most TOMB_MAX a list (sync-merge.js pruneTombs). */
 export function pruneTombs(tombs, deleted, now) {
@@ -741,9 +788,10 @@ export function stampPut(cur, next, { overRead = false, stamped = false, now = D
   }
   keepHeld(next, t);
   // Kept content of removed entries: joined with the stored copy's (a reset starts over without
-  // it), capped, without what an entry back in its list already holds, and aged out at the
-  // server's time (see TOMB_LISTS above).
-  const tombs = pruneTombs(dropAbsorbed(mergeTombs(cur && !reset ? cur.tombs : null, next.tombs, next.deleted), next), next.deleted, t);
+  // it), capped, without what an entry back in its list already holds, aged out at the server's
+  // time, and held to its byte budgets (see TOMB_LISTS above). What is over budget is dropped, not
+  // refused: the entry falls back to what a removal did before, and the save goes through.
+  const tombs = budgetTombs(pruneTombs(dropAbsorbed(mergeTombs(cur && !reset ? cur.tombs : null, next.tombs, next.deleted), next), next.deleted, t), next.deleted);
   if (tombs && Object.keys(tombs).length) next.tombs = tombs; else delete next.tombs;
   if (cur && !reset) notePrior(cur, next);
   return next;

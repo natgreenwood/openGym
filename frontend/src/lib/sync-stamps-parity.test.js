@@ -3,7 +3,7 @@
    its own changes (an older app, an API planner) must hold in this side's merge. */
 import { describe, expect, it } from 'vitest'
 import * as S from '../../../api/sync-stamps.js'
-import { highestStamp, mergeDeletions, mergeEdits, mergeEntry, mergeStates, mergeTombs, pruneTombs, stampChange, stampEntry, stampEdits, stampRestore, TOMB_KEEP_MS, TOMB_LISTS, TOMB_MAX } from './sync-merge.js'
+import { budgetTombs, highestStamp, mergeDeletions, mergeEdits, mergeEntry, mergeStates, mergeTombs, pruneTombs, stampChange, stampEntry, stampEdits, stampRestore, TOMB_BYTES_MAX, TOMB_KEEP_MS, TOMB_LISTS, TOMB_MAX, TOMBS_BYTES_MAX } from './sync-merge.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 } }
@@ -83,6 +83,25 @@ describe('api/sync-stamps.js matches sync-merge.js', () => {
       expect(S.mergeTombs(clone(a), clone(b), del)).toEqual(mine)
       expect(mergeTombs(clone(b), clone(a), del)).toEqual(mine)
       expect(S.pruneTombs(clone(mine), del, T)).toEqual(pruneTombs(clone(mine), del, T))
+    }
+  })
+
+  it('hold kept content to the same byte budgets (SEC-01)', () => {
+    expect([S.TOMB_BYTES_MAX, S.TOMBS_BYTES_MAX]).toEqual([TOMB_BYTES_MAX, TOMBS_BYTES_MAX])
+    for (let seed = 1; seed < 40; seed++) {
+      const R = rng(seed)
+      const tombs = {}, del = {}
+      for (const f of [...Object.keys(TOMB_LISTS), 'bodyweight']) {
+        tombs[f] = {}; del[f] = {}
+        for (let i = 0; i < Math.floor(R() * 30); i++) {
+          const k = `k${Math.floor(R() * 40)}`
+          // sizes around both budgets, wide characters among them, and stamps that tie
+          const n = Math.floor(R() * 90 * 1024)
+          tombs[f][k] = { _f: { note: 1 }, note: (R() < 0.3 ? '\u00e9' : 'a').repeat(R() < 0.5 ? n : n >> 4) }
+          if (R() < 0.9) del[f][k] = 1000 + Math.floor(R() * 10)
+        }
+      }
+      expect(S.budgetTombs(clone(tombs), del)).toEqual(budgetTombs(clone(tombs), del))
     }
   })
 })

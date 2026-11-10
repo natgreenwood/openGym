@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import { stampPut, TOMB_MAX, TOMB_KEEP_MS } from '../sync-stamps.js';
+import * as SS from '../sync-stamps.js';
 import { markEntryUndone, mergeStates, stampChange, stampWorkout } from '../../frontend/src/lib/sync-merge.js';
 
 const clone = v => JSON.parse(JSON.stringify(v));
@@ -121,6 +122,8 @@ test('a document carrying 200 busy kept entries in each of the five lists stays 
   }
   stampPut(null, doc, { stamped: true, now: NOW });
   for (const f of Object.keys(doc.tombs)) assert.equal(Object.keys(doc.tombs[f]).length, TOMB_MAX, f);
+  // and the byte budgets (SEC-01) let all of it through: nothing dropped, the same map
+  assert.equal(SS.budgetTombs(doc.tombs, doc.deleted), doc.tombs);
   const bytes = Buffer.byteLength(JSON.stringify(doc));
   const per = Object.fromEntries(Object.entries(doc.tombs).map(([f, m]) => [f, Buffer.byteLength(JSON.stringify(m))]));
   t.diagnostic(`MAX_BODY ${MAX_BODY} bytes; document with ${TOMB_MAX} kept entries per list: ${bytes} bytes (${(100 * bytes / MAX_BODY).toFixed(1)}%); per list ${JSON.stringify(per)}`);
@@ -148,7 +151,8 @@ async function server(t) {
   const headers = { Cookie: `gymsid=${mintSession('u1')}`, 'Content-Type': 'application/json' };
   const put = async body => { const r = await fetch(`${base}/api/data`, { method: 'PUT', headers, body: JSON.stringify(body) }); return { status: r.status, body: await r.json() }; };
   const get = async () => (await fetch(`${base}/api/data`, { headers })).json();
-  return { put, get };
+  const stored = () => fs.statSync(path.join(dataDir, 'state-u1.json')).size;
+  return { put, get, stored };
 }
 // The app's push (useStore pushState): against the revision it last read, and on a 409 its own
 // copy merged with the server's (local first, as the store does) and pushed again.
@@ -248,4 +252,79 @@ test('PUT /api/data: an Undo two unseen changes overrule keeps the later one in 
   assert.deepEqual(BAC.routines, BCA.routines);
   assert.deepEqual(BAC.routines[0].ex, [{ id: 'bench', sets: 4 }]);
   assert.deepEqual(BAC.routines[0]._u, { ex: [0, T + 130, T + 161, T + 110] });
+});
+
+// ---- NATG-561 SEC-01: the bytes kept, not only the number of entries -----------------------------
+// The budgets below are written out as numbers on purpose: these regressions must fail against a
+// server that has none (31b83f236), not on a missing import.
+const KIB = 1024, MIB = 1024 * 1024;
+test('the byte budgets are the measured ones, the same as the app\'s', () => {
+  assert.equal(SS.TOMB_BYTES_MAX, 64 * KIB);
+  assert.equal(SS.TOMBS_BYTES_MAX, 2.5 * MIB);
+});
+
+test('a kept entry over its byte budget goes whole; the others stay', () => {
+  const next = { _ts: NOW, routines: [], deleted: { routines: { big: NOW - 10, small: NOW - 20 } },
+    tombs: { routines: { big: { _f: { note: NOW - 30 }, note: 'x'.repeat(70 * KIB) }, small: { _f: { note: NOW - 30 }, note: 'kept' } } } };
+  stampPut(null, next, { stamped: true, now: NOW });
+  assert.deepEqual(Object.keys(next.tombs.routines), ['small']);
+});
+
+test('past the total budget whole entries go, the oldest removal first, ties by key', () => {
+  const tombs = { routines: {}, customEx: {} }, del = { routines: {}, customEx: {} };
+  for (let i = 0; i < 60; i++) {
+    const f = i % 2 ? 'routines' : 'customEx', k = `k${String(i).padStart(2, '0')}`;
+    tombs[f][k] = { _f: { note: NOW - 50 }, note: 'y'.repeat(60 * KIB) };
+    del[f][k] = NOW - 1000 + Math.floor(i / 4);   // groups of four with the same removal stamp
+  }
+  const next = { _ts: NOW, routines: [], customEx: [], deleted: del, tombs };
+  stampPut(null, next, { stamped: true, now: NOW });
+  const left = [...Object.keys(next.tombs.routines || {}), ...Object.keys(next.tombs.customEx || {})].sort();
+  assert.ok(Buffer.byteLength(JSON.stringify(next.tombs)) <= 2.5 * MIB);
+  assert.equal(left.length, 42);                       // 42 entries of about 61 KiB fit 2.5 MiB
+  assert.deepEqual(left, Array.from({ length: 42 }, (_, i) => `k${String(i + 18).padStart(2, '0')}`));
+});
+
+test('PUT /api/data: pushes under the request limit adding a fresh 1 MiB field to one kept entry do not grow the stored document (SEC-01)', async t => {
+  const api = await server(t);
+  const T = Date.now() - 60000;
+  let rev = null;
+  for (let i = 0; i < 8; i++) {
+    const tomb = { _f: { [`p${i}`]: T }, [`p${i}`]: 'a'.repeat(MIB) };
+    const r = await api.put({ state: { _ts: T + i, workouts: [], routines: [], deleted: { routines: { r: T } }, tombs: { routines: { r: tomb } } }, stamped: true, ...(rev != null ? { baseRev: rev } : {}) });
+    assert.equal(r.status, 200);
+    rev = r.body.rev;
+    assert.ok(api.stored() < 64 * KIB, `stored ${api.stored()} bytes after push ${i + 1}`);
+  }
+  // fields just under the per-entry budget: two of them joined are over it, and the entry goes whole
+  for (let i = 0; i < 6; i++) {
+    const tomb = { _f: { [`q${i}`]: T }, [`q${i}`]: 'b'.repeat(40 * KIB) };
+    const r = await api.put({ state: { _ts: T + 10 + i, workouts: [], routines: [], deleted: { routines: { r: T } }, tombs: { routines: { r: tomb } } }, stamped: true, baseRev: rev });
+    assert.equal(r.status, 200);
+    rev = r.body.rev;
+    const kept = (await api.get()).state.tombs?.routines?.r;
+    assert.ok(!kept || Buffer.byteLength(JSON.stringify(kept)) <= 64 * KIB);
+  }
+  assert.ok(api.stored() < 64 * KIB);
+});
+
+test('PUT /api/data: the same across many keys stays within the total budget, newest removals kept (SEC-01)', async t => {
+  const api = await server(t);
+  const T = Date.now() - 600000;
+  let rev = null, n = 0;
+  for (let i = 0; i < 6; i++) {
+    const tombs = { routines: {} }, del = { routines: {} };
+    for (let j = 0; j < 30; j++, n++) {
+      const k = `r${String(n).padStart(3, '0')}`;
+      tombs.routines[k] = { _f: { note: T }, note: 'c'.repeat(60 * KIB) };
+      del.routines[k] = T + n;
+    }
+    const r = await api.put({ state: { _ts: T + i, workouts: [], routines: [], deleted: del, tombs }, stamped: true, ...(rev != null ? { baseRev: rev } : {}) });
+    assert.equal(r.status, 200);
+    rev = r.body.rev;
+    assert.ok(api.stored() < 2.5 * MIB + 64 * KIB, `stored ${api.stored()} bytes after push ${i + 1}`);
+  }
+  const kept = Object.keys((await api.get()).state.tombs.routines).sort();
+  assert.equal(kept.at(-1), 'r179');                   // the newest removal is still kept
+  assert.ok(kept.length < 180 && kept.length >= 40);
 });

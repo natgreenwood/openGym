@@ -5,8 +5,8 @@
 import { describe, expect, it } from 'vitest'
 import fc from 'fast-check'
 import {
-  mergeStates, mergeTombs, pruneTombs, sinceReset, stampChange, stampDeletions, stampReplace, stampWorkout,
-  TOMB_KEEP_MS, TOMB_LISTS, TOMB_MAX,
+  budgetTombs, mergeStates, mergeTombs, pruneTombs, sinceReset, stampChange, stampDeletions, stampReplace, stampWorkout,
+  TOMB_BYTES_MAX, TOMB_KEEP_MS, TOMB_LISTS, TOMB_MAX, TOMBS_BYTES_MAX,
 } from './sync-merge.js'
 import { convertStateUnit, convertWeight } from './units.js'
 
@@ -159,6 +159,52 @@ describe('retention (AC5) and the cap (AC6)', () => {
     expect(mergeTombs('x', [1], {})).toEqual({})
     expect(mergeTombs({ routines: [tomb('a')], bodyweight: { x: tomb('x') } }, { workouts: { w: 3, v: null } }, {})).toEqual({})
     expect(pruneTombs('x', {}, T)).toBe(null)
+  })
+})
+
+// NATG-561 SEC-01: the bytes kept, held to the server's budgets here too, so this device does not
+// keep sending what the server drops.
+describe('the byte budgets of kept content', () => {
+  const T = 1_800_000_000_000
+  const kept = n => ({ _f: { note: T - 50 }, note: 'x'.repeat(n) })
+
+  it('are the measured ones (64 KiB an entry, 2.5 MiB in all)', () => {
+    expect([TOMB_BYTES_MAX, TOMBS_BYTES_MAX]).toEqual([64 * 1024, 2.5 * 1024 * 1024])
+  })
+
+  it('drop an entry over its budget whole when a change is stamped', () => {
+    const S = { workouts: [], deleted: { routines: { big: T - 10, small: T - 20 } }, tombs: { routines: { big: kept(70 * 1024), small: kept(10) } } }
+    const next = stampDeletions(S, clone(S), T)
+    expect(Object.keys(next.tombs.routines)).toEqual(['small'])
+  })
+
+  it('past the total, drop whole entries, oldest removal first, ties by key then list', () => {
+    const tombs = { routines: {}, gymCards: {} }, deleted = { routines: {}, gymCards: {} }
+    for (let i = 0; i < 50; i++) {
+      const f = i % 2 ? 'routines' : 'gymCards'
+      tombs[f].k = kept(60 * 1024)   // the same key in both lists: list order decides that tie
+      tombs[f][`k${String(i).padStart(2, '0')}`] = kept(60 * 1024)
+      deleted[f][`k${String(i).padStart(2, '0')}`] = T - 100 + Math.floor(i / 5)
+    }
+    const out = budgetTombs(tombs, deleted)
+    const all = Object.entries(out).flatMap(([f, m]) => Object.keys(m).map(k => `${f}/${k}`)).sort()
+    expect(new TextEncoder().encode(JSON.stringify(out)).length).toBeLessThanOrEqual(TOMBS_BYTES_MAX)
+    // `k` has no removal on record (the oldest), so both go first, gymCards before routines
+    expect(all).not.toContain('gymCards/k')
+    expect(all).not.toContain('routines/k')
+    expect(all.at(-1)).toBe('routines/k49')
+    expect(budgetTombs(out, deleted)).toBe(out)
+  })
+
+  it('let the AC6-sized content through untouched, as the same map', () => {
+    const tombs = { workouts: {} }, deleted = { workouts: {} }
+    for (let i = 0; i < 200; i++) { tombs.workouts[`w${i}`] = kept(6000); deleted.workouts[`w${i}`] = T - i }
+    expect(budgetTombs(tombs, deleted)).toBe(tombs)
+  })
+
+  it('count bytes, not characters', () => {
+    const wide = { routines: { r: { _f: { note: 1 }, note: '\u00e9'.repeat(40 * 1024) } } }   // 80 KiB as UTF-8, 40 K characters
+    expect(budgetTombs(wide, { routines: { r: T } })).toEqual({})
   })
 })
 
