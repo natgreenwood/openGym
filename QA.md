@@ -176,34 +176,6 @@ check. Removing only the handler check can leave the suite green. To exercise
 the 409 retry rows, remove both owner checks; keep `mergeInto`'s separate
 `base.uid` refusal intact when isolating owner changes.
 
-## Deleted-entry content and merge convergence
-
-From `frontend/`, run the five-collection merge, equal-stamp and Undo-window
-properties together, then the server-port and backup/reset acceptance checks:
-
-```sh
-npm test -- src/lib/sync-merge.property.test.js src/lib/sync-merge.tombs.test.js src/lib/sync-merge.ties.test.js src/lib/sync-merge.undo-window.test.js --maxWorkers=1 --reporter=dot
-npm test -- src/lib/sync-merge.tombs.test.js src/lib/sync-merge.ties.test.js src/lib/sync-merge.undo-window.test.js src/lib/sync-stamps-parity.test.js src/lib/backup-media.test.js src/lib/media-refs.test.js src/lib/mobile.autobackup.test.js src/lib/mobile.backupfolder.test.js src/store/useStore.reset-sync.test.jsx src/store/useStore.import-restore.test.jsx src/views/Settings.server-sync.test.jsx --maxWorkers=1 --reporter=verbose
-```
-
-From `api/`:
-
-```sh
-node --test test/sync-tombs.test.js test/media-refs.test.js test/media-gc.test.js
-```
-
-The API regressions start isolated local servers and cover both reconnect
-orders through real revision conflicts, legacy/current writer shapes, retained
-content size and repeated below-request-limit pushes. No external account is
-needed. The shared media-reference fixture is `api/test/fixtures/media-refs.json`.
-
-In Chromium, seed synthetic retained content and use Settings → Data & backup.
-Check the downloaded JSON omits `tombs` while local retained content stays;
-import a file with a distinct live routine name and injected `tombs`, then wait
-for the live name to change before checking the injected content was ignored.
-Reset everything must remove retained content from localStorage after reload.
-These browser checks do not establish native or physical mixed-version sync.
-
 ## Account-stamped sync bases
 
 From `frontend/`, check marker upgrades, foreign-base refusals, first sync,
@@ -246,24 +218,6 @@ stamps/deletes and distinct reset/import notices in every locale. Registration
 uses the shared `setUser` then `pushState` sequence. Adoption covers immediate
 409s, failed uploads resumed from Sync now, both profile-appearance timings,
 both answers and an ordinary conflict after consent.
-
-For offline reset/import notices, run:
-
-```sh
-npx vitest run src/store/useStore.no-base-writes.test.jsx --maxWorkers=2 --reporter=verbose
-```
-
-It covers failed reads with no sync base, exact five-second notices, stored-base
-and revisionless-server exclusions, unchanged conflict notices, and first-sync
-merge without a repeated notice. In Chromium with intercepted API responses,
-seed a synthetic signed-in profile and `gym_owner` without `gym_sync`. Open
-Settings → Data & backup, reset or import synthetic JSON, and fail the data GETs
-(both the import check and push-time read for import). The warning replaces the
-success toast after the 1.5-second push debounce. At 320px, check the entire
-message fits and retains `role="status"`. Restore reads and sync: a reset brings
-server workouts back; an import keeps both backup and server workouts. Only the
-existing reconnect toast follows. These checks require no real credentials and
-do not establish native-device delivery.
 
 ## Account sync and sign-out
 
@@ -428,6 +382,24 @@ and body only. Check Hevy with intercepted HTTP and synthetic responses, in kg
 and lb; no live account or real API key is needed. Include the Shared tab's offline
 notice and an unavailable shared routine when changing the shared CSS. Wait for
 the boot overlay and sheet animations to finish before taking screenshots.
+
+## Stepper keyboard focus
+
+From `frontend/`:
+
+```sh
+npx vitest run src/a11y-contrast-transparency.test.js src/components/ui.test.jsx src/sheets.config-count-caps.test.jsx --maxWorkers=2
+```
+
+Also check real Tab navigation in Chromium and WebKit: config-sheet fields,
+`.stp.mini`, and workout weight, reps and effort controls at 320px. Check both
+themes and all eight accents. Measure the rendered ring against its background;
+the token tests alone cannot establish visibility through ancestor opacity.
+Completed straight and per-side rows restore opacity from `.45` to `1` while a
+control has visible focus, then return to `.45` after focus leaves. Check the
+field and both buttons. Effort buttons use the text colour against their tinted
+fill. At a count cap, + keeps focus and its ring after Enter/Space; only its icon
+dims. Tapping a text field also shows its ring.
 
 ## Count limits and sharing notices
 
