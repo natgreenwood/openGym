@@ -21,7 +21,7 @@ beforeEach(() => {
   Object.defineProperty(document.documentElement, 'scrollHeight', { configurable: true, get: height })
   dom.scrollTo = vi.fn(({ top }) => { scrollY = top })
   dom.Element.prototype.getBoundingClientRect = function () {
-    if (this.className === 'whdr') return { top: 0, bottom: 80 }
+    if (this.className === 'whdr') return { top: 0, bottom: Number(this.dataset.bottom || 80) }
     const offset = document.body.style.position === 'fixed' ? parseFloat(document.body.style.top) : -window.scrollY
     const top = Number(this.dataset.top || 0) + offset + (parseFloat(this.style.marginTop) || 0)
     return { top, bottom: top + Number(this.dataset.height || 0) }
@@ -32,12 +32,12 @@ beforeEach(() => {
 
 afterEach(async () => { await act(async () => { root.unmount() }) })
 
-async function render(collapsed, tiles, nextHeight = pageHeight) {
+async function render(collapsed, tiles, nextHeight = pageHeight, hdr = 80) {
   // Changing height during commit models the browser clamping scrollY when the page shrinks.
   const committed = el => { if (el) pageHeight = nextHeight }
   await act(async () => {
     root.render(<WorkoutScrollAnchor collapsed={collapsed}>
-      <div className="whdr" />
+      <div className="whdr" data-bottom={hdr} />
       <div className="workout-list" ref={committed}>
         {tiles.map(([key, top, height]) => <section className="wl-unit" key={key} data-unit-key={key} data-top={top} data-height={height} />)}
       </div>
@@ -59,6 +59,19 @@ it('keeps a folding tile in view under the header and moves the next tile up (#6
   await render('0', [['0', 100, 200], ['1', 300, 650]])
   expect(tileTop('0')).toBe(80)
   expect(tileTop('1')).toBe(280)
+})
+
+// NATG-650: the "too large for the watch" line makes the pinned header about 44 px taller. That
+// alone is no collapse, so nothing scrolls; a fold after it measures the taller header.
+it('moves nothing when the header grows a line, and folds under the taller header after', async () => {
+  scrollY = 600
+  await render('', [['0', 200, 700], ['1', 900, 650]])
+  await render('', [['0', 200, 700], ['1', 900, 650]], pageHeight, 124)
+  expect(window.scrollTo).not.toHaveBeenCalled()
+  expect(container.firstChild.style.paddingBottom).toBe('')
+  await render('0', [['0', 200, 200], ['1', 400, 650]], pageHeight, 124)
+  expect(tileTop('0')).toBe(124)
+  expect(tileTop('1')).toBe(324)
 })
 
 it('keeps a folding tile at its own pixel when its top was visible (#642)', async () => {

@@ -1806,6 +1806,8 @@ export const PT_BR_OVERRIDES = {
   'It’s too large for a shared routine. Shorten its exercise notes or remove some exercises, and they’ll be able to open it.': 'Ela é grande demais para uma rotina compartilhada. Encurte as anotações dos exercícios ou remova alguns exercícios, e elas vão conseguir abrir.',
   'This routine is now too large to share.': 'Esta rotina agora é grande demais para compartilhar.',
   'Show': 'Mostrar',
+  // --- workout screen: too large for the watch (NATG-650) ---
+  'This workout is too large to send to your Apple Watch, so the watch isn’t showing the latest version.': 'Este treino é grande demais para enviar para o seu Apple Watch, então o relógio não está mostrando a versão mais recente.',
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }
