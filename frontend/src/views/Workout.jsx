@@ -996,7 +996,12 @@ function ActiveWorkout() {
   // Too large to send to the Apple Watch even at its smallest (lib/watch-sync.js, NATG-650): said
   // in the header while it lasts, for this workout only.
   const [watchRefused, setWatchRefused] = useState(refusedWorkout)
-  useEffect(() => onRefusedWorkout(() => setWatchRefused(refusedWorkout())), [])
+  useEffect(() => {
+    const off = onRefusedWorkout(() => setWatchRefused(refusedWorkout()))
+    // read again now it listens: a change between the render and here had no one to hear it
+    setWatchRefused(refusedWorkout())
+    return off
+  }, [])
   const tooBigForWatch = watchRefused != null && watchRefused === A.id
   // A past workout has no rest to time — the sets were done days ago. The work timer for
   // timed sets stays, since counting a hold is how its duration gets entered.

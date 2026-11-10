@@ -2,7 +2,7 @@
 // NATG-650: while the running workout is too large to send to the Apple Watch (lib/watch-sync.js
 // refusedWorkout), the workout screen says so in its header, in a status region that is always
 // there, so a screen reader hears the line when it appears. Only for that workout.
-import React, { act } from 'react'
+import React, { act, useLayoutEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -25,16 +25,21 @@ const clone = v => JSON.parse(JSON.stringify(v))
 const TEXT = 'This workout is too large to send to your Apple Watch, so the watch isn’t showing the latest version.'
 let root, container
 
-const refuse = wid => act(() => { refused.wid = wid; refused.listeners.forEach(fn => fn()) })
-const mount = (view = 'cards') => {
+// As the real module does it: a listener only hears a change.
+const emit = wid => { if (refused.wid === wid) return; refused.wid = wid; refused.listeners.forEach(fn => fn()) }
+const refuse = wid => act(() => emit(wid))
+const mount = (view = 'cards', Wrap = null) => {
   const S = clone(DEF)
   S.hints = { swipeSets: true }
   S.active = { id: 'w-big', d: '2026-11-10', start: Date.now(), name: 'Big day', cur: 0, workoutView: view,
     entries: [{ id: '0025', target: { sets: 2, reps: 8, weight: 60 }, sets: [{ w: 60, r: 8, done: false }, { w: 60, r: 8, done: false }] }] }
   useStore.setState({ S, user: null })
   container = document.createElement('div'); document.body.appendChild(container); root = createRoot(container)
-  act(() => root.render(<MemoryRouter><Workout /></MemoryRouter>))
+  act(() => root.render(<MemoryRouter>{Wrap ? <Wrap /> : <Workout />}</MemoryRouter>))
 }
+// A refusal that changes after the screen has rendered but before it listens (the Tester's probe):
+// a parent's layout effect runs in between.
+const changedBeforeListening = wid => function Wrap () { useLayoutEffect(() => { emit(wid) }, []); return <Workout /> }
 const status = () => container.querySelectorAll('[role="status"]')
 const notice = () => [...status()].find(el => el.parentElement?.classList.contains('whdr'))
 
@@ -87,6 +92,22 @@ describe('the workout is too large for the watch', () => {
     refuse('w-big')
     expect(notice().closest('.whdr').classList.contains('stick')).toBe(true)
     expect(notice().textContent).toBe(TEXT)
+  })
+
+  it('shows a refusal that came between the render and listening', () => {
+    mount('cards', changedBeforeListening('w-big'))
+    expect(refused.listeners.size).toBe(1)
+    expect(notice().textContent).toBe(TEXT)
+    // the same refusal again is no change, and nothing is heard: it still shows
+    refuse('w-big')
+    expect(notice().textContent).toBe(TEXT)
+  })
+
+  it('hides a refusal that ended between the render and listening', () => {
+    refused.wid = 'w-big'
+    mount('cards', changedBeforeListening(null))
+    expect(refused.listeners.size).toBe(1)
+    expect(notice().textContent).toBe('')
   })
 
   it('is there when the screen opens on a workout already refused', () => {
