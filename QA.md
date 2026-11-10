@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-09 (frontend); 2026-11-06 (API)_
+_Last verified by QA agent: 2026-11-10 (frontend and API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -139,6 +139,23 @@ must show the account-mismatch wording without account IDs, including at 320px.
 These intercepted checks do not establish live-session isolation or native
 device behavior.
 
+## Conditional reset, backup replacement and adoption
+
+From `frontend/`, exercise request bases, replacement conflicts, adoption consent
+and adjacent account-switch behavior together:
+
+```sh
+npm test -- --maxWorkers=2 src/store/useStore.no-base-writes.test.jsx src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-sync.test.jsx src/store/useStore.import-check.test.jsx src/store/useStore.import-restore.test.jsx src/store/useStore.adopt.test.jsx src/store/useStore.adopt-hold.test.jsx --reporter=verbose
+```
+
+The no-base suite uses a revision-aware mock server that still accepts unconditional
+writes, matching the current API. It asserts outgoing `baseRev`/`baseWid`, reset
+IDs captured before the PUT, preserved concurrent additions, replacement field
+stamps/deletes and distinct reset/import notices in every locale. Registration
+uses the shared `setUser` then `pushState` sequence. Adoption covers immediate
+409s, failed uploads resumed from Sync now, both profile-appearance timings,
+both answers and an ordinary conflict after consent.
+
 ## Account sync and sign-out
 
 From `frontend/`, check account ownership, reset propagation, backup replacement
@@ -194,6 +211,32 @@ deliberate sign-out after the tab follows the new account.
   Decline and Remove with cancel/confirm, offline answers, retry after an error,
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
+
+## Shared routine byte cap
+
+From `frontend/`, run the byte measure, notice, toast, sync settlement and adjacent
+sharing checks together:
+
+```sh
+npx vitest run src/lib/shared-measure.test.js src/views/RoutineEdit.too-large.test.jsx src/store/useStore.unsettled.test.jsx src/store/useStore.unsettled-start.test.jsx src/components/Toast.action.test.jsx src/components/Toast.test.js src/views/RoutineEdit.sharing.test.jsx src/views/RoutineEdit.sharing-guard.test.jsx src/lib/shared-routine-parity.test.js --maxWorkers=2 --reporter=dot
+```
+
+The browser and API import `api/shared-measure.js`. Measure the projected routine,
+not the saved document: exactly 65,536 UTF-8 bytes is allowed; 65,537 is over.
+Use synthetic profiles and intercepted API responses for browser checks. Cover
+local crossings, shrink, server flags arriving through `/api/data/rev`, and a
+cold offline start with `gym_shared_v1` retained for the same `gym_owner`.
+
+`gym_unsettled` must survive a restart both before a push and after it lands but
+before shares refresh. A shrink must keep an old server warning hidden in both
+cases. A shares request sent after landing, or a later unchanged-etag poll,
+settles the flag. The store tests control these orderings without a live server.
+
+Chromium checks cover 320, 390 and 1280 px in light and dark themes, keyboard
+activation of the toast's Show action, notice focus and reduced-motion scrolling.
+The notice is not a live region; the share row describes it with
+`aria-describedby`. Intercepted browser checks do not establish live multi-device
+delivery, screen-reader announcements or native app lifecycle behavior.
 
 ## Plan import and Coach-created plans
 
@@ -463,6 +506,25 @@ fallbacks. `server-bad-input.test.js` exercises malformed stored language on
 an actual rest-timer callback; `server-push-status.test.js` covers timer
 routing, cancellation and throttling. These tests establish send attempts,
 not delivery to a device.
+
+### Routine-sharing API tests
+
+From `api/`:
+
+```sh
+node --test test/server-shares.test.js test/server-shares-projection.test.js
+```
+
+These suites start the real HTTP server with synthetic users and an isolated
+temporary `DATA_DIR`. The projection suite covers outgoing availability flags,
+list/poll etag parity, recipient-state privacy and transitions across the 64 KiB
+cap through both saves and direct file writes. Its `alexSized` helper sizes the
+projected routine exactly; 65,536 bytes is within the cap. Tests marked `spy`
+use `test/spy-shared.mjs` to count measurements, projections and content hashes.
+
+The document cache follows file mtime and size, not `_rev`. For direct-write
+tests, use the suite's `tick()` helper before rewriting a cached file; writes
+through `PUT /api/data` evict the cache themselves.
 
 ### Origin-hint tests
 
