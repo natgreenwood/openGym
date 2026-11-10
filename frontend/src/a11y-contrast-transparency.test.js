@@ -281,6 +281,7 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     ['index.css', '.share-person:focus-visible', '--focus-ring'],
     ['index.css', '.shared-list .item:focus-visible', '--focus-ring'],
     ['index.css', '.field:focus,.input:focus', '--focus-ring'],
+    ['index.css', '.measure-input:has(.num:focus-visible)', '--focus-ring'],
     ['coach.css', '.composer textarea:focus', '--focus-ring'],
     ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
     ['index.css', '.dw-col:focus-visible::after', '--label'],
