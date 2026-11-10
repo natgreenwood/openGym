@@ -219,6 +219,24 @@ uses the shared `setUser` then `pushState` sequence. Adoption covers immediate
 409s, failed uploads resumed from Sync now, both profile-appearance timings,
 both answers and an ordinary conflict after consent.
 
+For offline reset/import notices, run:
+
+```sh
+npx vitest run src/store/useStore.no-base-writes.test.jsx --maxWorkers=2 --reporter=verbose
+```
+
+It covers failed reads with no sync base, exact five-second notices, stored-base
+and revisionless-server exclusions, unchanged conflict notices, and first-sync
+merge without a repeated notice. In Chromium with intercepted API responses,
+seed a synthetic signed-in profile and `gym_owner` without `gym_sync`. Open
+Settings → Data & backup, reset or import synthetic JSON, and fail the data GETs
+(both the import check and push-time read for import). The warning replaces the
+success toast after the 1.5-second push debounce. At 320px, check the entire
+message fits and retains `role="status"`. Restore reads and sync: a reset brings
+server workouts back; an import keeps both backup and server workouts. Only the
+existing reconnect toast follows. These checks require no real credentials and
+do not establish native-device delivery.
+
 ## Account sync and sign-out
 
 From `frontend/`, check account ownership, reset propagation, backup replacement
