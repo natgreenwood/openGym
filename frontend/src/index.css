@@ -958,11 +958,15 @@ body.chips-dragging *{cursor:inherit}
    on the input, and a ring on the input alone would leave the unit out. A text field matches
    :focus-visible on a tap too, so a tapped field shows the ring, as native text fields do. */
 .stp:has(.num:focus-visible){outline:2.5px solid var(--focus-ring);outline-offset:2px}
+/* The − and + draw theirs inside, where `.stp`'s overflow can't clip it. */
+.stp button:focus-visible{outline-color:var(--focus-ring);outline-offset:-4.5px;border-radius:10px}
 .stp.invalid{box-shadow:inset 0 0 0 1px var(--red)}
 /* A count at its limit (Stepper capHint, NATG-503): the + is aria-disabled, not disabled, so it
    keeps focus; the "Max 50" line under it fades in. Kept in the tree while empty so it can
-   announce, with the column's gap taken back so an empty one adds no height. */
-.stp button[aria-disabled="true"]{opacity:.32;cursor:default}
+   announce, with the column's gap taken back so an empty one adds no height. The icon dims, not
+   the button, so the focused + keeps a full-strength ring. */
+.stp button[aria-disabled="true"]{cursor:default}
+.stp button[aria-disabled="true"]>*{opacity:.32}
 .stp button[aria-disabled="true"]:active{background:none}
 .stp-h{font-size:13px;line-height:1.38;color:var(--label-2);text-align:center;transition:opacity var(--fast) var(--ease)}
 .stp-h:empty{margin-top:-6px;opacity:0}

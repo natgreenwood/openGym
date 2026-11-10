@@ -284,16 +284,26 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     ['coach.css', '.composer textarea:focus', '--focus-ring'],
     ['admin.css', '.adm-kv .v input:focus', '--focus-ring'],
     ['index.css', '.stp:has(.num:focus-visible)', '--focus-ring'],
+    ['index.css', '.stp button:focus-visible', '--focus-ring'],
     ['index.css', '.dw-col:focus-visible::after', '--label'],
   ])('%s %s draws in %s', (file, sel, colour) => {
     expect(rule(read(file), sel)).toContain(`var(${colour})`)
   })
 
-  it('a stepper draws its field ring where its own clipping leaves it whole (NATG-593)', () => {
-    // .stp clips its children, so the field's ring goes on the .stp itself.
+  it('a stepper draws its rings where its own clipping leaves them whole (NATG-593)', () => {
+    // .stp clips its children, so the field's ring goes on the .stp itself and the − / + draw
+    // theirs entirely inside the button: offset inward by at least the ring's own width.
     expect(rule(css, '.stp')).toContain('overflow:hidden')
     expect(rule(css, '.stp .num')).toContain('outline:none')
     expect(rule(css, '.stp:has(.num:focus-visible)')).toMatch(/outline:2\.5px solid var\(--focus-ring\)/)
+    const offset = parseFloat(token(rule(css, '.stp button:focus-visible'), 'outline-offset'))
+    expect(offset).toBeLessThanOrEqual(-2.5)
+  })
+
+  it('a + at its cap dims its icon, not itself, so its ring stays full strength (NATG-593)', () => {
+    // opacity on the button would fade its outline with it, to under 3:1.
+    expect(rule(css, '.stp button[aria-disabled="true"]')).not.toContain('opacity')
+    expect(rule(css, '.stp button[aria-disabled="true"]>*')).toContain('opacity:.32')
   })
 
   it('no stylesheet draws a focus indicator in the raw accent or a tint of it', () => {
