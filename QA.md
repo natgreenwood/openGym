@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-09 (frontend and API)_
+_Last verified by QA agent: 2026-11-10 (frontend); 2026-11-09 (API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -138,6 +138,23 @@ copy before releasing the response, and check no retry PUT follows. The banner
 must show the account-mismatch wording without account IDs, including at 320px.
 These intercepted checks do not establish live-session isolation or native
 device behavior.
+
+## Conditional reset, backup replacement and adoption
+
+From `frontend/`, exercise request bases, replacement conflicts, adoption consent
+and adjacent account-switch behavior together:
+
+```sh
+npm test -- --maxWorkers=2 src/store/useStore.no-base-writes.test.jsx src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-sync.test.jsx src/store/useStore.import-check.test.jsx src/store/useStore.import-restore.test.jsx src/store/useStore.adopt.test.jsx src/store/useStore.adopt-hold.test.jsx --reporter=verbose
+```
+
+The no-base suite uses a revision-aware mock server that still accepts unconditional
+writes, matching the current API. It asserts outgoing `baseRev`/`baseWid`, reset
+IDs captured before the PUT, preserved concurrent additions, replacement field
+stamps/deletes and distinct reset/import notices in every locale. Registration
+uses the shared `setUser` then `pushState` sequence. Adoption covers immediate
+409s, failed uploads resumed from Sync now, both profile-appearance timings,
+both answers and an ordinary conflict after consent.
 
 ## Account sync and sign-out
 
