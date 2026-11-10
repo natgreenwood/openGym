@@ -124,6 +124,14 @@ describe('waiting shares (AC2)', () => {
     expect(host.querySelector('[aria-label="Decline Shared routine from Alex Morgan"]').disabled).toBe(false)
     expect(host.textContent).toContain('It can’t be read right now, so it can’t be accepted yet. You can still decline it.')
   })
+  it('one over the size cap can only be declined, with the same line as one that can’t be read (NATG-494 AC9)', () => {
+    mocks.shares = { ...mocks.shares, incoming: [pending('s3', { preview: undefined, hash: undefined, unavailable: 'too-large' })] }
+    render()
+    expect(host.querySelector('[aria-label="Accept Shared routine from Alex Morgan"]').disabled).toBe(true)
+    expect(host.querySelector('[aria-label="Decline Shared routine from Alex Morgan"]').disabled).toBe(false)
+    expect(host.textContent).toContain('It can’t be read right now, so it can’t be accepted yet. You can still decline it.')
+    expect(host.textContent).not.toContain('too large')
+  })
   it('one that holds a custom exercise keeps its preview and Accept, and says why it can’t be trained yet', () => {
     mocks.shares = { ...mocks.shares, incoming: [pending('s4', { unavailable: 'custom-exercise' })] }
     render()
@@ -161,6 +169,14 @@ describe('routines shared with you', () => {
     mocks.shares = { ...mocks.shares, incoming: [accepted('s1', { ...LEG, ex: [{ id: '0025', sets: 100000000, reps: 5, weight: 100, backoff: true }] }, { hash: 'h-huge' })], names: { s1: 'Leg Day' } }
     render()
     const row = host.querySelector('[data-shared-row="shared:s1"]')
+    expect(row.querySelector('.ss').textContent).toBe('Not available · it’s too large to open')
+    expect(mocks.S.week[1]).toEqual(['shared:s1'])
+  })
+  it('one the server says is over the size cap says it is too large, not that it can’t be read (NATG-659)', () => {
+    mocks.shares = { ...mocks.shares, incoming: [{ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam Keller' }, unavailable: 'too-large' }], names: { s1: 'Leg Day' } }
+    render()
+    const row = host.querySelector('[data-shared-row="shared:s1"]')
+    expect(row.querySelector('.tt').textContent).toBe('Leg Day')
     expect(row.querySelector('.ss').textContent).toBe('Not available · it’s too large to open')
     expect(mocks.S.week[1]).toEqual(['shared:s1'])
   })
