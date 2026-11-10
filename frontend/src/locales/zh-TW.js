@@ -1369,6 +1369,8 @@ export default {
   'Offline. The server can’t be reached': '離線中。無法連線至伺服器',
   'Not an openGym answer (HTTP {0})': '非 openGym 系統回應 (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': '伺服器位址回傳了異常回應 (HTTP {0})。你所作的修改將妥善保存在本機。',
+  'This copy belongs to a different account': '此副本屬於另一個帳號',
+  'This copy belongs to a different account. Sign in again or reload.': '此副本屬於另一個帳號。請重新登入或重新載入頁面。',
   'Server error (HTTP {0})': '伺服器發生錯誤 (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': '伺服器傳回錯誤代碼 (HTTP {0})。你的修改目前保留在裝置端。',
   'The server refuses this browser': '伺服器拒絕了此瀏覽器的連線請求',
@@ -1912,6 +1914,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': '偷偷告訴你：滑動一組。左滑刪除，右滑複製。',
   'Options: copy, remove': '選項：複製、刪除',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '匯入時另一台裝置同步了，所以它的變更也和備份一起保留了。',
+  'Another device synced while you were resetting, so what it added since was kept.': '重設時另一台裝置同步了，所以它在此之後新增的內容保留了下來。',
   'Save as a backup file': '儲存為備份檔案',
   'Add this device\'s plan to your profile?': '是否將此裝置上的計畫加入你的個人檔案？',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '此裝置在未登入狀態下設定了計畫、備註或健身房卡。是否將其加入你的個人檔案，或是維持伺服器上的原本紀錄？',
@@ -2701,4 +2704,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '這超出了一次訓練能容納的量。請少選幾個課表，或選組數較少的。',
   '{0} is too much to add to this workout.': '{0}太多了，無法加入這次訓練。',
   'too much for this workout': '對這次訓練來說太多',
+  // --- count limits (NATG-503) ---
+  'Max {0}': '最多 {0}',
+  'Some counts were lowered': '部分數值已調低',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 個動作超出了應用程式允許的範圍。加入時最多 {1} 組或間歇、{2} 次遞減和 {3} 次休息暫停。',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 個動作超出了應用程式允許的範圍。加入時最多 {1} 組或間歇、{2} 次遞減和 {3} 次休息暫停。',
+  'People you share this with won’t be able to open it': '你分享給的人將無法開啟它',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '它對共享訓練計畫來說太大了。你仍然可以分享它。等組數或動作減少後，他們就能開啟了。',
 }

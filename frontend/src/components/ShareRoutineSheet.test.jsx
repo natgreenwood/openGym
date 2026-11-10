@@ -177,3 +177,70 @@ describe('ShareRoutineSheet', () => {
     opener.remove()
   })
 })
+
+// NATG-503 AC8: a routine of your own past lib/limits.js can still be shared, but the people it
+// reaches can't open it, so the sheet says so first. It informs and never blocks.
+describe('ShareRoutineSheet: a routine too large to open', () => {
+  const HUGE = { id: 'r2', name: 'Push Day', ex: [{ id: '0025', sets: 80, reps: 5, weight: 100 }] }
+  const SMALL = { id: 'r3', name: 'Push Day', ex: [{ id: '0025', sets: 3, reps: 5, weight: 100 }] }
+  const TITLE = 'People you share this with won’t be able to open it'
+  const notice = () => [...host.querySelectorAll('.shared-notice.warn')].find(n => n.textContent.includes(TITLE))
+
+  it('AC8: says the people it is shared with won’t be able to open it, and is part of the dialog’s description', async () => {
+    await mount({ routine: HUGE })
+    const n = notice()
+    expect(n).toBeTruthy()
+    expect(n.textContent).toContain('It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.')
+    expect(host.querySelector('[role="dialog"]').getAttribute('aria-describedby')).toBe(n.id)
+    // placed between the lead and the search field
+    expect(n.previousElementSibling.classList.contains('share-lead')).toBe(true)
+    expect(n.nextElementSibling.querySelector('input')).toBeTruthy()
+  })
+
+  it('AC8: still lets it be shared', async () => {
+    let sent = null
+    net.create = body => { sent = body; return Promise.resolve({ shares: [], etag: 'e' }) }
+    const { close, onShared } = await mount({ routine: HUGE })
+    act(() => row('Alex').click())
+    expect(shareBtn().disabled).toBe(false)
+    await act(async () => { shareBtn().click(); await new Promise(r => setTimeout(r, 0)) })
+    expect(sent).toEqual({ routineId: 'r2', to: ['u2'] })
+    expect(close).toHaveBeenCalledOnce()
+    expect(onShared).toHaveBeenCalledWith(1)
+  })
+
+  it('AC8: shows while the people load, when they fail to load, and after a failed share', async () => {
+    net.recipients = () => new Promise(() => {})
+    await mount({ routine: HUGE })
+    expect(notice()).toBeTruthy()
+    act(() => root.unmount()); host.remove()
+
+    net.recipients = () => Promise.reject(new TypeError('Failed to fetch'))
+    await mount({ routine: HUGE })
+    expect(host.textContent).toContain('Couldn’t load the people on this server')
+    expect(notice()).toBeTruthy()
+    act(() => root.unmount()); host.remove()
+
+    net.recipients = () => Promise.resolve({ users: PEOPLE })
+    net.create = () => Promise.reject(new TypeError('Failed to fetch'))
+    await mount({ routine: HUGE })
+    act(() => row('Alex').click())
+    await act(async () => { shareBtn().click(); await new Promise(r => setTimeout(r, 0)) })
+    expect(shareBtn().textContent).toBe('Try again')
+    expect(notice()).toBeTruthy()
+  })
+
+  it('AC8: is left out when nobody else has a profile, where there is no one to share with', async () => {
+    net.recipients = () => Promise.resolve({ users: [] })
+    await mount({ routine: HUGE })
+    expect(host.textContent).toContain('No one else has a profile on this server yet.')
+    expect(notice()).toBeUndefined()
+  })
+
+  it('AC8: shows nothing for a routine within the limits', async () => {
+    await mount({ routine: SMALL })
+    expect(notice()).toBeUndefined()
+    expect(host.querySelector('.shared-notice')).toBeNull()
+    expect(host.querySelector('[role="dialog"]').getAttribute('aria-describedby')).toBeNull()
+  })
+})

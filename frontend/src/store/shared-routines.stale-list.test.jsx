@@ -6,6 +6,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 vi.mock('../lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 import { api } from '../lib/api.js'
 let DEF, useStore, useUI, sharedViewOf, buildCombinedEntries, saveSessionAsRoutine, workoutDetailSheet, setNav
@@ -15,9 +16,8 @@ const fresh = { offline: false, pending: false, auth: false, lastError: null, la
 const accepted = (name = 'Original', hash = 'qa-h1') => ({ id: 'qa-share', state: 'accepted', from: { id: 'qa-sharer', name: 'Sharer' }, unit: 'kg', hash, routine: { id: 'source', name, ex: [{ id: '0025', sets: 2, reps: 5, weight: 100 }] } })
 let net
 beforeEach(async () => {
-  vi.resetModules()
   localStorage.clear()
-  ;({ DEF, useStore } = await import('../store/useStore.js'))
+  ;({ DEF, useStore } = await freshStore())
   ;({ useUI } = await import('../store/useUI.js'))
   ;({ sharedViewOf } = await import('../lib/shared-routines.js'))
   ;({ buildCombinedEntries } = await import('../lib/session-merge.js'))
@@ -32,7 +32,7 @@ beforeEach(async () => {
   net = { incoming: [accepted()], etag: 'qa-e1', rev: 1, state: clone(S), puts: [] }
   useStore.setState({ S, user: ME, ready: true, config: { shares: true, coach: null }, shares: null, sharesError: false, sync: { ...fresh } })
   useUI.setState({ sheets: [], toastMsg: '', timer: null, work: null })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0, uid: ME.id }))
   api.mockReset()
   api.mockImplementation(async (path, o = {}) => {
     if (path === '/api/shares') return { incoming: clone(net.incoming), outgoing: [], etag: net.etag }
@@ -42,7 +42,7 @@ beforeEach(async () => {
     return {}
   })
 })
-afterEach(() => { useStore.setState({ ready: false, user: null }); useUI.setState({ sheets: [] }) })
+afterEach(() => { useUI.setState({ sheets: [] }) })
 
 it('AC4: an older share list must not erase pointers pulled while it was in flight', async () => {
   useStore.setState({ S: { ...useStore.getState().S, week: {} } })

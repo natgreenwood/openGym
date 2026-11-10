@@ -6,6 +6,7 @@
    answers like api/server.js: GET /api/data and /api/data/rev, PUT /api/data refused with the
    current document when `baseRev` is given and not the current revision. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -27,14 +28,12 @@ const httpError = (status, data) => Object.assign(new Error(data?.error || 'HTTP
 const tick = (ms = 30) => new Promise(r => setTimeout(r, ms))
 const saved = () => JSON.parse(localStorage.getItem('gym_state_v1'))
 
-let tabs = []
 let DEF
 // A tab opened now: it loads the saved copy and its marker from storage, as a page load does.
+// freshStore's clean-up (test-utils/fresh-store.js) closes it after the test.
 async function openTab(user = { id: 'u1' }) {
-  vi.resetModules()
-  const m = await import('./useStore.js')
+  const m = await freshStore()
   DEF = m.DEF
-  tabs.push(m.useStore)
   m.useStore.setState({ user, ready: true })
   return m.useStore
 }
@@ -69,16 +68,15 @@ const savedCopy = (doc, rev) => {
   const S = clone(doc)
   delete S._rev
   localStorage.setItem('gym_state_v1', JSON.stringify(S))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: 'u1' }))
 }
 
 beforeEach(async () => {
   localStorage.clear()
   localStorage.setItem('gym_owner', 'u1')
-  tabs = []
   DEF = (await import('./useStore.js')).DEF
 })
-afterEach(() => { for (const t of tabs) t.setState({ user: null, ready: false }); localStorage.clear() })
+afterEach(() => { localStorage.clear() })
 
 describe('a tab left open does not overwrite what another tab synced (#283)', () => {
   it('the stale tab quotes its own revision: its push is refused, merged, and the other tab\'s workout survives', async () => {
@@ -122,7 +120,7 @@ describe('a tab left open does not overwrite what another tab synced (#283)', ()
     const A = await openTab()
     A.getState().update(s => { s.restSec = 60 }, false)   // an edit whose push has not run yet
     srv.otherDevice(d => { d.workouts.push(w('w2', '2026-09-02')) }, 200)
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200 }))   // written by another tab
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, uid: 'u1' }))   // written by another tab
 
     await A.getState().pullState()
 
@@ -136,7 +134,7 @@ describe('a tab left open does not overwrite what another tab synced (#283)', ()
     savedCopy(srv.doc, 1)
     const A = await openTab()
     srv.otherDevice(d => { d.workouts.push(w('w2', '2026-09-02')) }, 200)
-    const marker = JSON.stringify({ rev: 2, ts: 200 })
+    const marker = JSON.stringify({ rev: 2, ts: 200, uid: 'u1' })
     localStorage.setItem('gym_sync', marker)
     window.dispatchEvent(new StorageEvent('storage', { key: 'gym_sync', newValue: marker }))
     await tick()
@@ -148,7 +146,7 @@ describe('a tab left open does not overwrite what another tab synced (#283)', ()
     const srv = server({ ...clone(DEF), _ts: 100, workouts: [w('w1')], _rev: 1 })
     savedCopy(srv.doc, 1)
     await openTab()
-    window.dispatchEvent(new StorageEvent('storage', { key: 'gym_sync', newValue: JSON.stringify({ rev: 1, ts: 100 }) }))
+    window.dispatchEvent(new StorageEvent('storage', { key: 'gym_sync', newValue: JSON.stringify({ rev: 1, ts: 100, uid: 'u1' }) }))
     await tick()
     expect(srv.log).toHaveLength(0)
   })

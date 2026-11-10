@@ -1,6 +1,6 @@
 # QA Notes
 
-_Last verified by QA agent: 2026-11-09 (frontend); 2026-11-06 (API)_
+_Last verified by QA agent: 2026-11-10 (frontend and API)_
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for general setup and
 [CLAUDE.md](CLAUDE.md) for the architecture and other packages' commands.
@@ -34,6 +34,32 @@ npx vitest run --sequence.shuffle --sequence.seed=7
 
 Vitest's shuffle seed controls test order, not fast-check's property inputs; see
 Known gaps for the plates property test.
+
+## Fresh-store and global isolation
+
+The shared helper introduced in [PR #81](https://github.com/natgreenwood/openGym/pull/81)
+is `src/test-utils/fresh-store.js`. Call `await freshStore()` from a test or
+`beforeEach`; it returns the store module's exports. Its automatic `afterEach`
+signs out every store it loaded and removes the window/document listeners recorded
+during loading, including the `gym_owner` storage listener. It requires Vitest's
+default per-file isolation. A store loaded in `beforeAll` is released after the
+first test. Signed-out poll timers remain idle rather than being cancelled.
+
+Seed owner-sensitive storage before calling the helper. Import modules that must
+share its instances, such as `media-store.js` and `media-owed.js`, afterwards.
+Keep test-owned pagehide flushes in the file's `afterEach`; they run before the
+helper's cleanup.
+
+From `frontend/`, exercise listener cleanup (including spies installed before or
+during loading), descriptor restoration, and modal global-key cleanup together:
+
+```sh
+npx vitest run src/test-utils/fresh-store.test.js src/components/Modals.test.jsx --sequence.shuffle --sequence.seed=7 --reporter=dot
+```
+
+`restoreMocks` and `unstubGlobals` run before each test; create spies and global
+stubs in `beforeEach` when every test needs them. `mockReset` stays off, so
+factory-created `vi.fn()` implementations persist until explicitly reset.
 
 ## Swipe-back preview tests
 
@@ -86,6 +112,49 @@ compare failing names after removing the same owner guards from each version.
 Cover the `doPush` send guard alone, together with each of the 409, `pushAgain`
 and debounce guards, and each of those three guards alone. Also check the
 post-GET `pullState` guard, because held GET answers use the same helper.
+
+## Account-stamped sync bases
+
+From `frontend/`, check marker upgrades, foreign-base refusals, first sync,
+revisionless servers, reset and the connection banner together:
+
+```sh
+npm test -- --maxWorkers=2 src/store/useStore.base-account.test.jsx src/store/useStore.restore.test.jsx src/store/useStore.sync.test.jsx src/components/SyncBanner.test.jsx --reporter=verbose
+```
+
+Normal `gym_sync` fixtures need a `uid` matching `gym_owner`. An unstamped or
+foreign marker loaded at startup is deliberately treated as no base. To test a
+retained foreign base instead, load a fresh store with matching owner/marker
+first, then change the signed-in account while retaining that copy. The base
+belongs to the copy in memory; changing storage alone does not change it.
+
+Browser checks can intercept `/api/*` with synthetic accounts. Exercise pulls
+against empty, revisionless and newer server copies, both clean and dirty;
+push and adoption must also refuse a retained foreign base. Compare the copy,
+`gym_state_v1`, `gym_state_wid`, `gym_state_owner`, `gym_sync`, `gym_dirty`,
+`gym_synced_at` and `gym_synced_fp` before and after. A delayed 409 tests merge's
+own guard: send from a valid current-account copy, restore the retained foreign
+copy before releasing the response, and check no retry PUT follows. The banner
+must show the account-mismatch wording without account IDs, including at 320px.
+These intercepted checks do not establish live-session isolation or native
+device behavior.
+
+## Conditional reset, backup replacement and adoption
+
+From `frontend/`, exercise request bases, replacement conflicts, adoption consent
+and adjacent account-switch behavior together:
+
+```sh
+npm test -- --maxWorkers=2 src/store/useStore.no-base-writes.test.jsx src/store/useStore.tabs-owner.test.jsx src/store/useStore.reset-sync.test.jsx src/store/useStore.import-check.test.jsx src/store/useStore.import-restore.test.jsx src/store/useStore.adopt.test.jsx src/store/useStore.adopt-hold.test.jsx --reporter=verbose
+```
+
+The no-base suite uses a revision-aware mock server that still accepts unconditional
+writes, matching the current API. It asserts outgoing `baseRev`/`baseWid`, reset
+IDs captured before the PUT, preserved concurrent additions, replacement field
+stamps/deletes and distinct reset/import notices in every locale. Registration
+uses the shared `setUser` then `pushState` sequence. Adoption covers immediate
+409s, failed uploads resumed from Sync now, both profile-appearance timings,
+both answers and an ordinary conflict after consent.
 
 ## Account sync and sign-out
 
@@ -142,6 +211,32 @@ deliberate sign-out after the tab follows the new account.
   Decline and Remove with cancel/confirm, offline answers, retry after an error,
   and owner revocation. Verify schedule cleanup and preserved workout history.
   Control the network so a GET lands after DELETE applies but before its response.
+
+## Shared routine byte cap
+
+From `frontend/`, run the byte measure, notice, toast, sync settlement and adjacent
+sharing checks together:
+
+```sh
+npx vitest run src/lib/shared-measure.test.js src/views/RoutineEdit.too-large.test.jsx src/store/useStore.unsettled.test.jsx src/store/useStore.unsettled-start.test.jsx src/components/Toast.action.test.jsx src/components/Toast.test.js src/views/RoutineEdit.sharing.test.jsx src/views/RoutineEdit.sharing-guard.test.jsx src/lib/shared-routine-parity.test.js --maxWorkers=2 --reporter=dot
+```
+
+The browser and API import `api/shared-measure.js`. Measure the projected routine,
+not the saved document: exactly 65,536 UTF-8 bytes is allowed; 65,537 is over.
+Use synthetic profiles and intercepted API responses for browser checks. Cover
+local crossings, shrink, server flags arriving through `/api/data/rev`, and a
+cold offline start with `gym_shared_v1` retained for the same `gym_owner`.
+
+`gym_unsettled` must survive a restart both before a push and after it lands but
+before shares refresh. A shrink must keep an old server warning hidden in both
+cases. A shares request sent after landing, or a later unchanged-etag poll,
+settles the flag. The store tests control these orderings without a live server.
+
+Chromium checks cover 320, 390 and 1280 px in light and dark themes, keyboard
+activation of the toast's Show action, notice focus and reduced-motion scrolling.
+The notice is not a live region; the share row describes it with
+`aria-describedby`. Intercepted browser checks do not establish live multi-device
+delivery, screen-reader announcements or native app lifecycle behavior.
 
 ## Plan import and Coach-created plans
 
@@ -202,6 +297,37 @@ The sharing notice informs without blocking Share; verify both over-limit and
 within-limit routines with mocked recipients. These checks do not establish
 live-server delivery or native watch behavior.
 
+## Backup import overlap
+
+From `frontend/`:
+
+```sh
+npm test -- src/store/useStore.import src/views/Settings.import --maxWorkers=2
+```
+
+The Settings suites mock file reads, media writes and the account store; the store
+suites assert the outgoing document as well as local state. Check account changes
+and photo-storage refusal alongside supersession, not only the final workout list.
+
+For browser checks with an isolated local API and synthetic profiles, hold the
+first import's `GET /api/data`, pick a second backup, and release both responses
+in each order. Repeat after navigating Home → Settings between the picks: the
+import generation must survive that remount. Only the latest confirm and success
+toast should appear. Check memory, localStorage, the first PUT body and a fresh
+server GET. Exercise merge with both pending and already-synced device edits;
+the latter also covers a real 409/retry. Replace keeps its original warning count.
+
+The page is inert while a confirm is open. Reproducing a second pick at that point
+requires setting the hidden file input directly; picks during a held server check
+can use the normal picker. Also exercise a malformed second backup: it cancels
+the first import even though the second cannot proceed.
+
+Also hold a real ZIP import's media write after its confirm closes, then complete
+a second import before releasing the write. Check that superseded work does not
+resume an old replace or merge or show success. Remove unused photos, but keep
+hashes referenced by the newer import or held by an editor. Check IndexedDB again
+after reload; memory alone cannot establish rollback or preservation.
+
 ## Backup media
 
 From `frontend/`:
@@ -214,6 +340,14 @@ The helper tests read real ZIPs and check media validation, rollback, current
 references, editor holds, removal during import and continuation after per-file
 storage errors. The Settings test uses real media helpers and a memory backend,
 with the file read and account store mocked.
+
+The ZIP entry-limit case exports and reads 1,998 media files, then rejects 1,999
+with `too-many`. Its fixture uses real SHA-256 hashes via `sha256HexJs` and
+concurrent memory-store writes. It has its own 15-second timeout; the global
+Vitest default is unchanged. To verify contention, repeat the command above
+alongside the full frontend suite, optionally with bounded CPU workers. Use the
+named test's duration from Vitest's JSON reporter rather than whole-command
+timing, which includes startup and unrelated tests.
 
 For browser verification, use synthetic photos in a real ZIP through Settings
 → Data & backup → Import backup. Seed one synced and one pending photo already
@@ -285,7 +419,7 @@ close, to avoid reopening the keyboard.
 From `frontend/`, run the snapshot, event, settings and widget regressions:
 
 ```sh
-npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js
+npx vitest run src/lib/watch-sync*.test.js src/lib/watch-settings.test.js src/lib/widgets.test.js src/store/useStore.watch-signout.test.jsx --maxWorkers=2
 ```
 
 These tests use local fixtures and a mocked native bridge; no credentials or
@@ -295,11 +429,21 @@ widget snapshots. For a direct module probe in Node, load these modules through
 Vite's `createServer({ server: { middlewareMode: true } }).ssrLoadModule(...)`;
 their imports depend on Vite transforms. Close the server in `finally`.
 
+`watch-sync.open.test.js` covers oversized-workout fallback, reload and failed
+snapshot persistence; `watch-sync.health-overflow.test.js` combines refusal with
+Health opt-out. The sign-out test checks removal of `gym_watch_last_sent`.
+Use synthetic localStorage only. For quota injection in happy-dom, spy on the
+`localStorage.setItem` instance method and assert that the injected failure runs.
+
 Measure the UTF-8 bytes of serialized snapshots against `SNAPSHOT_MAX_BYTES`,
-and compare the active workout before and after `fitSnapshot`. Per-field text
-limits do not guarantee the total budget for many-entry active workouts, even
-with accepted shared routines. Serialization tests cannot establish native
-delivery: pairing, locked-phone operation and transport failures require an
+and compare the active workout before and after `fitSnapshot`; `null` means
+refusal. For fallback probes, deliver a small workout before growing it and
+toggling Health, then compare the held sets and the phone's unchanged state.
+With no record in memory or storage, refusal sends nothing to avoid ending an
+unknown watch workout. Per-field text limits do not guarantee the total budget
+for many-entry active workouts, even with accepted shared routines.
+Serialization tests cannot establish native delivery: pairing, locked-phone
+operation and transport failures require an
 iPhone and Apple Watch.
 
 ## Known gaps
@@ -312,11 +456,6 @@ icons as part of unrelated frontend changes.
 `src/lib/plates.property.test.js` can independently fail its fewest-plates
 property: `plateStack` sometimes chooses more plates than necessary. Inspect
 the failing test rather than treating every shuffled-run failure as an order leak.
-
-`backup-media.test.js` builds 1,999 media entries in its ZIP entry-limit test.
-It can exceed Vitest's default five-second timeout during concurrent heavy
-suites. The focused backup-media command passed on rerun after the frontend
-suite finished; record any timeout separately from rollback assertion failures.
 
 The MCP rate-limit test in `mcp/test/write-tools.test.js` generates local dates
 by subtracting elapsed 24-hour periods. Late in the day after the autumn DST
@@ -367,6 +506,25 @@ fallbacks. `server-bad-input.test.js` exercises malformed stored language on
 an actual rest-timer callback; `server-push-status.test.js` covers timer
 routing, cancellation and throttling. These tests establish send attempts,
 not delivery to a device.
+
+### Routine-sharing API tests
+
+From `api/`:
+
+```sh
+node --test test/server-shares.test.js test/server-shares-projection.test.js
+```
+
+These suites start the real HTTP server with synthetic users and an isolated
+temporary `DATA_DIR`. The projection suite covers outgoing availability flags,
+list/poll etag parity, recipient-state privacy and transitions across the 64 KiB
+cap through both saves and direct file writes. Its `alexSized` helper sizes the
+projected routine exactly; 65,536 bytes is within the cap. Tests marked `spy`
+use `test/spy-shared.mjs` to count measurements, projections and content hashes.
+
+The document cache follows file mtime and size, not `_rev`. For direct-write
+tests, use the suite's `tick()` helper before rewriting a cached file; writes
+through `PUT /api/data` evict the cache themselves.
 
 ### Origin-hint tests
 

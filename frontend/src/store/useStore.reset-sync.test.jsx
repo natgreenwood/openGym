@@ -21,7 +21,7 @@ const workout = (id, end) => ({ id, d: '2026-09-20', start: end - 1000, end, ent
 const puts = () => api.mock.calls.filter(([, o]) => o?.method === 'PUT').map(([, o]) => JSON.parse(o.body))
 const conflict = (state, rev) => Object.assign(new Error('conflict'), { status: 409, data: { state, rev } })
 const signedIn = (S, rev) => {
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: 'u1' }))
   localStorage.setItem('gym_owner', 'u1')   // as setUser signs in
   useStore.setState({ S, user: { id: 'u1' }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
 }
@@ -40,7 +40,7 @@ describe('Reset everything', () => {
     await useStore.getState().resetEverything()
     await useStore.getState().pushState()
     const [put] = puts()
-    expect(put.baseRev).toBeUndefined()
+    expect(put.baseRev).toBe(3)   // the revision the reset read the server's names at (NATG-655)
     expect(put.state.workouts).toEqual([])
     expect(put.state.resetAt).toBeGreaterThanOrEqual(before)
     expect(put.state.resetIds.workouts).toEqual(['w1', 'w2', 'w-elsewhere'])

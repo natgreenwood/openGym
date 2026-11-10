@@ -50,6 +50,10 @@ const WID_KEY = 'gym_state_wid'
 // Whose copy that write was: the owner (gym_owner) the writing tab held, '' for a guest's. A tab
 // joins only a copy written under the owner it holds itself (joinSaved, syncFromSaved).
 const WID_OWNER_KEY = 'gym_state_owner'
+// Which sign-in or sign-out this browser is on: a token rewritten with each one, the same account
+// signing in again included, before the owner key it goes with. A same-account round trip (A, out,
+// A) leaves gym_owner where it was; this is what shows it to a boot still waiting (NATG-606).
+const OWNER_GEN_KEY = 'gym_owner_gen'
 const DIRTY_KEY = 'gym_dirty'          // the saved copy owes the server a change
 // An owed copy an older app (v1.3.9) left behind: its first sync stamps what it changed
 // (lib/sync-legacy.js), holding the fingerprint that app last agreed on with the server.
@@ -399,10 +403,19 @@ export const useStore = create((set, get) => {
     if (MOBILE) writeJsonFile(SHARED_FILE, v)
   }
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
-  let forceNext = false    // the next push replaces the server copy outright (reset)
-  // A backup import's replace: pushed against the revision the import's check read (importRead),
-  // so a change another device synced while the confirm was open is merged in, not wiped.
+  // A replace armed for the next push (replaceState): `{ uid, kind, rev, wid, prepare }`. A backup
+  // import's goes against the revision the import's check read (importRead), so a change another
+  // device synced while the confirm was open is merged in, not wiped. One with no revision yet (a
+  // reset, an import with nothing read and no base) reads the account's profile first and goes
+  // against that read (readForReplace). None goes without a base (NATG-533).
   let replaceRev = null
+  // The write of a sign-in's adoption over a profile that read as empty (runAdopt): a 409 on it is
+  // not merged, it hands the profile that appeared back to the adoption to ask about (adoptRaced).
+  // It stays armed, with the sign-in's mark and hold, until it lands or its 409 is handed back: a
+  // write that failed on the way leaves the question open, and the next check asks it again
+  // (resumeAdoption). Only releaseAdopt, a sign-out or another sign-in clears it before that.
+  let adoptWrite = null
+  let adoptRaced = null
   let importRead = null    // what importConflict last read: { token, state, rev }
   // Each import, and each media job, is held to the owner it began under (ownerToken). The counter
   // moves with every owner change, another tab's (each gym_owner event) or this tab's own
@@ -449,12 +462,21 @@ export const useStore = create((set, get) => {
   // Sync held or not, and the screens told (`sync.held`, status 'held').
   const setHold = on => { adoptHold = on; if (get()?.sync) setSync({ held: on }) }
   // The question is answered: sync as usual from here.
-  const releaseAdopt = () => { setHold(false); writeAdopt(null) }
-  const readStoredSync = () => { try { return JSON.parse(localStorage.getItem(SYNC_KEY)) || null } catch { return null } }
+  const releaseAdopt = () => { setHold(false); writeAdopt(null); adoptWrite = null }
+  // The marker names the account it was written for (`uid`, see writeSync). One that names nobody,
+  // as every marker from before this did, or an account other than the browser's owner is no base
+  // at all: the copy takes the first-sync path, a merge at worst (NATG-556). The owner key only
+  // ever narrows here; it never vouches for a marker that names no account.
+  const readStoredSync = () => {
+    try {
+      const m = JSON.parse(localStorage.getItem(SYNC_KEY))
+      return m && typeof m.uid === 'string' && m.uid === localStorage.getItem('gym_owner') ? m : null
+    } catch { return null }
+  }
   const storedOwed = () => { try { return localStorage.getItem(DIRTY_KEY) === '1' } catch { return false } }
 
   /* Where the copy in memory stands with the server: the revision it descends from (`base`, as
-     { rev, ts }) and whether it owes the server a change (`owed`). Both belong to the copy, per
+     { rev, ts, uid }) and whether it owes the server a change (`owed`). Both belong to the copy, per
      tab. The marker and the dirty flag in localStorage are shared by every tab of the browser:
      a tab left open used to quote the revision ANOTHER tab had just synced, so the server saw a
      current baseRev, took the stale copy without a 409, and the workout logged in the other tab
@@ -488,12 +510,20 @@ export const useStore = create((set, get) => {
   const saveOwed = owed => { try { if (owed || storeLag) localStorage.setItem(DIRTY_KEY, '1'); else localStorage.removeItem(DIRTY_KEY) } catch { /* as above */ } }
   // `wid`: the write id of the server's document at that revision (api/server.js PUT /api/data):
   // the same `rev` after the server went back in time names a different document.
+  // `uid`: the account signed in, whose revision this is. Nobody signed in has no revision of
+  // anyone's: the write records no base. mergeInto and doPush hold every copy to it.
+  // A base stamped for another account is never replaced or dropped here, whichever path asks (a
+  // pull, a sign-in's adoption, an import, a reset): it stays, and doPush refuses the copy. Only
+  // a sign-out or a switch clears it (forgetSync).
+  const holdsForeignBase = () => { const b = metaOf().base; return !!b && b.uid !== get().user?.id }
   const writeSync = (rev, ts, wid) => {
-    const base = { rev, ts: ts || 0, ...(typeof wid === 'string' ? { wid } : {}) }
+    if (holdsForeignBase()) return
+    const uid = get().user?.id
+    const base = uid ? { rev, ts: ts || 0, ...(typeof wid === 'string' ? { wid } : {}), uid } : null
     meta.set(get().S, { ...metaOf(), base })
     saveMarker(base)
   }
-  const dropSync = () => { meta.set(get().S, { ...metaOf(), base: null }); saveMarker(null) }
+  const dropSync = () => { if (holdsForeignBase()) return; meta.set(get().S, { ...metaOf(), base: null }); saveMarker(null) }
   const markOwed = owed => { meta.set(get().S, { ...metaOf(), owed }); saveOwed(owed) }
   // Whether anything here is still on its way to the server: a push that failed, one waiting in
   // the debounce or in flight, a change made while boot was pulling, or a copy changed since the
@@ -611,6 +641,10 @@ export const useStore = create((set, get) => {
   const sameCopy = (a, b) => JSON.stringify({ ...a, _ts: 0 }) === JSON.stringify({ ...b, _ts: 0 })
   const readWid = () => { try { return localStorage.getItem(WID_KEY) } catch { return null } }
   const readOwner = () => { try { return localStorage.getItem('gym_owner') } catch { return null } }
+  // Only ever compared for equality, so a fresh token rather than a counter two tabs could both
+  // advance to the same value. Storage refusing it leaves the owner check alone, as before.
+  const readOwnerGen = () => { try { return localStorage.getItem(OWNER_GEN_KEY) } catch { return null } }
+  const bumpOwnerGen = () => { try { localStorage.setItem(OWNER_GEN_KEY, Date.now().toString(36) + Math.random().toString(36).slice(2, 8)) } catch { /* the owner check alone, as before */ } }
   // Whether `uid`, the account a sync request is for, is still this tab's: the one signed in here,
   // and the browser's owner too. Asked before each request goes and again when its answer lands.
   // The owner key is what another tab's sign-out or sign-in writes first, so it has moved even
@@ -686,7 +720,6 @@ export const useStore = create((set, get) => {
     takeSaved()
     clearTimeout(pushTm)
     pushTm = null
-    forceNext = false
     replaceRev = null
     if (hasData(S)) keepAside(S, t('This device, before signing in'), staleUid).catch(() => {})
     return true
@@ -788,6 +821,10 @@ export const useStore = create((set, get) => {
     if (adoptHold) { if (!adopting && adoptOwed()) get().resumeAdoption(); return }
     if (pulling && pulling.uid === get().user?.id) return pulling.promise
     const { base } = metaOf()
+    // A copy whose base is another account's is not checked at all (NATG-556): a revision that
+    // matched would confirm it, rewriting the synced time and fingerprint for that copy and
+    // clearing the error, which stays until a sign-out, a switch or a reload.
+    if (base && base.uid !== uid) { refuse('check', base.uid, uid); return }
     if (!base || owes()) return get().pullState()
     try {
       if (!answerIsFor(uid)) return
@@ -817,13 +854,35 @@ export const useStore = create((set, get) => {
   onAppActive(() => checkRev())
   schedulePoll()
 
+  // A merge or a push of a copy whose base is not the signed-in account's: nothing is written, not
+  // the copy, the marker or the owed flag, and the screens say so (connectionView). Every path
+  // that gets here is guarded on its own (answerIsFor), so when this fires it is a bug, and it
+  // must be seen. The uids go to the console only.
+  const refuse = (op, baseUid, uid) => {
+    console.warn(`openGym sync: ${op} refused: the copy's base is for ${baseUid || 'no account'}, the account signed in is ${uid || 'nobody'}`)
+    failed({ status: 0, code: 'account-mismatch' })
+    return false
+  }
+  // A server from before revisions (< v1.3.6) answers without one, so a copy synced with it has no
+  // base, and its push goes as it always did (doPush). Known only from such an answer for the
+  // account signed in, from this server; kept in memory, never stored, and void once the owner
+  // or the server changes, so it never lets a copy past doPush's check for anyone else.
+  let revless = null
+  const noteRevless = (uid, on) => { revless = on ? { uid, epoch: ownerEpoch, server: serverBase() } : null }
+  const isRevless = uid => !!revless && revless.uid === uid && revless.epoch === ownerEpoch && revless.server === serverBase()
+
   // Both copies changed: keep both sides' entries, let the newer copy decide the rest
   // (lib/sync-merge.js), and remember the server's revision so the push that follows is
   // conditional on exactly the document that was merged. The merged copy is stamped — it is a
   // real change this device now holds — while `ts` in the base stays old, so a pull that
   // happens before the push lands still sees it as unsent.
+  // Only a copy whose base is the signed-in account's is merged (NATG-556): `false`, with nothing
+  // written, for any other, and the caller stops there. A first sync writes its base first.
   const mergeInto = (local, remote, rev) => {
-    const ts = metaOf().base?.ts || 0
+    const { base } = metaOf(local)
+    const uid = get().user?.id
+    if (base?.uid !== uid || !answerIsFor(uid)) return refuse('merge', base?.uid, uid)
+    const ts = base.ts || 0
     // The first merge of an older app's owed copy: what that app changed besides its lists is
     // stamped so the merge keeps it (lib/sync-legacy.js). When that cannot be told, the copy as
     // it was is kept aside before the merge, to be saved from Settings, so nothing is lost.
@@ -843,6 +902,7 @@ export const useStore = create((set, get) => {
     persist(merged, false)
     if (rev == null) dropSync()
     else writeSync(rev, ts, remote?._wid)
+    return true
   }
   // The workout running on this device, carried from its copy into the one replacing it — in that
   // copy's unit: a merge or a pull can bring the other device's switch to lb along, and a session
@@ -856,17 +916,64 @@ export const useStore = create((set, get) => {
   // Take the server's copy as this device's own, timestamp and all (see persist).
   const adopt = (next, rev) => { persist(next, false, false); writeSync(rev, next._ts, next._wid); markOwed(false) }
 
+  // A replace with no revision to go against yet reads the account's profile first: a reset takes
+  // the names of what it wipes from it (resetIds), an import its removal and add-back records, both
+  // through the replace's `prepare`, and the PUT goes against that read, never without a base
+  // (NATG-655). A copy with no base of its own stands on the read, as a first sync's merge would
+  // record it. false when the read did not land or was overtaken. A replace is one attempt, its
+  // read included: one whose read failed is not kept armed, or it went out later over whatever
+  // another device wrote meanwhile. The copy stays owed, and goes as an ordinary push against the
+  // revision it descends from, whose 409 merges. The read is this account's or nothing.
+  const owesRead = uid => !!replaceRev && replaceRev.uid === uid && replaceRev.rev == null
+  const readForReplace = async (uid, armed) => {
+    const held = metaOf().base
+    if (held && held.uid !== uid) return refuse('push', held.uid, uid)
+    if (!answerIsFor(uid)) return false
+    let res
+    try { res = await api('/api/data') }
+    catch (e) {
+      if (replaceRev === armed) replaceRev = null
+      if (!answerIsFor(uid)) return false
+      markOwed(true)
+      if (isNetworkError(e)) offlineChanges = true
+      failed(e, { pending: true })
+      return false
+    }
+    // Another replace armed meanwhile reads for itself; one dropped (a sign-out, a switch) is gone.
+    if (!answerIsFor(uid) || replaceRev !== armed) return false
+    noteRevless(uid, res?.rev == null)
+    if (armed.prepare) armed.prepare(res?.state || null)
+    if (!answerIsFor(uid) || replaceRev !== armed) return false
+    // A server from before revisions has nothing to go against: the push goes as it always did.
+    if (res?.rev == null) { replaceRev = null; return true }
+    if (!metaOf().base) writeSync(res.rev, 0, res.state?._wid)
+    replaceRev = { ...armed, rev: res.rev, wid: res.state?._wid }
+    return true
+  }
+
   const doPush = async (attempt = 0) => {
-    const S = get().S
     const uid = get().user?.id   // whose copy this is; an answer that lands after they have gone is dropped (answerIsFor)
+    if (replaceRev && replaceRev.uid !== uid) replaceRev = null   // armed for another account (NATG-570)
+    if (owesRead(uid) && !(await readForReplace(uid, replaceRev))) return
+    const S = get().S
     const { base } = metaOf()
-    // A forced push is one attempt. One that fails is retried as an ordinary push against the
-    // revision this copy descends from: kept armed, it went out later without a baseRev and
-    // replaced whatever another device had written in the meantime.
-    const force = forceNext
-    forceNext = false
+    // No base: this copy does not know which revision it descends from (a first sync, or a marker
+    // from before bases named their account, while the first pull has not landed). It pulls first,
+    // and the first-sync path writes the account's base and pushes against it. The copy stays owed
+    // meanwhile, and a reset or import armed for this push stays armed for that one. Only a server
+    // known to have no revisions takes the push as it is (isRevless).
+    if (!base && !isRevless(uid) && answerIsFor(uid)) {
+      markOwed(true)
+      setSync({ pending: true })   // as a push that did not land: the screens say a change is waiting
+      get().pullState()   // not awaited: the push it makes waits for this one to be over (pushing)
+      return
+    }
+    // A replace is one attempt. One that fails is retried as an ordinary push against the
+    // revision this copy descends from: kept armed, it went out later against a revision older
+    // than whatever another device had written in the meantime.
     const asReplace = replaceRev
     replaceRev = null
+    const adoption = adoptWrite?.uid === uid
     // `stamped`: this client stamps its own changes; the server stamps only for one that does not
     // (api/sync-stamps.js).
     // An older app's owed copy over the revision it read: the server stamps what that app changed
@@ -874,15 +981,20 @@ export const useStore = create((set, get) => {
     const legacy = readLegacy()
     const body = { state: S, stamped: !(legacy && legacy.owner === get().user?.id) }
     if (asReplace != null) { body.baseRev = asReplace.rev; if (asReplace.wid) body.baseWid = asReplace.wid }
-    else if (!force && base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
+    else if (base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     if (!answerIsFor(uid)) return   // its account has gone: nothing goes out for it
+    // A base that is not this account's: nothing goes out, and nothing here changes (NATG-556).
+    if (base && base.uid !== uid) return refuse('push', base.uid, uid)
     try {
       const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
       if (!answerIsFor(uid)) return
+      noteRevless(uid, r.rev == null)
       // A server from before revisions answers without one — then there is nothing to hold the
       // next push to, and the marker must not pretend otherwise.
       if (r.rev == null) dropSync()
       else writeSync(r.rev, S._ts, r.wid)
+      // The adoption's write landed: its question is settled, and the sign-in's mark goes.
+      if (adoption) { adoptWrite = null; writeAdopt(null) }
       if (legacy) clearLegacy()
       markOwed(false)
       toldTooLarge = false
@@ -895,17 +1007,36 @@ export const useStore = create((set, get) => {
       }
     } catch (e) {
       if (!answerIsFor(uid)) return   // a 409 would merge the previous account's document in
+      // A sign-in's adoption wrote over a profile that read as empty, and one has appeared since
+      // (another device, another tab). Merged, this copy would win its settings and add its entries
+      // to a profile nobody was asked about: it goes back to the adoption instead, held again before
+      // anything else can sync, and the adoption asks about it (runAdopt).
+      if (adoption && e.status === 409 && e.data?.state) {
+        adoptWrite = null
+        adoptRaced = { uid, state: e.data.state, rev: e.data.rev || 0 }
+        setHold(true)
+        return
+      }
+      // Any other failure of that write (no network, a server error) settles nothing: held again,
+      // with the sign-in's mark still there, so no ordinary push can take its place. The next check
+      // runs the adoption again from a fresh read (checkRev, resumeAdoption), and a profile that
+      // appeared meanwhile is asked about, never merged unasked (NATG-655).
+      if (adoption) setHold(true)
       if (e.status === 409 && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
         // merge and push once more against that revision. A second refusal in a row leaves the
-        // copy owed and the next resume pull takes it from there. A backup import whose replace
-        // met another device's sync keeps that device's changes too, and says so.
+        // copy owed and the next resume pull takes it from there. A backup import or a reset whose
+        // replace met another device's sync keeps that device's changes too, and says so, each in
+        // its own words.
         if (asReplace != null) {
+          const said = asReplace.kind === 'reset'
+            ? t('Another device synced while you were resetting, so what it added since was kept.')
+            : t('Another device synced while you were importing, so its changes were kept next to the backup.')
           import('./useUI.js')
-            .then(({ useUI }) => useUI.getState().toast(t('Another device synced while you were importing, so its changes were kept next to the backup.')))
+            .then(({ useUI }) => useUI.getState().toast(said))
             .catch(() => {})
         }
-        mergeInto(get().S, e.data.state, e.data.rev || 0)
+        if (!mergeInto(get().S, e.data.state, e.data.rev || 0)) return
         return doPush(attempt + 1)
       }
       // Whatever went wrong — no network, a refused token, a phone without a pairing, a server
@@ -973,8 +1104,8 @@ export const useStore = create((set, get) => {
   function handOver(owner) {
     clearTimeout(pushTm)
     pushTm = null
-    forceNext = false   // a replace armed for the previous owner is not the next one's (NATG-570)
-    replaceRev = null
+    replaceRev = null   // a replace armed for the previous owner is not the next one's (NATG-570)
+    adoptWrite = null   // nor is an adoption's write
     // A guest's workout running here went along with the sign-in in the other tab (it joined this
     // browser's saved copy first, setUser), and this tab shows it again once that tab is done
     // (followSignIn). Said, so a workout that leaves the screen mid-set is not taken for lost; only
@@ -1002,7 +1133,8 @@ export const useStore = create((set, get) => {
   // guards the push either way: a copy this tab has not refreshed gets a 409 and a merge.
   window.addEventListener('storage', e => {
     if (e.key !== SYNC_KEY || !e.newValue) return
-    if (!get().user && !followSignIn()) return
+    // A handover still provisional settles here when the sign-in's marker lands after its save.
+    if (!get().user && !(handedOver ? takeSaved() : followSignIn())) return
     const user = get().user
     if (!user || localStorage.getItem('gym_owner') !== user.id) return
     let theirs = null
@@ -1018,6 +1150,13 @@ export const useStore = create((set, get) => {
   // A tab the owner changed under takes the new owner's saved copy as it is, with where it stands
   // with the server: it has no changes of its own to join, only the previous owner's copy, or a
   // guest's, which must not go into it.
+  // The handover stays provisional until the sign-in has settled: this tab signed in as the new
+  // owner (followSignIn), or nobody owns the copy (a sign-out). Until then it still writes nothing
+  // (refuseStale) and takes each save of the owner's copy as it is. A copy taken while the sign-in
+  // was still saving (its provisional copy, in step with no revision) and then joined into the
+  // account's final save wrote that save over with this tab's fresh-profile settings, and dropped
+  // the account's marker, so the other tab pushed without a base revision and this one stayed
+  // signed out over the account's data (NATG-564).
   const takeSaved = () => {
     if (!handedOver) return false
     // Only a copy known to be written under the new owner: one saved before the owner was
@@ -1027,18 +1166,20 @@ export const useStore = create((set, get) => {
     if (!theirs) return false
     const S = sanitizeAccent(theirs)
     seenWid = readWid()
-    handedOver = false
     meta.set(S, { base: readStoredSync(), owed: storedOwed() })
     registerCustom(S.customEx)
     registerExerciseAliases(S.exAliases)
     set({ S })
-    followSignIn()
+    handedOver = false
+    // Already signed in as the new owner, this tab has nothing left to follow.
+    if (seenOwner && get().user?.id !== seenOwner && !followSignIn()) handedOver = true
     return true
   }
   // A tab signed out, or a guest's, whose browser another tab signed in: once that sign-in is
   // settled (its question answered, its copy saved under the account and in step with a revision),
   // this tab is signed in too, as a tab opened now would be. The session cookie is the browser's.
-  // A guest's workout carried into the account shows here again.
+  // A guest's workout carried into the account shows here again. A tab the owner changed under
+  // gets here through takeSaved, which keeps its handover provisional until this succeeds.
   const followSignIn = () => {
     if (get()?.user || handedOver) return false
     const owner = readOwner()
@@ -1136,6 +1277,7 @@ export const useStore = create((set, get) => {
     forgetSync()
     releaseAdopt()   // the copy it was about is gone
     localStorage.removeItem(KEY)
+    bumpOwnerGen()
     localStorage.removeItem('gym_owner_name')
     localStorage.removeItem('gym_owner')
     // The account's share lists go with it: a shared device keeps nothing of whom it shared with.
@@ -1357,8 +1499,16 @@ export const useStore = create((set, get) => {
       throw e   // the caller's toast: sign-in needed the server anyway
     }
     if (left()) return gone
+    // As pullState: a copy whose base is another account's is settled no way at all. Every branch
+    // below would restamp or drop that base and push the copy as this account's. The hold stays,
+    // so nothing syncs until a sign-out, a switch or a reload.
+    const held = metaOf().base
+    if (held && held.uid !== uid) { refuse('adopt', held.uid, uid); return { adopted: false, added: false, refused: true } }
     let { state, rev } = res
     reached()
+    // This read decides again; a write armed by an earlier run of this adoption is re-armed below
+    // only if it is still the one to send.
+    adoptWrite = null
     let asked = false
     const askAbout = async extras => {
       if (!(extras.workouts || extras.bodyweight || extras.customEx || extras.routines || extras.setup) || typeof ask !== 'function') return false
@@ -1383,7 +1533,16 @@ export const useStore = create((set, get) => {
     if (!state) {
       const push = hasData(S0) && (!alwaysAsk || sameAccount || await askAbout(localExtras(S0, null)))
       if (left()) return gone
-      releaseAdopt()
+      // The write over the empty profile, unless the question was just asked and answered, keeps
+      // the sign-in's mark until it lands or its 409 is handed back (adoptWrite); only the hold is
+      // lifted, for that write to go. A bare call that marked nothing marks it now, so a write that
+      // fails on the way is resumed like a sign-in's.
+      const guarded = push && rev != null && !asked
+      if (!guarded) releaseAdopt()
+      else {
+        if (!adoptOwed()) writeAdopt({ uid, rejoined: sameAccount, alwaysAsk, pre: owedMark?.pre || preOf(S0) })
+        setHold(false)
+      }
       if (hasData(get().S) && !push) {
         if (asked) await keepDeviceCopy()
         if (left()) return gone
@@ -1392,10 +1551,32 @@ export const useStore = create((set, get) => {
         return { adopted: true, added: false }
       }
       markOwed(false)
-      if (push) { if (rev != null) writeSync(rev, 0); forceNext = true; await get().pushState() }
-      else { if (rev != null) writeSync(rev, 0); confirmed(get().S) }
-      await applyStash()
-      return { adopted: false, added: false }
+      if (!push) {
+        if (rev != null) writeSync(rev, 0)
+        confirmed(get().S)
+        await applyStash()
+        return { adopted: false, added: false }
+      }
+      // Pushed against the revision the read returned (0: no profile), never without a base
+      // (NATG-533). A profile that appeared since answers 409, and unless this copy's question was
+      // just asked and answered, that 409 is not merged (doPush): the profile is asked about once,
+      // as one found by the read would have been (below). A 409 after an answer is two devices'
+      // conflict, merged as ever.
+      if (rev != null) writeSync(rev, 0)
+      if (guarded) adoptWrite = { uid }
+      adoptRaced = null
+      await get().pushState()
+      const raced = adoptRaced?.uid === uid ? adoptRaced : null
+      adoptRaced = null
+      if (left()) return gone
+      // Not landed and not raced (no network, a server error): held, still owed, and the next
+      // check resumes it. What a sign-out kept for this account waits for that run too.
+      if (!raced && guarded && adoptWrite?.uid === uid) return { adopted: false, added: false }
+      if (!raced) {
+        await applyStash()
+        return { adopted: false, added: false }
+      }
+      ;({ state, rev } = raced)
     }
     if (sameAccount) {
       // This copy already belongs to the account: a phone paired again after its token was
@@ -1413,7 +1594,10 @@ export const useStore = create((set, get) => {
         await applyStash()
         return { adopted: true, added: false, merged: false }
       }
-      mergeInto(S, state, rev)
+      // A copy with no base yet merges against the revision just read, as mergeInto would record
+      // it anyway; one that has a base keeps it, and mergeInto holds it to this account.
+      if (!base) writeSync(rev, 0, state?._wid)
+      if (!mergeInto(S, state, rev)) return { adopted: false, added: false, refused: true }
       await get().pushState()
       await applyStash()
       return { adopted: true, added: false, merged: true }
@@ -1502,7 +1686,7 @@ export const useStore = create((set, get) => {
     let owner = null
     try { owner = localStorage.getItem('gym_owner') } catch { /* evicted along with the copy */ }
     if (!who || of?.owner !== who || (owner && owner !== who) || of.ts !== (saved._ts || 0)) return
-    try { if (!owner) localStorage.setItem('gym_owner', who) } catch { /* setUser writes it again */ }
+    try { if (!owner) { bumpOwnerGen(); localStorage.setItem('gym_owner', who) } } catch { /* setUser writes it again */ }
     seenOwner = readOwner()
     persist(sanitizeAccent(Object.assign(clone(DEF), saved)), false, false)
     dropSync()
@@ -1620,26 +1804,27 @@ export const useStore = create((set, get) => {
     // device made after the reset instead of bringing the whole profile back (lib/sync-merge.js).
     //
     // With it goes `resetIds`, the names of every entry the reset wiped: this copy's, the earlier
-    // resets' (a copy older than those too is still judged right), and the server's once it
-    // answers — it may hold entries this device never pulled. A device that has not seen the
-    // reset loses exactly those, and keeps whatever else it holds, whatever its dates say.
-    // Resolves once the server's names are in (or could not be had).
+    // resets' (a copy older than those too is still judged right), and the server's — it may hold
+    // entries this device never pulled. A device that has not seen the reset loses exactly those,
+    // and keeps whatever else it holds, whatever its dates say.
+    //
+    // Signed in, the push reads the account's profile before it goes (readForReplace): the
+    // server's names are taken from that read, before the PUT, and the PUT goes against its
+    // revision, never without one (NATG-655). Another device that writes between the two gets the
+    // reset's 409 merge: what it added since the read stays, what it edited of the entries named
+    // here is still wiped, and the reset's settings, plan and unit win (sinceReset).
     resetEverything() {
       const cur = get().S
       const S = restartedState(cur)
       S.resetAt = Math.max(Date.now(), highestStamp(cur) + 1)
       S.resetIds = mergeResetIds(cur.resetIds, resetIdsOf(cur))
-      get().replaceState(S, !!get().user)
-      if (!get().user) return Promise.resolve()
-      const uid = get().user.id
-      return api('/api/data').then(res => {
-        if (!answerIsFor(uid)) return
+      const prepare = read => {
         const now = get().S
-        if (!res?.state || now.resetAt !== S.resetAt) return
-        const ids = mergeResetIds(now.resetIds, mergeResetIds(res.state.resetIds, resetIdsOf(res.state)))
-        if (JSON.stringify(ids) === JSON.stringify(now.resetIds)) return
-        persist(Object.assign(clone(now), { resetIds: ids }), true)
-      }).catch(() => {})
+        if (!read || now.resetAt !== S.resetAt) return
+        const ids = mergeResetIds(now.resetIds, mergeResetIds(read.resetIds, resetIdsOf(read)))
+        if (JSON.stringify(ids) !== JSON.stringify(now.resetIds)) persist(Object.assign(clone(now), { resetIds: ids }), false)
+      }
+      get().replaceState(S, !!get().user, { kind: 'reset', prepare })
     },
     // Before a backup replaces this copy (Settings → Import): the workouts the server holds that the
     // backup does not — logged since it was made, or on another device meanwhile. The import is a
@@ -1698,8 +1883,8 @@ export const useStore = create((set, get) => {
       return false
     },
     // A backup in place of this copy. With `mergeWith` — importConflict's answer — the server's copy
-    // is merged in instead of replaced (with this device's changes not yet on it, when there are
-    // any): the backup's settings and plan, every entry of all of them (mergeStates with the backup
+    // is merged in instead of replaced, together with this device's copy as it is when the user
+    // answers: the backup's settings and plan, every entry of all of them (mergeStates with the backup
     // preferred, in the backup's unit), pushed against that revision like any other change, so a
     // workout logged meanwhile elsewhere, or here, is not lost either.
     //
@@ -1746,10 +1931,25 @@ export const useStore = create((set, get) => {
         next._ts = now
         next.active = running
         const at = read?.rev != null ? { rev: read.rev, wid: read.state?._wid } : metaOf().base
-        get().replaceState(next, !!uid, { baseRev: at?.rev ?? null, baseWid: at?.wid })
+        // Nothing read (the check could not reach the server) and no base of its own: the push
+        // reads the profile first and goes against that read (readForReplace), and the replace is
+        // stamped against it as it would have been against the check's, so what that read held is
+        // what the backup replaces (NATG-655). Stamped then, at the latest stamp either copy has.
+        const prepare = at ? undefined : held => {
+          if (!held) return
+          const mine = clone(get().S)
+          const then = Math.max(Date.now(), highestStamp(mine) + 1, highestStamp(held) + 1)
+          stampRestore(mine, [held], then)
+          stampReplace(mine, [held], then)
+          persist(mine, false)
+        }
+        get().replaceState(next, !!uid, { baseRev: at?.rev ?? null, baseWid: at?.wid, prepare })
         return true
       }
-      const others = mergeWith.local ? mergeStates(cur, mergeWith.state) : mergeWith.state
+      // This device's copy as it is now, not only when it owed the server something at check time:
+      // what reached it since the check (another import's workouts, a sync) is otherwise left out of
+      // a copy that is persisted whole, and gone (NATG-562).
+      const others = mergeStates(cur, mergeWith.state)
       // The merge keeps the backup's reset stamp (prefer); a later one this copy or the server's
       // holds stays, as it does on a replace.
       const merged = keepReset(others, keepReset(cur, Object.assign(clone(DEF), mergeStates(next, others, { prefer: 'a' }))))
@@ -1761,11 +1961,13 @@ export const useStore = create((set, get) => {
       return true
     },
     // A replace that is meant to reach the server (backup import, reset) is a deliberate
-    // overwrite, not a change to merge: the push it arms goes without a baseRev — or, given one
-    // (an import), against that revision, so a 409 merges what another device wrote since. It
-    // never takes the reset stamp back (keepReset).
-    replaceState(S, push = false, { baseRev = null, baseWid } = {}) {
-      if (push) { if (baseRev != null) replaceRev = { rev: baseRev, wid: baseWid }; else forceNext = true }
+    // overwrite, not a change to merge, and still never a blind one: the push it arms goes against
+    // `baseRev` (an import's check read it), so a 409 merges what another device wrote since.
+    // Without one it reads the account's profile first and goes against that (readForReplace),
+    // `prepare(read)` making the copy what replaces exactly that read. `kind` 'reset' gives a 409
+    // its own notice. It never takes the reset stamp back (keepReset).
+    replaceState(S, push = false, { baseRev = null, baseWid, kind = 'import', prepare } = {}) {
+      if (push) replaceRev = { uid: get().user?.id, kind, rev: baseRev, wid: baseWid, prepare }
       persist(keepReset(get().S, clone(S)), push)
     },
 
@@ -2019,6 +2221,9 @@ export const useStore = create((set, get) => {
         const owner = localStorage.getItem('gym_owner')
         rejoined = owner === u.id
         const other = !!owner && owner !== u.id
+        // A sign-in, or another account: a new token before the owner key is written. Not boot's
+        // own setUser for the owner already here, or its 401 check below would always find it moved.
+        if (adopt || owner !== u.id) bumpOwnerGen()
         // The hold goes on before anything else can run: a poll, a resume, a debounced push.
         // A replace a reset or an import armed for that push goes with it: the adoption decides
         // what this copy is, and pushes it against the server's revision. Left armed, it went out
@@ -2027,8 +2232,8 @@ export const useStore = create((set, get) => {
           adoptHold = true
           clearTimeout(pushTm)
           pushTm = null
-          forceNext = false
           replaceRev = null
+          adoptWrite = null
         } else {
           // Boot signing the account back in: an adoption it still owes holds sync until it is
           // answered (resumeAdoption); one another account left behind is void.
@@ -2118,14 +2323,26 @@ export const useStore = create((set, get) => {
       pulling = mine
       mine.promise = (async () => {
         try {
-          if (pushTm) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
+          // A replace still to read the profile goes first as well: its push reads the server
+          // itself, and a merge before it would bring back what the reset or import replaces.
+          if (pushTm || owesRead(uid)) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
           if (!answerIsFor(uid)) return
           const res = await api('/api/data')
           if (!answerIsFor(uid)) return
+          // A sign-in's question opened meanwhile (an adoption's write met a profile that appeared,
+          // doPush): the adoption settles this copy, not this pull.
+          if (adoptHold) return
+          // A copy whose base is another account's is settled no way at all: every branch below
+          // would drop or restamp that base on its way to a push or an adopt, and the push check
+          // would then find this account's base on the other account's copy. Only a sign-out or a
+          // switch (forgetSync) clears it; until then nothing is written and the error stays.
+          const held = metaOf().base
+          if (held && held.uid !== uid) { refuse('pull', held.uid, uid); return }
           lastCheck = Date.now()
           reached()
           const { state, rev } = res
+          noteRevless(uid, rev == null)
           const S = get().S
           const { base, owed } = metaOf()
           // Owed to the server: a push that failed, or a change made while boot was still pulling.
@@ -2142,7 +2359,14 @@ export const useStore = create((set, get) => {
           // revisions. The newer copy wins as before, except that a copy still owed to the
           // server (dirty) is merged instead of pushed over whatever is there.
           if (!base) {
-            if (dirty && state) { mergeInto(S, state, rev); pushPending = false; await get().pushState(); return }
+            if (dirty && state) {
+              // The base the merge stands on: the revision just read, as mergeInto would record it.
+              writeSync(rev, 0, state?._wid)
+              if (!mergeInto(S, state, rev)) return
+              pushPending = false
+              await get().pushState()
+              return
+            }
             const restored = restoredStateFor(S, state, false)
             if (restored) { adopt(restored, rev); confirmed(get().S) }
             else if (hasData(S)) { writeSync(rev, 0, state?._wid); await get().pushState() }
@@ -2161,9 +2385,9 @@ export const useStore = create((set, get) => {
           const changed = dirty || localChanged(S)
           if (!serverMoved) { if (changed) await get().pushState(); else confirmed(S); return }
           if (!state) { writeSync(rev, 0); if (hasData(S)) await get().pushState(); return }
-          if (!descends) { mergeInto(S, state, rev); pushPending = false; await get().pushState(); return }
+          if (!descends) { if (!mergeInto(S, state, rev)) return; pushPending = false; await get().pushState(); return }
           if (!changed) { const next = sanitizeAccent(Object.assign(clone(DEF), state)); next.active = carryActive(S, next); adopt(next, rev); confirmed(get().S); return }
-          mergeInto(S, state, rev)
+          if (!mergeInto(S, state, rev)) return
           pushPending = false
           await get().pushState()
         } catch (e) { if (answerIsFor(uid)) failed(e) /* keep local; the poll retries */ }
@@ -2252,7 +2476,9 @@ export const useStore = create((set, get) => {
       // stays held, and the next check or "Sync now" runs it again; a bare call has nothing to
       // hold for and lets go.
       adopting = runAdopt(ask, opts)
-        .then(r => { claimSaved(); return r })
+        // A refused merge (NATG-556) claims nothing: saved again here, the other account's copy
+        // would be tagged as this one's.
+        .then(r => { if (!r?.refused) claimSaved(); return r })
         .catch(e => { if (!adoptOwed()) releaseAdopt(); throw e })
         .finally(() => { adopting = null })
       return adopting
@@ -2496,9 +2722,11 @@ export const useStore = create((set, get) => {
       // browser holds is not this copy's, and setUser would relabel this copy (and its revision)
       // as the new account's, and sync it into that account. Checked after every wait below; once
       // it has moved, boot ends signed out and this tab follows the other one (the owner event,
-      // takeSaved, followSignIn), as any tab whose owner changed under it does.
+      // takeSaved, followSignIn), as any tab whose owner changed under it does. A sign-out and
+      // sign-in as the same account leaves the owner key where it was: the token shows it (NATG-606).
       const owner0 = seenOwner
-      const moved = () => readOwner() !== owner0
+      const gen0 = readOwnerGen()
+      const moved = () => readOwner() !== owner0 || readOwnerGen() !== gen0
       const linkCode = linkTokenFromSearch(window.location.search)
       if (linkCode) { stripLinkFromUrl(); set({ linkCode }) }
       // Guests never authenticate, so an instance that turned guest mode off has no request to
@@ -2554,7 +2782,8 @@ export const useStore = create((set, get) => {
         // unless whoever is here chose to go on as a guest. A 401 that lands after another tab
         // signed out or in is about the session this copy's owner had, not the browser's now:
         // setUser(null) would remove the new account's gym_user, so this tab only follows the
-        // other one (the owner event), as boot's other waits do (NATG-574).
+        // other one (the owner event), as boot's other waits do (NATG-574). So does one that lands
+        // after the same account signed in again, with or without a sign-out first (NATG-606).
         if (e.status === 401) {
           if (moved()) { finishBoot(); return }
           const kept = !!get().user || (!get().isGuest() && !!localStorage.getItem('gym_owner') && owes())

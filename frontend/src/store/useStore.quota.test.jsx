@@ -6,6 +6,7 @@
    "synced", and its next push (a matching conditional one) deleted those workouts from the
    server and from the other device. (QA 2026-10-06, also in v1.3.9.) */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -33,20 +34,20 @@ function server(doc) {
   }
 }
 async function openApp() {
-  vi.resetModules()
-  const m = await import('./useStore.js')
+  const m = await freshStore()
   m.useStore.setState({ user: { id: 'u1' }, ready: true })
   return m
 }
 
 let full = false
 const realSet = Storage.prototype.setItem
-// (spied before the first write: happy-dom keeps the method a storage first used)
-vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
-  if (full && k === 'gym_state_v1') throw new DOMException('quota', 'QuotaExceededError')
-  return realSet.call(this, k, v)
-})
 beforeEach(() => {
+  // Spied per test, not once for the file: restoreMocks (vite.config.js) undoes every spy before
+  // each test. And before this test's first write: happy-dom keeps the method a storage first used.
+  vi.spyOn(Storage.prototype, 'setItem').mockImplementation(function (k, v) {
+    if (full && k === 'gym_state_v1') throw new DOMException('quota', 'QuotaExceededError')
+    return realSet.call(this, k, v)
+  })
   localStorage.clear(); full = false
   localStorage.setItem('gym_owner', 'u1')
 })

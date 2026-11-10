@@ -6,6 +6,7 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { freshStore } from './test-utils/fresh-store.js'
 vi.mock('./lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 import { api } from './lib/api.js'
 let DEF, useStore, useUI, sharedViewOf, buildCombinedEntries, saveSessionAsRoutine, workoutDetailSheet, setNav, isSharedId
@@ -16,9 +17,8 @@ const accepted = (name = 'Original', hash = 'qa-h1', ex = [{ id: '0025', sets: 2
 const OWN = { id: 'r-own', name: 'Mine', ex: [{ id: '0007', sets: 1, reps: 8, weight: 20 }] }
 let net
 beforeEach(async () => {
-  vi.resetModules()
   localStorage.clear()
-  ;({ DEF, useStore } = await import('./store/useStore.js'))
+  ;({ DEF, useStore } = await freshStore())
   ;({ useUI } = await import('./store/useUI.js'))
   ;({ sharedViewOf } = await import('./lib/shared-routines.js'))
   ;({ buildCombinedEntries } = await import('./lib/session-merge.js'))
@@ -34,7 +34,7 @@ beforeEach(async () => {
   net = { incoming: [accepted()], etag: 'qa-e1', rev: 1, state: clone(S), puts: [] }
   useStore.setState({ S, user: ME, ready: true, config: { shares: true, coach: null }, shares: null, sharesError: false, sync: { ...fresh } })
   useUI.setState({ sheets: [], toastMsg: '', timer: null, work: null })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0, uid: ME.id }))
   api.mockReset()
   api.mockImplementation(async (path, o = {}) => {
     if (path === '/api/shares') return { incoming: clone(net.incoming), outgoing: [], etag: net.etag }
@@ -44,7 +44,7 @@ beforeEach(async () => {
     return {}
   })
 })
-afterEach(() => { useStore.setState({ ready: false, user: null }); useUI.setState({ sheets: [] }) })
+afterEach(() => { useUI.setState({ sheets: [] }) })
 
 // A finished workout trained from `ids`, every set done.
 const workoutFrom = (ids, extra = {}) => {

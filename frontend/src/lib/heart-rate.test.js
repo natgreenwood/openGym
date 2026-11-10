@@ -5,6 +5,7 @@
 // them; a reading that does not hold up is never written; a saved workout patched later is stamped
 // so a sync keeps the change.
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 import { sanitizeHr, hrLabel } from './heart-rate.js'
 import { buildCompletedWorkout } from './finish-workout.js'
 import { mergeStates } from './sync-merge.js'
@@ -89,12 +90,12 @@ describe('a set patched after the workout was saved (the rest\'s reading comes l
 })
 
 describe('the store: load, save, backup', () => {
-  beforeEach(() => { localStorage.clear(); vi.resetModules() })
+  beforeEach(() => { localStorage.clear() })
   const fixture = sets => ({ unit: 'kg', restSec: 90, routines: [], workouts: [workout('w1', sets)], bodyweight: [] })
 
   it('a profile without the fields loads and saves byte for byte', async () => {
     localStorage.setItem('gym_state_v1', JSON.stringify(fixture(plainSets())))
-    const { useStore } = await import('../store/useStore.js')
+    const { useStore } = await freshStore()
     useStore.getState().update(() => {})
     const saved = JSON.parse(localStorage.getItem('gym_state_v1'))
     expect(JSON.stringify(saved.workouts)).toBe(JSON.stringify(fixture(plainSets()).workouts))
@@ -102,7 +103,7 @@ describe('the store: load, save, backup', () => {
 
   it('a profile with them loads, saves, exports and imports with them', async () => {
     localStorage.setItem('gym_state_v1', JSON.stringify(fixture(hrSets())))
-    const { useStore } = await import('../store/useStore.js')
+    const { useStore } = await freshStore()
     useStore.getState().update(() => {})
     expect(JSON.parse(localStorage.getItem('gym_state_v1')).workouts[0].entries[0].sets).toEqual(hrSets())
     // Settings → Export is JSON.stringify(S); Import is importBackup of it

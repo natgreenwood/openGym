@@ -14,7 +14,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort, logLine, stackFrames, stderrSettled } from './helpers.mjs';
-import { contentHash } from '../shared-routine.js';
+import { contentHash, sharedBytes, sharedRoutine, MAX_SHARED_BYTES } from '../shared-routine.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -41,8 +41,13 @@ const alexState = (over = {}) => ({
   ...over
 });
 
-async function startServer(t, { sharing = true, shares = [], alex = alexState(), sam = { unit: 'kg', _rev: 2, routines: [] }, subs = [], env = {} } = {}) {
+// `spy`: load test/spy-shared.mjs, so the log counts the server's projections, hashes, measures
+// and push titles (`spy …` lines); `fault`: the measure throws while h.faultFile exists, which it
+// does from the start.
+async function startServer(t, { sharing = true, shares = [], alex = alexState(), sam = { unit: 'kg', _rev: 2, routines: [] }, subs = [], env = {}, spy = false, fault = false } = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-shares-proj-'));
+  const faultFile = path.join(dataDir, 'measure-fault');
+  if (fault) fs.writeFileSync(faultFile, '');
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   const now = new Date().toISOString();
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
@@ -58,11 +63,11 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState(),
   const file = uid => path.join(dataDir, `state-${uid}.json`);
   fs.writeFileSync(file(ALEX), JSON.stringify(alex));
   if (sam) fs.writeFileSync(file(SAM), JSON.stringify(sam));
-  const child = spawn(process.execPath, ['server.js'], {
+  const child = spawn(process.execPath, [...(spy || fault ? ['--import', './test/spy-shared.mjs'] : []), 'server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1', ...env }
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1', SHARE_FAULT_FILE: faultFile, ...env }
   });
-  const h = { log: '', dataDir, child };
+  const h = { log: '', dataDir, child, faultFile };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -94,6 +99,7 @@ async function startServer(t, { sharing = true, shares = [], alex = alexState(),
   };
   h.stackFrames = () => stackFrames(child, h.api, () => h.log);
   h.settled = () => stderrSettled(child, h.api, () => h.log);
+  h.count = re => (h.log.match(new RegExp(re.source, 'gm')) || []).length;
   return h;
 }
 // An accepted share of Alex's `routineId` for Sam, and its id.
@@ -651,7 +657,10 @@ test('SEC-01: a share the server cannot project at all is unreadable with its id
   assert.equal((await h.del(`/api/shares/${id}`, SAM)).status, 200, 'the recipient can still remove it');
   assert.deepEqual((await h.incoming(SAM)).map(i => i.id), [keep]);
   await h.settled();
-  assert.equal(h.log.match(/cannot project share/g)?.length, 1, 'logged once');
+  // Caught where the routine's verdict is worked out (NATG-494), once per version of the
+  // document, so the line names the routine rather than each share of it.
+  assert.equal(h.log.match(/shares: cannot project/g)?.length, 1, 'logged once');
+  assert.match(h.log, /shares: cannot project routine r1 of u_alex/);
   assert.equal(await h.stackFrames(), 0, h.log);
 });
 /* QA contract checks: the design and ShareIncoming require primitive text: a string, or a number
@@ -762,4 +771,324 @@ test('QA payload: missing sharer file preserves pending records and heals after 
   assert.equal(healed.id, id);
   assert.equal(healed.routine.name, 'Push A');
   assert.equal(healed.state, 'accepted');
+});
+
+/* ---------- NATG-494: the size cap on a shared routine ----------
+   A routine whose projection (what a recipient gets) is over 64 KiB cannot be shared, and one
+   already shared reads as `unavailable: 'too-large'` without ever being projected or hashed. The
+   verdict and the hash are kept per version of the sharer's document. Tests marked `spy` count
+   the server's own calls (test/spy-shared.mjs). */
+
+// Alex's state with r1's first slot note padded so that r1's projection is exactly `bytes` long.
+function alexSized(bytes, over = {}) {
+  const S = alexState(over);
+  const r = S.routines[0];
+  r.ex[0].note = '';
+  r.ex[0].note = 'n'.repeat(bytes - sharedBytes(r, Infinity));
+  assert.equal(Buffer.byteLength(JSON.stringify(sharedRoutine(r))), bytes);
+  return S;
+}
+const at = new Date().toISOString();
+const rec = (id, to, state, routineId = 'r1') =>
+  ({ id, from: ALEX, to, routineId, state, created: at, ...(state === 'accepted' ? { acceptedAt: at } : {}) });
+const hhmmNow = () => new Date().toISOString().slice(11, 16);
+const spyCounts = h => ({
+  measure: h.count(/^spy measure r1$/), project: h.count(/^spy project r1$/),
+  hashRoutine: h.count(/^spy hash routine$/), hashPreview: h.count(/^spy hash preview$/)
+});
+const A1 = '00000000000000a1', B1 = '00000000000000b1', C1 = '00000000000000c1';
+
+test('NATG-494 AC1: POST /api/shares refuses a routine over 64 KiB with too-large and writes nothing; exactly 64 KiB is shared', async t => {
+  const h = await startServer(t, { alex: alexSized(MAX_SHARED_BYTES + 1) });
+  const before = h.dbBytes();
+  const r = await h.share(ALEX, 'r1', [SAM, KIM]);
+  assert.equal(r.status, 400);
+  assert.deepEqual(r.body, { error: 'a shared routine can hold at most 64 KB', code: 'too-large', maxKB: 64 });
+  assert.equal(h.dbBytes(), before, 'no share record');
+  assert.equal(h.audit().some(a => a.ev === 'share.create'), false);
+  assert.equal((await h.share(ALEX, 'r1', [SAM])).status, 400, 'a retry is refused the same way');
+  assert.equal((await h.share(ALEX, 'r2', [SAM])).status, 200, 'a routine beside it is not affected');
+
+  // The cap itself is shareable.
+  assert.equal((await h.put(ALEX, alexSized(MAX_SHARED_BYTES))).status, 200);
+  assert.equal((await h.share(ALEX, 'r1', [SAM])).status, 200);
+
+  // What counts is what a recipient would get: megabytes in fields that never leave the sharer's
+  // document (a private note, planned backups, sync stamps) do not.
+  const heavy = alexState();
+  heavy.routines[0].notes = 'p'.repeat(1_000_000);
+  heavy.routines[0].ex[0].subs = Array(50_000).fill('0002');
+  heavy.routines[0].ex[0]._f = Object.fromEntries(Array.from({ length: 20_000 }, (_, i) => [`k${i}`, i]));
+  assert.equal((await h.put(ALEX, heavy)).status, 200);
+  assert.equal((await h.share(ALEX, 'r1', [KIM])).status, 200);
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-494 AC2, AC3, AC9 (spy): a legacy oversized share, pending or accepted, is too-large on every read, never projected or hashed; the recipient can still decline or remove it', async t => {
+  // Already on disk when the cap ships: three shares of a routine with a megabyte note.
+  const shares = [rec(A1, SAM, 'accepted'), rec(B1, KIM, 'pending'), rec(C1, ADMIN, 'pending')];
+  const h = await startServer(t, {
+    spy: true, shares, alex: alexSized(1_000_000), subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
+    sam: onlyShared(`shared:${A1}`, { on: true, time: hhmmNow(), tz: 'UTC', nudge: true })
+  });
+  const from = { id: ALEX, name: 'Alex' };
+  const before = h.dbBytes();
+
+  // The revision poll, for each recipient: the etag the list answers, nothing written.
+  const polls = await Promise.all([SAM, KIM, ADMIN].map(uid => h.get('/api/data/rev', uid)));
+  for (const p of polls) assert.equal(p.status, 200);
+  assert.equal(h.dbBytes(), before, 'the poll writes nothing');
+
+  const sam = await h.get('/api/shares', SAM);
+  assert.equal(sam.status, 200);
+  assert.deepEqual(sam.body.incoming, [{ id: A1, state: 'accepted', from, created: at, acceptedAt: at, unavailable: 'too-large' }]);
+  assert.equal(polls[0].body.shares, sam.body.etag);
+  const kim = await h.get('/api/shares', KIM);
+  assert.deepEqual(kim.body.incoming, [{ id: B1, state: 'pending', from, created: at, unavailable: 'too-large' }], 'no preview, no hash');
+  assert.equal(polls[1].body.shares, kim.body.etag);
+  assert.deepEqual(h.db().shares.map(s => [s.id, s.state]), [[A1, 'accepted'], [B1, 'pending'], [C1, 'pending']], 'every record kept');
+
+  // A shared-only day whose routine is unavailable has nothing planned: no nudge, no reminder.
+  const check = await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM);
+  assert.equal(check.status, 200);
+  assert.equal(check.body.nudge, false);
+  await wait(1200);
+  assert.doesNotMatch(h.log, /reminder firing|reminder tick/);
+
+  // Accepting answers the same unavailable item; declining and removing work as for any share.
+  const acc = await h.accept(C1, ADMIN);
+  assert.equal(acc.status, 200);
+  assert.equal(acc.body.share.unavailable, 'too-large');
+  assert.equal('routine' in acc.body.share, false);
+  assert.equal((await h.post(`/api/shares/${B1}/decline`, KIM)).status, 200);
+  assert.deepEqual(await h.incoming(KIM), []);
+  assert.equal((await h.del(`/api/shares/${A1}`, SAM)).status, 200);
+  assert.deepEqual(await h.incoming(SAM), []);
+
+  await h.settled();
+  assert.deepEqual(spyCounts(h), { measure: 1, project: 0, hashRoutine: 0, hashPreview: 0 },
+    'measured once for three shares and every read; never projected or hashed');
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-494 AC7: PUT /api/data never refuses a routine over the cap; its shares go too-large, keep their records and days, and come back under it', async t => {
+  const h = await startServer(t);
+  const id = await acceptedShare(h);
+  const [pending] = (await h.share(ALEX, 'r1', [KIM])).body.shares;
+  const ptr = `shared:${id}`;
+  assert.equal((await h.put(SAM, onlyShared(ptr, { on: true, nudge: true, time: '08:00' }))).status, 200);
+  const [ok] = await h.incoming(SAM);
+  const okEtag = await h.etag(SAM);
+  const okPreview = (await h.incoming(KIM))[0].hash;
+  const acceptedAt = h.db().shares.find(s => s.id === id).acceptedAt;
+
+  const big = alexSized(MAX_SHARED_BYTES + 1);
+  const put = await h.put(ALEX, big);
+  assert.equal(put.status, 200, 'the write is not refused');
+  assert.equal(h.read(ALEX).routines[0].ex[0].note, big.routines[0].ex[0].note, 'nor cut');
+  const [hidden] = await h.incoming(SAM);
+  assert.deepEqual(hidden, { id, state: 'accepted', from: { id: ALEX, name: 'Alex' }, created: ok.created, acceptedAt, unavailable: 'too-large' });
+  assert.equal((await h.incoming(KIM))[0].unavailable, 'too-large', 'a pending one too');
+  assert.notEqual(await h.etag(SAM), okEtag, 'the recipient notices on the next poll');
+  assert.deepEqual(h.db().shares.map(s => [s.id, s.state]), [[id, 'accepted'], [pending.id, 'pending']], 'records kept');
+  assert.equal(h.read(SAM).week[1][0], ptr, "the recipient's days kept");
+  assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).body.nudge, false);
+
+  assert.equal((await h.put(ALEX, alexState())).status, 200);
+  const [back] = await h.incoming(SAM);
+  assert.deepEqual(back, ok, 'usable again, with the same hash');
+  assert.equal(await h.etag(SAM), okEtag);
+  assert.equal((await h.incoming(KIM))[0].hash, okPreview);
+  assert.equal((await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM)).body.nudge, true);
+});
+
+test('NATG-494 AC8, AC10 (spy): each version of the sharer\'s document is measured and hashed once, whoever changed it and whatever its _rev; the PUT pays for the measure', async t => {
+  const h = await startServer(t, { spy: true, shares: [rec(A1, SAM, 'accepted')] });
+  const reads = async () => {
+    await Promise.all([1, 2, 3, 4].map(() => h.get('/api/data/rev', SAM)));
+    await h.get('/api/shares', SAM);
+    await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM);
+    return (await h.incoming(SAM))[0];
+  };
+  const expectHash = item => assert.equal(item.hash, contentHash({ unit: item.unit, routine: item.routine }));
+  const counts = async () => { await h.settled(); return spyCounts(h); };
+
+  const v1 = await reads();
+  expectHash(v1);
+  assert.deepEqual(await counts(), { measure: 1, project: 1, hashRoutine: 1, hashPreview: 1 });
+
+  // The sharer's PUT: measured by the write itself, hashed on the first read after it.
+  assert.equal((await h.put(ALEX, alexState({ routines: [{ ...alexState().routines[0], name: 'Push B' }, alexState().routines[1]] }))).status, 200);
+  assert.deepEqual(await counts(), { measure: 2, project: 1, hashRoutine: 1, hashPreview: 1 }, 'the PUT measured, nothing hashed yet');
+  const v2 = await reads();
+  assert.equal(v2.routine.name, 'Push B');
+  assert.notEqual(v2.hash, v1.hash);
+  expectHash(v2);
+  assert.deepEqual(await counts(), { measure: 2, project: 2, hashRoutine: 2, hashPreview: 2 });
+
+  // A hand edit that keeps `_rev`: a new version all the same, with no restart.
+  const rev = h.read(ALEX)._rev;
+  await tick();
+  h.write(ALEX, alexState({ _rev: rev, routines: [{ ...alexState().routines[0], name: 'Push C' }, alexState().routines[1]] }));
+  const v3 = await reads();
+  assert.equal(v3.routine.name, 'Push C');
+  assert.notEqual(v3.hash, v2.hash);
+  expectHash(v3);
+  assert.deepEqual(await counts(), { measure: 3, project: 3, hashRoutine: 3, hashPreview: 3 });
+
+  // Over the cap by hand, and back under it.
+  await tick();
+  h.write(ALEX, alexSized(MAX_SHARED_BYTES + 1, { _rev: rev }));
+  assert.equal((await reads()).unavailable, 'too-large');
+  assert.deepEqual(await counts(), { measure: 4, project: 3, hashRoutine: 3, hashPreview: 3 });
+  await tick();
+  h.write(ALEX, alexState({ _rev: rev }));
+  const v5 = await reads();
+  assert.equal(v5.hash, v1.hash, 'the same content hashes the same');
+  assert.deepEqual(await counts(), { measure: 5, project: 4, hashRoutine: 4, hashPreview: 4 });
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-494 AC4 (spy): a shared routine\'s name is cut to 80 characters in the preview, the routine, its hash and the reminder title', async t => {
+  const long = 'L'.repeat(300);
+  const named = alexState({ routines: [{ ...alexState().routines[0], name: long }, alexState().routines[1]] });
+  const h = await startServer(t, {
+    spy: true, alex: named, shares: [rec(A1, SAM, 'accepted'), rec(B1, KIM, 'pending')],
+    subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
+    sam: onlyShared(`shared:${A1}`, { on: true, time: hhmmNow(), tz: 'UTC', nudge: false })
+  });
+  const name = 'L'.repeat(80);
+  const [pending] = await h.incoming(KIM);
+  assert.deepEqual(pending.preview, { name, exercises: 2 });
+  assert.equal(pending.hash, contentHash({ preview: { name, exercises: 2 } }));
+  const [accepted] = await h.incoming(SAM);
+  assert.equal(accepted.routine.name, name);
+  assert.equal(accepted.hash, contentHash({ unit: 'lb', routine: accepted.routine }), 'the name hashed is the name sent');
+  await logLine(h.child, `reminder firing ${SAM} shared:${A1}`, () => h.log);
+  await h.settled();
+  const title = JSON.parse(/^spy push (.*)$/m.exec(h.log)[1]);
+  assert.ok(title.includes(` ${name} `), title);
+  assert.equal(title.includes('L'.repeat(81)), false, title);
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-494 (spy): a routine the measure throws on is unreadable, never a thrown error, on every read, the reminder tick and creation; the next version heals it', async t => {
+  const h = await startServer(t, {
+    fault: true, shares: [rec(A1, SAM, 'accepted'), rec(B1, KIM, 'pending')],
+    subs: [subFor(SAM)], env: { REMINDER_TICK_MS: '200' },
+    sam: onlyShared(`shared:${A1}`, { on: true, time: hhmmNow(), tz: 'UTC', nudge: true })
+  });
+  const before = h.dbBytes();
+  const sam = await h.get('/api/shares', SAM);
+  assert.equal(sam.status, 200);
+  assert.equal(sam.body.incoming[0].unavailable, 'unreadable');
+  assert.equal('routine' in sam.body.incoming[0], false);
+  assert.equal((await h.incoming(KIM))[0].unavailable, 'unreadable');
+  const poll = await h.get('/api/data/rev', SAM);
+  assert.equal(poll.status, 200);
+  assert.equal(poll.body.shares, sam.body.etag);
+  const check = await h.get(`/api/nudge-check?date=${dateIn('UTC')}`, SAM);
+  assert.equal(check.status, 200);
+  assert.equal(check.body.nudge, false);
+  const create = await h.share(ALEX, 'r1', [ADMIN]);
+  assert.equal(create.status, 400, 'a routine that cannot be measured is not shared');
+  assert.equal(create.body.code, 'too-large');
+  assert.equal(h.dbBytes(), before);
+  await wait(1200);
+  assert.doesNotMatch(h.log, /reminder firing|reminder tick/);
+  await h.settled();
+  assert.equal(h.count(/^shares: cannot project routine r1 of u_alex RangeError$/), 1, 'logged once for this version');
+
+  // The fault gone, the same version stays judged; the sharer's next write is judged afresh.
+  fs.rmSync(h.faultFile);
+  assert.equal((await h.incoming(SAM))[0].unavailable, 'unreadable');
+  assert.equal((await h.put(ALEX, alexState())).status, 200);
+  assert.equal((await h.incoming(SAM))[0].routine.name, 'Push A');
+  await logLine(h.child, `reminder firing ${SAM} shared:${A1}`, () => h.log);
+  assert.equal((await h.post(`/api/shares/${B1}/decline`, KIM)).status, 200);
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+/* ---------- NATG-645: the sharer is told their shared routine is too large ----------
+   The sharer's outgoing item carries `unavailable: 'too-large'` exactly while the routine is
+   over the cap, read from the routine's cached verdict (routineOverCap), in GET /api/shares and
+   in the meta form the revision poll's etag is built from. */
+
+// The etag the sharer's half answered before the flag: ids alone. A sharer with no incoming
+// shares and every routine under the cap must still get exactly this.
+const idsOnlyEtag = ids =>
+  crypto.createHash('sha256').update(JSON.stringify([[], [...ids].sort().map(id => [id])])).digest('hex').slice(0, 16);
+const D1 = '00000000000000d1';
+
+test('NATG-645 AC1, AC3 (spy): the sharer\'s outgoing item is too-large while its routine is over the cap, the same for pending, accepted and declined shares, never projected or hashed', async t => {
+  const shares = [rec(A1, SAM, 'accepted'), rec(B1, KIM, 'pending'), rec(C1, ADMIN, 'declined'), rec(D1, SAM, 'pending', 'r2')];
+  const h = await startServer(t, { spy: true, shares, alex: alexSized(MAX_SHARED_BYTES + 1) });
+  const before = h.dbBytes();
+  const item = (id, to, routineId = 'r1') => ({ id, to, routineId, created: at });
+  const tooLarge = (id, to) => ({ ...item(id, to), unavailable: 'too-large' });
+
+  const list = await h.get('/api/shares', ALEX);
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.body.outgoing, [
+    tooLarge(A1, { id: SAM, name: 'Sam' }), tooLarge(B1, { id: KIM, name: 'Kim' }), tooLarge(C1, { id: ADMIN, name: 'Adminna' }),
+    item(D1, { id: SAM, name: 'Sam' }, 'r2')
+  ], 'one flag per routine, whatever each recipient did; a routine under the cap has no `unavailable` at all');
+  assert.equal(JSON.stringify(list.body.outgoing).includes('"state"'), false, 'no recipient state');
+  assert.equal(await h.etag(ALEX), list.body.etag, 'the poll answers the etag the list does');
+  assert.notEqual(list.body.etag, idsOnlyEtag([A1, B1, C1, D1]));
+  assert.equal(h.dbBytes(), before, 'nothing written');
+
+  await h.settled();
+  assert.deepEqual(spyCounts(h), { measure: 1, project: 0, hashRoutine: 0, hashPreview: 0 },
+    'measured once for three shares, a list and a poll; never projected or hashed');
+
+  // Exactly the cap is not over it.
+  assert.equal((await h.put(ALEX, alexSized(MAX_SHARED_BYTES))).status, 200);
+  const at64 = await h.get('/api/shares', ALEX);
+  assert.equal(at64.body.outgoing.some(o => 'unavailable' in o), false);
+  assert.equal(at64.body.etag, idsOnlyEtag([A1, B1, C1, D1]));
+  assert.equal(await h.stackFrames(), 0, h.log);
+});
+
+test('NATG-645 AC1, AC2, AC4: the sharer\'s etag moves when a routine goes over the cap and back, through PUT /api/data or outside it; the PUT is not refused or altered', async t => {
+  const h = await startServer(t);
+  const id = await acceptedShare(h);
+  const [pending] = (await h.share(ALEX, 'r1', [KIM])).body.shares;
+  const ids = [id, pending.id];
+  const outgoing = async () => (await h.get('/api/shares', ALEX)).body;
+  const flags = list => list.outgoing.map(o => o.unavailable ?? null);
+
+  const under = await outgoing();
+  assert.deepEqual(flags(under), [null, null]);
+  assert.equal(under.etag, idsOnlyEtag(ids), 'under the cap, the etag is what it was before the flag');
+  assert.equal(await h.etag(ALEX), under.etag);
+
+  // Over the cap through PUT: stored as sent, answered as before, noticed on the next poll.
+  const big = alexSized(MAX_SHARED_BYTES + 1);
+  const put = await h.put(ALEX, big);
+  assert.equal(put.status, 200);
+  assert.deepEqual(Object.keys(put.body).sort(), ['ok', 'rev', 'ts', 'wid'], 'no warning or flag on the write');
+  assert.equal(h.read(ALEX).routines[0].ex[0].note, big.routines[0].ex[0].note, 'not cut');
+  const overEtag = await h.etag(ALEX);
+  assert.notEqual(overEtag, under.etag, 'the sharer notices on the next poll');
+  const over = await outgoing();
+  assert.deepEqual(flags(over), ['too-large', 'too-large']);
+  assert.equal(over.etag, overEtag);
+
+  // Back under through PUT: the flag goes, and the etag is the one it was.
+  assert.equal((await h.put(ALEX, alexState())).status, 200);
+  assert.equal(await h.etag(ALEX), under.etag);
+  assert.deepEqual(flags(await outgoing()), [null, null]);
+
+  // Outside PUT (a restored file, a hand edit), keeping `_rev`: the next poll sees it all the same.
+  const rev = h.read(ALEX)._rev;
+  await tick();
+  h.write(ALEX, alexSized(MAX_SHARED_BYTES + 1, { _rev: rev }));
+  assert.equal(await h.etag(ALEX), overEtag);
+  assert.deepEqual(flags(await outgoing()), ['too-large', 'too-large']);
+  await tick();
+  h.write(ALEX, alexState({ _rev: rev }));
+  assert.equal(await h.etag(ALEX), under.etag);
+  assert.deepEqual(flags(await outgoing()), [null, null]);
+  assert.equal(await h.stackFrames(), 0, h.log);
 });

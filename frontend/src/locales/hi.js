@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': 'ऑफ़लाइन। सर्वर तक नहीं पहुँचा जा सकता',
   'Not an openGym answer (HTTP {0})': 'openGym का जवाब नहीं (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'आपके सर्वर के पते ने openGym के बजाय कुछ और जवाब दिया (HTTP {0})। आपके बदलाव यहीं रखे हैं।',
+  'This copy belongs to a different account': 'यह कॉपी किसी दूसरे खाते की है',
+  'This copy belongs to a different account. Sign in again or reload.': 'यह कॉपी किसी दूसरे खाते की है। फिर से साइन इन करें या पेज रीलोड करें।',
   'Server error (HTTP {0})': 'सर्वर त्रुटि (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'आपके सर्वर ने त्रुटि के साथ जवाब दिया (HTTP {0})। आपके बदलाव यहीं रखे हैं।',
   'The server refuses this browser': 'सर्वर इस ब्राउज़र को अस्वीकार कर रहा है',
@@ -1919,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'सुनिए: किसी सेट को स्वाइप करें। बाएँ हटाता है, दाएँ कॉपी करता है।',
   'Options: copy, remove': 'विकल्प: कॉपी, हटाएँ',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'आयात के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसके बदलाव बैकअप के साथ रखे गए।',
+  'Another device synced while you were resetting, so what it added since was kept.': 'रीसेट के दौरान किसी दूसरे डिवाइस ने सिंक किया, इसलिए उसने तब से जो जोड़ा वह रखा गया।',
   'Save as a backup file': 'बैकअप फ़ाइल के रूप में सहेजें',
   'Add this device\'s plan to your profile?': 'इस डिवाइस का प्लान अपनी प्रोफ़ाइल में जोड़ें?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'इस डिवाइस पर आपका प्लान, नोट्स या जिम कार्ड बिना साइन इन किए बनाए गए। इन्हें अपनी प्रोफ़ाइल में जोड़ें, या प्रोफ़ाइल को ठीक वैसा ही रखें जैसा सर्वर पर है।',
@@ -2708,4 +2711,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'यह एक वर्कआउट की क्षमता से ज़्यादा है। कम रूटीन चुनें, या कम सेट वाले रूटीन।',
   '{0} is too much to add to this workout.': '{0} इस वर्कआउट में जोड़ने के लिए बहुत ज़्यादा है।',
   'too much for this workout': 'इस वर्कआउट के लिए बहुत ज़्यादा',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'अधिकतम {0}',
+  'Some counts were lowered': 'कुछ संख्याएँ घटाई गईं',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} एक्सरसाइज़ में ऐप की अनुमति से ज़्यादा था। इसे अधिकतम {1} सेट या इंटरवल, {2} ड्रॉप और {3} रेस्ट-पॉज़ रेप्स के साथ जोड़ा जाएगा।',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} एक्सरसाइज़ में ऐप की अनुमति से ज़्यादा था। इन्हें अधिकतम {1} सेट या इंटरवल, {2} ड्रॉप और {3} रेस्ट-पॉज़ रेप्स के साथ जोड़ा जाएगा।',
+  'People you share this with won’t be able to open it': 'जिनके साथ आप इसे साझा करेंगे, वे इसे खोल नहीं पाएँगे',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'साझा रूटीन के लिए यह बहुत बड़ा है। आप फिर भी इसे साझा कर सकते हैं। सेट या एक्सरसाइज़ कम होते ही वे इसे खोल पाएँगे।',
 }

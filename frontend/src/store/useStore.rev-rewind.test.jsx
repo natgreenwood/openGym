@@ -44,7 +44,7 @@ describe('the server went back in time', () => {
     const r1 = clone(doc)
     write({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('LegDay')] })
     signedIn({ ...clone(doc), _ts: 200 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid, uid: USER.id }))
     doc = r1   // host reset: the write of rev 2 never reached the disk
     window.dispatchEvent(new Event('online'))
     await tick()
@@ -57,7 +57,7 @@ describe('the server went back in time', () => {
     const r1 = clone(doc)
     write({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('LegDay')] })
     signedIn({ ...clone(doc), _ts: 200 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid, uid: USER.id }))
     doc = r1                                                              // restored backup at rev 1
     write({ ...clone(r1), _ts: 300, workouts: [workout('w1'), workout('B_Push')] })   // device B: rev 2 again
     window.dispatchEvent(new Event('online'))
@@ -71,7 +71,7 @@ describe('the server went back in time', () => {
     const r1 = clone(doc)
     write({ ...clone(DEF), _ts: 200, workouts: [workout('w1'), workout('w2')] })   // this device's push
     signedIn({ ...clone(doc), _ts: 200 })
-    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid }))
+    localStorage.setItem('gym_sync', JSON.stringify({ rev: 2, ts: 200, wid: doc._wid, uid: USER.id }))
     const real = api.getMockImplementation()
     api.mockImplementation(async (path, o = {}) => ((o.method || 'GET') === 'GET' && path === '/api/data' ? { state: clone(r1), rev: 1 } : real(path, o)))
     await useStore.getState().pullState()
