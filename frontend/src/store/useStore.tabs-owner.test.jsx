@@ -80,6 +80,9 @@ async function openTab(user) {
   tab.store.setState({ user: user ?? null, ready: true })
   return tab.store
 }
+// Tab `t` closed: it hears of no more writes, and nothing it was told of and has not handled yet
+// reaches it.
+const closeTab = t => { tabs = tabs.filter(x => x.store !== t) }
 
 function server(doc) {
   const s = { doc: doc ? clone(doc) : null }
@@ -1595,6 +1598,50 @@ describe('a signed-out tab while the other tab finishes signing in to another ac
       expect(ids(srv.doc)).toEqual(['yW1'])
     })
   }
+
+  // NATG-668: tab 2 is closed while its question is still open (after setUser, before
+  // adoptProfile), so the sign-in never settles and its marker stays. Tab 1 stays provisional:
+  // it writes nothing into Yan's copy and pushes nothing, until it signs in itself.
+  it('tab 2 closed before the question is answered: tab 1 writes nothing of Yan\'s until it signs in itself', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server({ ...account(), _rev: 1 })
+    localStorage.setItem('gym_owner', OWNER)
+    savedCopy(srv.doc, 1)
+    const A = await openTab({ id: OWNER, name: 'Xavi' })
+    const B = await openTab({ id: OWNER, name: 'Xavi' })
+    const yan = { id: 'Y-' + OWNER, name: 'Yan' }
+    srv.doc = { ...clone(DEF), _ts: 50, workouts: [w('yW1', '2026-09-05')], _rev: 4 }
+    const puts = []
+    recordPuts(puts)
+
+    await act(B, () => B.getState().setUser(yan, { adopt: true }))
+    closeTab(B)
+    expect(JSON.parse(localStorage.getItem('gym_adopt'))?.uid).toBe(yan.id)
+    expect(A.getState().user).toBeNull()
+
+    // An edit in tab 1 goes nowhere near Yan's saved copy or the server.
+    const before = localStorage.getItem('gym_state_v1')
+    const wid = localStorage.getItem('gym_state_wid')
+    await act(A, () => A.getState().update(s => { s.restSec = 33 }))
+    expect(localStorage.getItem('gym_state_v1')).toBe(before)
+    expect(localStorage.getItem('gym_state_wid')).toBe(wid)
+    expect(A.getState().user).toBeNull()
+    expect(puts).toEqual([])
+
+    // Signing in there (views/Login.jsx) works as it would in a fresh tab.
+    await act(A, () => A.getState().setUser(yan, { adopt: true }))
+    await act(A, () => A.getState().adoptProfile(async () => false))   // "Keep profile as is"
+    expect(A.getState().user?.id).toBe(yan.id)
+    expect(localStorage.getItem('gym_adopt')).toBeNull()
+    expect(ids(A.getState().S)).toEqual(['yW1'])
+    expect(ids(saved())).toEqual(['yW1'])
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    expect(puts.length).toBeGreaterThan(0)
+    expect(puts.filter(p => p.baseRev == null)).toEqual([])
+    expect(srv.doc.restSec).toBe(75)
+    expect(ids(srv.doc)).toEqual(['yW1'])
+  })
 })
 
 // The handover above ends once the tab follows the sign-in. A tab already signed in as the account
