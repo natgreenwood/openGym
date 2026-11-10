@@ -12,7 +12,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
    same proof step adding a passkey uses. The API is a stand-in; what each form sends, and what it
    says back in the UI language, is the point. */
 const mocks = vi.hoisted(() => {
-  const state = { webauthn: true, hasData: false, sheets: [], answers: {}, calls: [] }
+  const state = { webauthn: true, hasData: false, owed: false, sheets: [], answers: {}, calls: [] }
   state.toast = vi.fn()
   state.setUser = vi.fn()
   state.adoptProfile = vi.fn(async () => ({}))
@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
   state.snapshot = () => ({
     S: {}, config: { password_login: true },
     setUser: state.setUser, adoptProfile: state.adoptProfile, pushState: state.pushState, pullState: state.pullState,
+    unsyncedChanges: () => ({ owed: state.owed, count: state.owed ? 1 : 0 }),
   })
   return state
 })
@@ -82,6 +83,7 @@ const click = async (host, text) => { act(() => button(host, text).click()); awa
 beforeEach(() => {
   mocks.webauthn = true
   mocks.hasData = false
+  mocks.owed = false
   mocks.sheets.length = 0
   mocks.answers = {}
   mocks.calls.length = 0
@@ -261,6 +263,41 @@ describe('PasswordRegisterForm', () => {
     type(byPlaceholder(host, 'Repeat the password'), 'correct horse battery')
     await submit(host)
     expect(alertText(host)).toBe('Another profile already signs in with this name.')
+  })
+
+  // A guest copy with data has no base for the new profile, so its push pulls first and only
+  // then sends (NATG-665). The toast says the data moved in only once push and pull have both
+  // settled and nothing is owed; until then it says the move is under way.
+  it.each([
+    [false, 'Profile created, and this device’s data moved into it'],
+    [true, 'Profile created. This device’s data is kept here and moves into it at the next sync.'],
+  ])('on a guest copy with data, says the move is under way and only after push and pull says how it went (owed %s)', async (owed, result) => {
+    mocks.hasData = true
+    mocks.owed = owed
+    const deferred = () => { let resolve; const promise = new Promise(r => { resolve = r }); return { promise, resolve } }
+    const push = deferred(), pull = deferred()
+    mocks.pushState.mockReturnValueOnce(push.promise)
+    mocks.pullState.mockReturnValueOnce(pull.promise)
+    mocks.passwordRegister.mockResolvedValue({ id: 'u9', name: 'Cleo' })
+    const host = mount(<Harness />)
+    type(byPlaceholder(host, 'Your name'), 'Cleo')
+    type(byPlaceholder(host, 'Password'), 'correct horse battery')
+    type(byPlaceholder(host, 'Repeat the password'), 'correct horse battery')
+    await submit(host)
+    expect(mocks.setUser).toHaveBeenCalledWith({ id: 'u9', name: 'Cleo' })
+    expect(mocks.toast.mock.calls).toEqual([['Profile created. Moving this device’s data into it…', { ms: 90000 }]])
+
+    await act(async () => push.resolve())
+    await settle()
+    expect(mocks.pullState).toHaveBeenCalledTimes(1)
+    expect(mocks.toast).toHaveBeenCalledTimes(1)
+
+    await act(async () => pull.resolve())
+    await settle()
+    expect(mocks.toast).toHaveBeenCalledTimes(2)
+    // No action on the result: the sync bar already offers a retry when a pull fails.
+    expect(mocks.toast.mock.lastCall[0]).toBe(result)
+    expect(mocks.toast.mock.lastCall[1]?.action).toBeUndefined()
   })
 })
 
