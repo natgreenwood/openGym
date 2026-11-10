@@ -88,12 +88,15 @@ describe('a routine renamed on two devices at the same stamp (stampChange)', () 
 })
 
 // Versions of one entry on stamps drawn from a handful of values, so most fields tie somewhere.
+// Every version has an edit time (`_ts` of at least 1), as everything the app has stamped does:
+// two versions without one keep the first argument's unstamped fields on purpose (see "entries
+// from before stamps" below), which is no tie and no part of this property.
 const FIELDS = ['name', 'sets', 'note']
 const VALUES = [undefined, 'a', 'b', 3, 5, { x: 1, y: 2 }, { y: 2, x: 1 }, [1, 2]]
 const version = fc.record({
   vals: fc.tuple(...FIELDS.map(() => fc.constantFrom(...VALUES.keys()))),
   stamps: fc.tuple(...FIELDS.map(() => fc.integer({ min: 0, max: 3 }))),
-  extra: fc.integer({ min: 0, max: 4 }),
+  extra: fc.integer({ min: 1, max: 4 }),
 }).map(({ vals, stamps, extra }) => {
   const x = { id: 'e' }, f = {}
   FIELDS.forEach((k, i) => {
@@ -101,11 +104,28 @@ const version = fc.record({
     if (stamps[i]) f[k] = stamps[i]
   })
   if (Object.keys(f).length) x._f = f
-  const ts = Math.max(extra, ...Object.values(f))
-  if (ts) x._ts = ts
+  x._ts = Math.max(extra, ...Object.values(f))
   return x
 })
 const RUNS = { numRuns: Number(process.env.PROPERTY_RUNS) || 300 }
+
+// Versions with no edit time at all are from before entries were stamped. They keep the old rule
+// on purpose: the first argument's unstamped fields, which mergeStates passes as the newer copy's.
+// That rule is not commutative; nothing the app stamps reaches it (NATG-561 Tester finding 2, whose
+// counterexample this is).
+describe('entries from before stamps', () => {
+  it('keep the first argument\'s unstamped fields, so the order matters there', () => {
+    const a = { id: 'e' }, b = { id: 'e', note: 3 }
+    expect(m(a, b)).toEqual({ id: 'e' })
+    expect(m(b, a)).toEqual({ id: 'e', note: 3 })
+  })
+
+  it('through mergeStates, the newer copy\'s, either way round', () => {
+    const older = { unit: 'kg', _ts: 1, routines: [{ id: 'e' }] }, newer = { unit: 'kg', _ts: 2, routines: [{ id: 'e', note: 3 }] }
+    expect(ms(older, newer).routines).toEqual([{ id: 'e', note: 3 }])
+    expect(ms(newer, older).routines).toEqual([{ id: 'e', note: 3 }])
+  })
+})
 
 describe('mergeEntry on tied stamps (property)', () => {
   it('is commutative and associative', () => {
