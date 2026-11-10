@@ -54,6 +54,9 @@ const WID_OWNER_KEY = 'gym_state_owner'
 // A) leaves gym_owner where it was; this is what shows it to a boot still waiting (NATG-606).
 const OWNER_GEN_KEY = 'gym_owner_gen'
 const DIRTY_KEY = 'gym_dirty'          // the saved copy owes the server a change
+// sync.unsettled, kept for the next start (NATG-670): an edit was made whose effect on the share
+// lists this device hasn't heard yet, so the lists kept beside it may judge an older copy.
+const UNSETTLED_KEY = 'gym_unsettled'
 // An owed copy an older app (v1.3.9) left behind: its first sync stamps what it changed
 // (lib/sync-legacy.js), holding the fingerprint that app last agreed on with the server.
 const LEGACY_KEY = 'gym_legacy_owed'
@@ -422,7 +425,7 @@ export const useStore = create((set, get) => {
   let editSeq = 0
   let landedAt = 0
   let tick = 0
-  const settleAfter = left => { if (landedAt && left > landedAt) { landedAt = 0; setSync({ unsettled: false }) } }
+  const settleAfter = left => { if (landedAt && left > landedAt) { landedAt = 0; setSync({ unsettled: false }); saveUnsettled(false) } }
   let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
   // so a change another device synced while the confirm was open is merged in, not wiped.
@@ -485,6 +488,7 @@ export const useStore = create((set, get) => {
     } catch { return null }
   }
   const storedOwed = () => { try { return localStorage.getItem(DIRTY_KEY) === '1' } catch { return false } }
+  const storedUnsettled = () => { try { return localStorage.getItem(UNSETTLED_KEY) === '1' } catch { return false } }
 
   /* Where the copy in memory stands with the server: the revision it descends from (`base`, as
      { rev, ts, uid }) and whether it owes the server a change (`owed`). Both belong to the copy, per
@@ -519,6 +523,7 @@ export const useStore = create((set, get) => {
     } catch { /* storage refused — the copy in memory still knows */ }
   }
   const saveOwed = owed => { try { if (owed || storeLag) localStorage.setItem(DIRTY_KEY, '1'); else localStorage.removeItem(DIRTY_KEY) } catch { /* as above */ } }
+  const saveUnsettled = on => { try { if (on) localStorage.setItem(UNSETTLED_KEY, '1'); else localStorage.removeItem(UNSETTLED_KEY) } catch { /* as above */ } }
   // `wid`: the write id of the server's document at that revision (api/server.js PUT /api/data):
   // the same `rev` after the server went back in time names a different document.
   // `uid`: the account signed in, whose revision this is. Nobody signed in has no revision of
@@ -793,6 +798,7 @@ export const useStore = create((set, get) => {
       editSeq++
       landedAt = 0
       setSync({ unsettled: true })
+      saveUnsettled(true)
       // Before boot has pulled, the copy in hand may be older than the server's: a push now
       // would carry it with a stale (or no) baseRev. It waits for finishBoot.
       if (!get().ready) { pushPending = true; return }
@@ -1227,7 +1233,7 @@ export const useStore = create((set, get) => {
   const forgetSync = () => {
     meta.set(get().S, { base: null, owed: false })
     offlineChanges = false   // a push the previous account owed is not this one's to announce
-    try { for (const k of [SYNC_KEY, DIRTY_KEY, SYNCED_AT_KEY, SYNCED_FP_KEY]) localStorage.removeItem(k) } catch { /* nothing to keep */ }
+    try { for (const k of [SYNC_KEY, DIRTY_KEY, UNSETTLED_KEY, SYNCED_AT_KEY, SYNCED_FP_KEY]) localStorage.removeItem(k) } catch { /* nothing to keep */ }
     fpOf = null
   }
 
@@ -1632,9 +1638,13 @@ export const useStore = create((set, get) => {
   const user0 = (() => { try { return JSON.parse(localStorage.getItem('gym_user')) || null } catch { return null } })()
   adoptHold = !!user0 && readAdopt()?.uid === user0.id
   // `unsettled`: a copy that starts out owed, or changed since the revision it descends from (an
-  // edit saved here whose push never left), carries edits the lists kept here never judged.
-  const sync0 = { offline: false, pending: storedOwed(), unsettled: storedOwed() || localChanged(S0), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
+  // edit saved here whose push never left), carries edits the lists kept here never judged; and so
+  // does one whose push landed before the session ended but whose lists were not heard from since.
+  const sync0 = { offline: false, pending: storedOwed(), unsettled: storedOwed() || storedUnsettled() || localChanged(S0), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
   sync0.status = statusOf(sync0, user0)
+  // Kept on with nothing left to push: the push landed before the last session ended, so the first
+  // list or unchanged poll from here on settles it, as it would have then.
+  if (sync0.unsettled && !storedOwed() && !localChanged(S0)) landedAt = ++tick
 
   return {
     S: S0,

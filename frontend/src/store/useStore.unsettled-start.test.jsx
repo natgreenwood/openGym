@@ -71,3 +71,46 @@ it('a copy in step with the server starts off', async () => {
   const s = await startWith({ ts: T, owed: false })
   expect(unsettled(s)).toBe(false)
 })
+
+// The session that made the edit ends after its push landed but before the lists were heard from:
+// the copy is in step with the server again (nothing owed, no change past its base), yet the lists
+// kept beside it still judge the copy before the edit. The next start keeps going by the device's
+// own measure until the lists are heard from (the Tester's case on PR #96).
+const restart = async () => (await freshStore()).useStore
+const shrinkAndPush = async s => {
+  s.getState().update(S => { S.routines = [{ id: 'r1', name: 'Push', ex: [] }] })
+  await s.getState().pushState()
+  expect(net.puts).toBe(1)
+}
+
+it('restarting after the push landed but before any list arrived starts on, and settles as usual', async () => {
+  const s = await startWith({ ts: T, owed: false })
+  await shrinkAndPush(s)
+  expect(unsettled(s)).toBe(true)
+  const again = await restart()
+  expect(localStorage.getItem('gym_dirty')).toBeNull()
+  expect(unsettled(again)).toBe(true)
+  // Nothing is left to push, so the first list it hears from settles it.
+  again.setState({ user: USER, ready: true, config: { shares: true } })
+  await again.getState().loadShares()
+  expect(net.puts).toBe(1)
+  expect(unsettled(again)).toBe(false)
+  expect(localStorage.getItem('gym_unsettled')).toBeNull()
+})
+
+it('control: a list that arrived after the push landed, before the restart, starts it off', async () => {
+  const s = await startWith({ ts: T, owed: false })
+  await shrinkAndPush(s)
+  await s.getState().loadShares()
+  expect(unsettled(s)).toBe(false)
+  expect(unsettled(await restart())).toBe(false)
+})
+
+it('a sign-out forgets it', async () => {
+  const s = await startWith({ ts: T, owed: false })
+  await shrinkAndPush(s)
+  expect(localStorage.getItem('gym_unsettled')).toBe('1')
+  await s.getState().signOut({ force: true })
+  expect(localStorage.getItem('gym_unsettled')).toBeNull()
+  expect(s.getState().sync.unsettled).toBe(false)
+})
