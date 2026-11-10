@@ -236,7 +236,26 @@ describe('found in review', () => {
 
 describe('limits and the trail a write leaves', () => {
   beforeEach(async () => { api = await stubApi(DOC()) })
-  const day = n => { const d = new Date(Date.now() - n * 86400000); return { ...CURLS, start: '07:00', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') } }
+  // n calendar days before today, counted on the local calendar. Stepping back n x 24h instead
+  // lands two inputs on one date late in the day after the autumn clock change, and the second
+  // save is then a duplicate rather than a save.
+  const day = n => { const t = new Date(); const d = new Date(t.getFullYear(), t.getMonth(), t.getDate() - n, 12); return { ...CURLS, start: '07:00', date: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0') } }
+
+  test('day(n) is a different calendar date for every n, late in the day after the autumn clock change too', () => {
+    const TZ = process.env.TZ
+    process.env.TZ = 'Europe/London'
+    vi.useFakeTimers({ now: new Date('2026-11-06T23:40:00Z'), toFake: ['Date'] })
+    try {
+      const dates = Array.from({ length: 30 }, (_, i) => day(i + 1).date)
+      expect(new Set(dates).size).toBe(30)
+      expect(dates[0]).toBe('2026-11-05')
+      expect(dates[29]).toBe('2026-10-07')
+    } finally {
+      vi.useRealTimers()
+      if (TZ === undefined) delete process.env.TZ
+      else process.env.TZ = TZ
+    }
+  })
 
   test('a client looping on log_workout is stopped after WRITE_LIMIT saves, before it even reads the profile', async () => {
     for (let i = 1; i <= WRITE_LIMIT; i++) expect((await call(day(i))).logged).toBe(true)
