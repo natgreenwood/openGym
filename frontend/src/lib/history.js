@@ -230,8 +230,11 @@ export function pickedExerciseConfig(id, mode) {
 // A double-progression range is stored as its top (`reps`) and its bottom (`repsMin`), and
 // reads as the range it is: "8–12". Printing the top alone made "Reps from 10, up to 15" read
 // as "2 × 15" in the plan and then open at 10. `fmt` formats each bound (a per-side split).
-const hasRange = cfg => cfg.repsMin > 0 && cfg.repsMin < cfg.reps
-const repsOf = (cfg, fmt = v => String(v)) => (hasRange(cfg) ? `${fmt(cfg.repsMin)}–${fmt(cfg.reps)}` : fmt(cfg.reps))
+// A slot with no `reps` (never set, or a bad value dropped on plan import) reads as the 10 it
+// starts with (defaultConfig), as the printed plan already does, rather than "3 × undefined".
+const topReps = cfg => cfg.reps ?? 10
+const hasRange = cfg => cfg.repsMin > 0 && cfg.repsMin < topReps(cfg)
+const repsOf = (cfg, fmt = v => String(v)) => (hasRange(cfg) ? `${fmt(cfg.repsMin)}–${fmt(topReps(cfg))}` : fmt(topReps(cfg)))
 
 /** "2 × 10", "3 × 8–12", "2 × 0:45": what a plan asks for per set, without its load. */
 export function setsRepsOf(cfg) {
