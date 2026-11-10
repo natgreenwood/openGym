@@ -1552,6 +1552,10 @@ export const useStore = create((set, get) => {
       }
       markOwed(false)
       if (!push) {
+        // As takeServer: a reset or import the hold kept back armed a replace of a copy that does
+        // not go. Left armed, the next ordinary edit went out as that replace, over what another
+        // device had written to the new profile since (NATG-596).
+        replaceRev = null
         if (rev != null) writeSync(rev, 0)
         confirmed(get().S)
         await applyStash()

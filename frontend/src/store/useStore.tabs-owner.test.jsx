@@ -1712,7 +1712,8 @@ describe('a sign-out overtaken by another tab signing in as a different account'
    that the hold keeps from going (pushState). An adoption that then takes the server's copy has
    thrown the reset's copy away: the replace armed for it goes too, so the next ordinary edit goes
    against the adopted revision, and a 409 merges what another device wrote since (NATG-596).
-   An import the adoption does push still goes. */
+   So does an adoption into an account with no profile yet that pushes nothing. An import the
+   adoption does push still goes. */
 describe('a reset or import made while a sign-in\'s adoption is held', () => {
   const remoteWrites = srv => {
     srv.doc = { ...srv.doc, _rev: srv.doc._rev + 1, _ts: Date.now() + 100, workouts: [...srv.doc.workouts, w('yOther')] }
@@ -1783,6 +1784,49 @@ describe('a reset or import made while a sign-in\'s adoption is held', () => {
     await act(A, () => A.getState().pushState())
     expect(puts.map(p => p.baseRev)).toEqual([4, 5, 6])
     expect(ids(srv.doc)).toEqual(['b1', 'yOther', 'yW1'])
+    expect(srv.doc.restSec).toBe(75)
+  })
+
+  // Another device writes between the adoption's read and its push: the import goes as an ordinary
+  // push against the adopted revision and merges on the 409, not as a replace of a fresh read.
+  it('an import during adoption, with another device writing after the adoption\'s read, keeps that device\'s workout', async () => {
+    const srv = server({ ...clone(DEF), _ts: 500, workouts: [w('yW1')], _rev: 4 })
+    const A = await openTab(null)
+    await act(A, () => A.getState().setUser({ id: 'Yan', name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    const token = A.getState().importToken()
+    expect(A.getState().importBackup({ ...clone(DEF), workouts: [w('b1', '2026-08-01')] }, { token })).toBe(true)
+    await act(A, () => A.getState().pushState())   // held: sends nothing
+    const puts = []
+    recordPuts(puts)
+    const answer = h.api
+    let read = false
+    h.api = async (path, opts = {}) => {
+      const r = await answer(path, opts)
+      if (!read && (opts.method || 'GET') === 'GET' && path === '/api/data') { read = true; remoteWrites(srv) }
+      return r
+    }
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().sync.held).toBe(false)
+    expect(puts.map(p => p.baseRev)).toEqual([4, 5])
+    expect(ids(srv.doc)).toEqual(['b1', 'yOther', 'yW1'])
+  })
+
+  it('reset during adoption of an account with no profile yet must not replace a later remote workout', async () => {
+    const srv = server(null)
+    const A = await openTab(null)
+    await act(A, () => A.getState().setUser({ id: 'Yan', name: 'Yan' }, { adopt: { alwaysAsk: true } }))
+    await act(A, () => A.getState().resetEverything())
+    await act(A, () => A.getState().pushState())   // held: sends nothing
+    const puts = []
+    recordPuts(puts)
+    await act(A, () => A.getState().adoptProfile(async () => false, { alwaysAsk: true }))
+    expect(A.getState().sync.held).toBe(false)
+    expect(puts).toEqual([])
+    srv.doc = { ...clone(DEF), _rev: 1, _ts: Date.now() + 100, workouts: [w('yOther')] }
+    await act(A, () => A.getState().update(s => { s.restSec = 75 }))
+    await act(A, () => A.getState().pushState())
+    expect(puts.map(p => p.baseRev)).toEqual([0, 1])
+    expect(ids(srv.doc)).toEqual(['yOther'])
     expect(srv.doc.restSec).toBe(75)
   })
 })
