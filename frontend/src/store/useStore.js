@@ -379,7 +379,7 @@ export const useStore = create((set, get) => {
   let toldTooLarge = false
   let toldNoRoom = false   // the save itself was refused — said once per streak, like the above
   let pushing = null       // the PUT in flight, so a second push waits for it instead of racing it
-  let pushAgain = false    // a push asked for while one was in flight — run once more after it, for the account (uid) that asked
+  let pushAgain = false    // a push asked for while one was in flight — run once more after it, while the account that asked is still here and unrefused (its chainFor)
   let pulling = null       // the GET /api/data in flight, `{ uid, promise }`: two resume signals for the same user make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let sharesFetch = null   // the /api/shares in flight, `{ uid, promise }`: shared only with a caller for the same user
@@ -565,12 +565,8 @@ export const useStore = create((set, get) => {
   // written. Not a sign-out and not offline; never merged, and never sent again for that account.
   const mismatched = e => e?.status === 412 && e?.code === 'account-mismatch'
   // Every sync request goes through here, which notes each of those refusals against the account
-  // the request was for (its `expect`), in order. An operation that chains one request to another
-  // (a pull after the push it waited for, a check before its pull, an adoption's second read)
-  // notes where the order stands as it starts (mismatchSeq) and sends nothing more for its
-  // account once that account has been refused since (refusedSince): the next request would go
-  // out under the same session and be refused the same way. A refusal for another account, such
-  // as a late answer for the account this tab has just switched from, stops nothing here.
+  // the request was for (its `expect`), in order. A refusal for one account says nothing about
+  // another's session, such as a late answer for the account this tab has just switched from.
   let mismatchSeq = 0
   const mismatchFor = new Map()   // uid -> { seq, e } of the latest refusal for it
   const syncApi = (path, opts) => api(path, opts).catch(e => {
@@ -578,6 +574,13 @@ export const useStore = create((set, get) => {
     throw e
   })
   const refusedSince = (uid, n) => (mismatchFor.get(uid)?.seq || 0) > n
+  // An operation that chains sync requests (a pull after the push it waited for, a check before
+  // its pull, an adoption's reads and write, Sync now's steps) is for the account signed in as it
+  // starts, to the end. After each await it goes on only while that account is still the one
+  // signed in here (answerIsFor) and has not been refused since it started, by this chain or
+  // another; otherwise `over()` and it ends. It never carries on for whoever is signed in by then:
+  // that account's own operations sync it.
+  const chainFor = uid => { const n = mismatchSeq; return () => !answerIsFor(uid) || refusedSince(uid, n) }
   // The server answered: whatever was wrong with the connection is over.
   const reached = (extra = {}) => setSync({ offline: false, auth: false, lastError: null, ...extra })
   // What a failed request says about the connection. A refused token and a phone without a
@@ -833,7 +836,7 @@ export const useStore = create((set, get) => {
     if (!force && Date.now() - lastCheck < CHECK_MIN_MS) return
     const uid = get().user.id   // the account the check is for; what its answer starts is for it too (SEC-02)
     lastCheck = Date.now()
-    const n = mismatchSeq
+    const over = chainFor(uid)
     // A sign-in still deciding what becomes of this copy: no check of its own. One whose adoption
     // never ran or did not get through (no server, a pairing that failed on the way to it) runs it
     // here, question and all; one already running is left to answer.
@@ -853,7 +856,7 @@ export const useStore = create((set, get) => {
       // shared with you): loaded before the document, so a pointer the document gains from
       // another device is checked against lists at least as new as it (sweepSharedPointers).
       if (typeof sharesEtag === 'string' && sharesEtag !== get().shares?.etag && get().user) await get().loadSharesNewer(sharesEtag)
-      if (!answerIsFor(uid) || refusedSince(uid, n)) return   // the lists were refused (412): so would the pull be
+      if (over()) return   // the lists were refused (412): so would the pull be
       if (rev !== base.rev || (base.wid && wid && wid !== base.wid)) return get().pullState()
       confirmed(get().S)   // nothing moved on either side
     } catch (e) {
@@ -999,7 +1002,7 @@ export const useStore = create((set, get) => {
     // An older app's owed copy over the revision it read: the server stamps what that app changed
     // against the copy it holds, exactly as it would for that app (api/sync-stamps.js).
     const legacy = readLegacy()
-    const body = { state: S, stamped: !(legacy && legacy.owner === get().user?.id) }
+    const body = { state: S, stamped: !(legacy && legacy.owner === uid) }
     if (asReplace != null) { body.baseRev = asReplace.rev; if (asReplace.wid) body.baseWid = asReplace.wid }
     else if (base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     if (!answerIsFor(uid)) return   // its account has gone: nothing goes out for it
@@ -1259,14 +1262,14 @@ export const useStore = create((set, get) => {
   const settle = async () => {
     syncFromSaved()   // what another tab of this browser saved and has not sent counts too
     const uid = get().user?.id
-    const n = mismatchSeq
+    const over = uid ? chainFor(uid) : () => false   // a guest has no server to be refused by
     if (pulling) await pulling.promise
     while (pushing) await pushing
-    // A refusal on the way (412): the session is another account's, so nothing more goes, and
-    // what is owed stays owed (signOut then keeps the copy).
-    if (owes() && !refusedSince(uid, n)) await get().pushState()   // never throws — an owed copy stays owed when it does not land
+    // Over (the account left, or was refused on the way, 412): nothing more goes, and what is
+    // owed stays owed (signOut then keeps the copy).
+    if (owes() && !over()) await get().pushState()   // never throws — an owed copy stays owed when it does not land
     while (pushing) await pushing
-    if (!refusedSince(uid, n)) await settleMedia(get().S)
+    if (!over()) await settleMedia(get().S)
   }
   // Whether a sign-out asked for under `owner` (the browser's owner at the click) was overtaken by
   // another tab signing a different account in while it waited. Its logout would end that
@@ -1502,9 +1505,9 @@ export const useStore = create((set, get) => {
     const uid = get().user?.id
     const left = () => { if (answerIsFor(uid)) return false; setHold(false); return true }
     const gone = { adopted: false, added: false, gone: true }
-    const n = mismatchSeq
-    // What this adoption still has to send after a refusal on the way (412): nothing.
-    const stash = () => (refusedSince(uid, n) ? null : applyStash())
+    const over = chainFor(uid)
+    // What this adoption still has to send once it is over (left, or refused on the way): nothing.
+    const stash = () => (over() ? null : applyStash())
     if (pulling) await pulling.promise
     if (left()) return gone
     // An adoption resumed after a restart is the sign-in's own: whether this copy already belonged
@@ -1514,7 +1517,7 @@ export const useStore = create((set, get) => {
     if (owedMark?.alwaysAsk) alwaysAsk = true
     let res
     try {
-      if (refusedSince(uid, n)) throw mismatchFor.get(uid).e   // the pull it waited for was refused: so would this read be
+      if (over()) throw mismatchFor.get(uid).e   // still here (left() above), so the pull it waited for was refused: so would this read be
       res = await syncApi('/api/data', { expect: uid })
     } catch (e) {
       if (left()) return gone
@@ -2325,16 +2328,15 @@ export const useStore = create((set, get) => {
       clearTimeout(pushTm)
       pushTm = null
       if (adoptHold) return   // the sign-in has not decided what this copy is yet (adoptProfile)
-      if (pushing) { pushAgain = get().user.id; return pushing.then(() => pushing) }
-      const n = mismatchSeq
+      if (pushing) { pushAgain = chainFor(get().user.id); return pushing.then(() => pushing) }
       pushing = doPush().finally(() => {
         pushing = null
         // A follow-up asked for by an account that has gone since is dropped, not sent under the
-        // session the browser holds now (SEC-01). So is one after a refused push (412): the
-        // change stays owed and goes with the next check.
+        // session the browser holds now (SEC-01). So is one whose account was refused (412) after
+        // it asked: the change stays owed and goes with the next check.
         const again = pushAgain
         pushAgain = false
-        if (again && answerIsFor(again) && !refusedSince(again, n)) get().pushState()
+        if (again && !again()) get().pushState()
       })
       return pushing
     },
@@ -2352,15 +2354,14 @@ export const useStore = create((set, get) => {
       if (pulling && pulling.uid === uid) return pulling.promise
       const mine = { uid, promise: null }
       pulling = mine
-      const n = mismatchSeq
+      const over = chainFor(uid)
       mine.promise = (async () => {
         try {
           // A replace still to read the profile goes first as well: its push reads the server
           // itself, and a merge before it would bring back what the reset or import replaces.
           if (pushTm || owesRead(uid)) { clearTimeout(pushTm); pushTm = null; await get().pushState() }
           else if (pushing) await pushing
-          if (!answerIsFor(uid)) return
-          if (refusedSince(uid, n)) return   // that push or its read was refused (412): so would this read be
+          if (over()) return   // left, or that push or its read was refused (412): so would this read be
           const res = await syncApi('/api/data', { expect: uid })
           if (!answerIsFor(uid)) return
           // A sign-in's question opened meanwhile (an adoption's write met a profile that appeared,
@@ -2433,20 +2434,20 @@ export const useStore = create((set, get) => {
     // `sync` every screen reads — status 'ok' when the two agree.
     async syncNow() {
       if (!get().user) { setSync({}); return get().sync }
-      // Each step stops at a refusal on the way (412): the next would be refused the same way.
-      const uid = get().user.id
-      const n = mismatchSeq
-      const stopped = () => refusedSince(uid, n)
+      // For the account signed in now, to the end (chainFor): each step stops once it has left or
+      // been refused (412) on the way.
+      const user = get().user
+      const over = chainFor(user.id)
       // Held for a sign-in's question: "Sync now" is asking it (again), and the sync follows.
-      if (adoptHold) { await get().resumeAdoption(); if (adoptHold || stopped()) return get().sync }
+      if (adoptHold) { await get().resumeAdoption(); if (adoptHold || over()) return get().sync }
       if (pulling) await pulling.promise
-      if (stopped()) return get().sync
+      if (over()) return get().sync
       // The share lists first, then the document, the order checkRev keeps (NATG-501): a sharer's
       // edit, a revoke or a share that is no longer available shows after Sync now too, and a
       // pointer the document brings is judged by lists at least as new as it.
-      const { config, user, shares } = get()
+      const { config, shares } = get()
       if (sharingAvailable(config, user, { demo: DEMO }) || sharesOf(shares, user)) await get().loadSharesNewer()
-      if (!stopped()) await get().pullState()
+      if (!over()) await get().pullState()
       return get().sync
     },
 
