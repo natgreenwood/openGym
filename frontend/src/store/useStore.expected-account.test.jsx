@@ -243,3 +243,157 @@ describe('a 412: the session is another account\'s', () => {
     expect(useStore.getState().shares.etag).toBeNull()
   })
 })
+
+// Tester, PR #115: once an operation meets a 412 it sends nothing more. Every request after it in
+// the same operation would go out under the same session and be refused the same way.
+describe('an operation that met a 412 sends nothing more', () => {
+  const shared = { uid: 'u1', outgoing: [], incoming: [], etag: 'e0', fetchedAt: 0, names: {} }
+
+  it('a pull after a reset: the reset\'s read is refused, and the pull does not read again', async () => {
+    await signedIn()
+    api.mockRejectedValue(mismatch())
+    useStore.getState().resetEverything()
+    await useStore.getState().pullState()
+    await settle()
+    expect(calls()).toEqual(['GET /api/data'])
+    expect(localStorage.getItem('gym_dirty')).toBe('1')
+    expect(JSON.parse(localStorage.getItem('gym_sync')).uid).toBe('u1')
+    refusedState()
+  })
+
+  it('a pull after a queued push: the push is refused, and the pull does not read', async () => {
+    await signedIn()
+    api.mockRejectedValue(mismatch())
+    useStore.getState().update(s => { s.restSec = 45 })   // waiting in the debounce
+    await useStore.getState().pullState()
+    await settle()
+    expect(calls()).toEqual(['PUT /api/data'])
+    expect(localStorage.getItem('gym_dirty')).toBe('1')
+    refusedState()
+  })
+
+  it('a pull after a push already in flight: refused, and the pull does not read', async () => {
+    await signedIn()
+    let refuse
+    api.mockRejectedValue(mismatch())
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    useStore.getState().update(s => { s.restSec = 45 })
+    const push = useStore.getState().pushState()
+    const pull = useStore.getState().pullState()
+    refuse()
+    await push; await pull
+    await settle()
+    expect(calls()).toEqual(['PUT /api/data'])
+  })
+
+  it('a change made while the refused push was out is not pushed after it, and stays owed', async () => {
+    await signedIn()
+    let refuse
+    api.mockRejectedValue(mismatch())
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    useStore.getState().update(s => { s.restSec = 45 })
+    const push = useStore.getState().pushState()
+    useStore.getState().update(s => { s.restSec = 50 })
+    useStore.getState().pushState()   // asks for the follow-up
+    refuse()
+    await push
+    await settle()
+    expect(calls()).toEqual(['PUT /api/data'])
+    expect(localStorage.getItem('gym_dirty')).toBe('1')
+    expect(JSON.parse(localStorage.getItem('gym_state_v1')).restSec).toBe(50)
+  })
+
+  it('a revision check whose share lists are refused does not go on to pull', async () => {
+    await signedIn()
+    useStore.setState({ shares: shared })
+    api.mockImplementation(async path => {
+      if (path === '/api/data/rev') return { rev: 4, shares: 'e1' }   // both moved
+      throw mismatch()
+    })
+    window.dispatchEvent(new Event('online'))
+    await settle()
+    expect(calls()).toEqual(['GET /api/data/rev', 'GET /api/shares'])
+  })
+
+  it('"Sync now" whose share lists are refused does not go on to pull', async () => {
+    await signedIn()
+    useStore.setState({ shares: shared })
+    api.mockRejectedValue(mismatch())
+    await useStore.getState().syncNow()
+    await settle()
+    expect(calls()).toEqual(['GET /api/shares'])
+  })
+
+  it('a sign-in\'s second read is refused: nothing is applied or written, and it fails as its first read would', async () => {
+    await signingIn({ mark: true })
+    const S = useStore.getState().S
+    api.mockResolvedValueOnce({ state: clone(SERVER), rev: 4 })
+    api.mockRejectedValueOnce(mismatch())
+    await expect(useStore.getState().adoptProfile(async () => true)).rejects.toMatchObject({ status: 412 })
+    expect(calls()).toEqual(['GET /api/data', 'GET /api/data'])
+    expect(useStore.getState().S).toBe(S)
+    expect(useStore.getState().sync.held).toBe(true)
+    expect(JSON.parse(localStorage.getItem('gym_adopt'))).toMatchObject({ uid: 'u1' })
+    expect(useStore.getState().sync).toMatchObject({ status: 'error', auth: false, lastError: { status: 412, code: 'account-mismatch' } })
+  })
+
+  it('a sign-in whose write is refused does not push its kept changes after it', async () => {
+    await signingIn()
+    localStorage.setItem('gym_stash', JSON.stringify({ '|u1': { uid: 'u1', state: { ...clone(DEF), _ts: 50, workouts: [workout('kept', '2026-09-01')] } } }))
+    api.mockResolvedValueOnce({ state: clone(SERVER), rev: 4 })
+    api.mockResolvedValueOnce({ state: clone(SERVER), rev: 4 })
+    api.mockRejectedValue(mismatch())
+    await useStore.getState().adoptProfile(async () => true)
+    await settle()
+    expect(calls()).toEqual(['GET /api/data', 'GET /api/data', 'PUT /api/data'])
+    expect(localStorage.getItem('gym_stash')).not.toBeNull()   // kept for the next time it can go
+  })
+
+  // A bare adoption (no sign-in's hold), so the pull really goes out before it.
+  it('an adoption waiting on a pull that was refused does not read', async () => {
+    await signingIn()
+    let refuse
+    api.mockRejectedValue(mismatch())
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    const pull = useStore.getState().pullState()
+    const adopt = useStore.getState().adoptProfile(vi.fn())
+    refuse()
+    await pull
+    await expect(adopt).rejects.toMatchObject({ status: 412 })
+    expect(calls()).toEqual(['GET /api/data'])
+    expect(useStore.getState().sync.held).toBe(false)   // a bare call has nothing to hold for
+    expect(useStore.getState().sync).toMatchObject({ status: 'error', auth: false, lastError: { status: 412, code: 'account-mismatch' } })
+  })
+
+  it('a sign-out whose pull was refused pushes nothing after it, and keeps the owed copy', async () => {
+    await signedIn()
+    useStore.getState().update(s => { s.restSec = 45 })
+    let refuse
+    api.mockRejectedValue(mismatch())
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    const pull = useStore.getState().pullState()   // sends the change waiting in the debounce first
+    const out = useStore.getState().signOut()
+    refuse()
+    await pull
+    const result = await out
+    expect(calls()).toEqual(['PUT /api/data'])
+    expect(result).toMatchObject({ owed: true })
+    expect(useStore.getState().user).toEqual({ id: 'u1' })
+  })
+})
+
+// Tester, PR #115: a 401 earlier, then a 412. The server knew the session this time, so it is not
+// a sign-in problem: the screens say "a different account", not "sign in".
+describe('a 412 after a 401', () => {
+  it('leaves status error, not sign-in required', async () => {
+    await signedIn()
+    api.mockRejectedValueOnce(Object.assign(new Error('not signed in'), { status: 401, data: {} }))
+    await useStore.getState().pullState()
+    expect(useStore.getState().sync).toMatchObject({ status: 'auth', auth: true, lastError: { status: 401, code: 'auth' } })
+
+    api.mockRejectedValueOnce(mismatch())
+    await useStore.getState().pullState()
+    refusedState()
+    expect(calls()).toEqual(['GET /api/data', 'GET /api/data'])
+  })
+})
