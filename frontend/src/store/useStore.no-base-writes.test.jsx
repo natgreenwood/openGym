@@ -9,8 +9,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('../lib/api.js', () => ({ api: vi.fn() }))
-const { toast } = vi.hoisted(() => ({ toast: vi.fn() }))
+const { toast, sheetAsk } = vi.hoisted(() => ({ toast: vi.fn(), sheetAsk: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast }) } }))
+// The question an adoption resumed by the store itself asks (resumeAdoption from Sync now or a check).
+vi.mock('../sheets.jsx', () => ({ askAddDeviceData: (...a) => sheetAsk(...a) }))
 
 import { api } from '../lib/api.js'
 import { DEF, useStore } from './useStore.js'
@@ -27,9 +29,10 @@ const IMPORT_NOTICE = 'Another device synced while you were importing, so its ch
    baseRev (or baseWid) is not the document's gets 409 with the document. A PUT with no baseRev is
    still taken (stage 2 refuses it), so a test that sees one has found the bug. `after(fn)`: the
    next read is answered, and then another device writes `fn` (between this device's read and
-   its PUT). `failReads`: that many reads fail for lack of network first. */
+   its PUT). `failReads` / `failPuts`: that many reads or writes fail for lack of network first (a
+   failed write is still listed in `puts`, as sent). */
 function server(doc) {
-  const s = { doc: doc ? clone(doc) : null, next: null, failReads: 0, calls: [], puts: [] }
+  const s = { doc: doc ? clone(doc) : null, next: null, failReads: 0, failPuts: 0, calls: [], puts: [] }
   s.write = fn => { const d = clone(s.doc || { ...clone(DEF), _ts: 0 }); fn(d); d._rev = (s.doc?._rev || 0) + 1; d._wid = 'wid-' + d._rev; s.doc = d }
   s.after = fn => { s.next = fn }
   api.mockImplementation(async (path, o = {}) => {
@@ -47,6 +50,7 @@ function server(doc) {
     if (method === 'PUT' && path === '/api/data') {
       const body = JSON.parse(o.body)
       s.puts.push(body)
+      if (s.failPuts > 0) { s.failPuts--; throw netErr() }
       const rev = s.doc?._rev || 0
       if (body.baseRev != null && (body.baseRev !== rev || (body.baseWid && s.doc?._wid && body.baseWid !== s.doc._wid))) throw conflict(clone(s.doc), rev)
       const next = clone(body.state)
@@ -71,7 +75,7 @@ const signedIn = (S, rev, wid) => {
 const signedOut = () => { useStore.getState().setUser(null); useStore.setState({ S: clone(DEF), user: null, ready: false }) }
 const toasts = () => toast.mock.calls.map(([m]) => m)
 
-beforeEach(() => { localStorage.clear(); api.mockReset(); toast.mockReset(); signedOut() })
+beforeEach(() => { localStorage.clear(); api.mockReset(); toast.mockReset(); sheetAsk.mockReset(); signedOut() })
 afterEach(() => { localStorage.clear(); signedOut() })
 
 const LATER = () => Date.now() + 60_000   // another device's stamp after the read, its clock ahead if anything
@@ -286,6 +290,54 @@ describe('AC4: adoption over a profile that read as empty', () => {
     expect(srv.puts.map(p => p.baseRev)).toEqual([0, 1])
     expect(ids(srv.doc.workouts).sort()).toEqual(['g1', 'o1'])
     expect(srv.doc.restSec).toBe(45)   // the profile's, not the guest's 120
+  })
+
+  // QA on PR #94 (Tester finding 1): the write failed on the network, the profile appeared, and
+  // the retry went as an ordinary push whose 409 merged the guest's copy into it unasked.
+  it('a write that fails on the network keeps the question open: nothing else pushes, and the retry\'s 409 asks once', async () => {
+    const srv = server(null)
+    signIn()
+    srv.failPuts = 1
+    const ask = vi.fn()
+    expect(await useStore.getState().adoptProfile(ask)).toEqual({ adopted: false, added: false })
+    expect(srv.puts.map(p => p.baseRev)).toEqual([0])
+    expect(useStore.getState().sync.held).toBe(true)
+    expect(JSON.parse(localStorage.getItem('gym_adopt'))).toEqual(expect.objectContaining({ uid: 'u1' }))
+    // An ordinary push meanwhile (a debounced edit, a sign-out's settle) sends nothing.
+    await useStore.getState().pushState()
+    expect(srv.puts).toHaveLength(1)
+
+    // The retry (Sync now) reads no profile yet; another device creates it before the retry's PUT.
+    srv.after(d => { Object.assign(d, OTHER()) })
+    let during = null
+    sheetAsk.mockImplementation(async () => { during = useStore.getState().sync.held; return false })
+    await useStore.getState().syncNow()
+
+    expect(srv.puts.map(p => p.baseRev)).toEqual([0, 0])   // the failed write, the retry's refused one: nothing merged
+    expect(sheetAsk).toHaveBeenCalledTimes(1)
+    expect(sheetAsk).toHaveBeenCalledWith(expect.objectContaining({ workouts: 1 }))
+    expect(during).toBe(true)
+    expect(ids(srv.doc.workouts)).toEqual(['o1'])
+    expect(srv.doc.restSec).toBe(45)
+    expect(ids(useStore.getState().S.workouts)).toEqual(['o1'])
+    expect(useStore.getState().sync.held).toBe(false)
+    expect(localStorage.getItem('gym_adopt')).toBeNull()
+  })
+
+  it('a write that fails on the network, with the profile there by the retry\'s read, asks once and writes nothing when declined', async () => {
+    const srv = server(null)
+    signIn()
+    srv.failPuts = 1
+    await useStore.getState().adoptProfile(vi.fn())
+    srv.write(d => { Object.assign(d, OTHER()) })   // another device creates the profile meanwhile
+    sheetAsk.mockResolvedValue(false)
+    await useStore.getState().syncNow()
+
+    expect(srv.puts.map(p => p.baseRev)).toEqual([0])
+    expect(sheetAsk).toHaveBeenCalledTimes(1)
+    expect(ids(srv.doc.workouts)).toEqual(['o1'])
+    expect(srv.doc.restSec).toBe(45)
+    expect(useStore.getState().sync.held).toBe(false)
   })
 
   it('a 409 after the question was asked and answered is an ordinary conflict: merged, not asked again', async () => {
