@@ -324,6 +324,20 @@ describe('an operation that met a 412 sends nothing more', () => {
     expect(calls()).toEqual(['GET /api/shares'])
   })
 
+  it('"Sync now" waiting on a pull that is refused sends nothing after it, not even the share lists', async () => {
+    await signedIn()
+    useStore.setState({ shares: shared })
+    let refuse
+    api.mockRejectedValue(mismatch())
+    api.mockImplementationOnce(() => new Promise((_, reject) => { refuse = () => reject(mismatch()) }))
+    const pull = useStore.getState().pullState()
+    const now = useStore.getState().syncNow()   // waits for that pull
+    refuse()
+    await pull; await now
+    await settle()
+    expect(calls()).toEqual(['GET /api/data'])
+  })
+
   it('a sign-in\'s second read is refused: nothing is applied or written, and it fails as its first read would', async () => {
     await signingIn({ mark: true })
     const S = useStore.getState().S
@@ -463,5 +477,51 @@ describe('a refused second read once the tab has left', () => {
     await expect(adopt).resolves.toEqual({ adopted: false, added: false, gone: true })
     expect(calls()).toEqual(['GET /api/data', 'GET /api/data'])
     expect(useStore.getState().sync.lastError?.code).not.toBe('account-mismatch')
+  })
+})
+
+// Tester, PR #115 round 3: an operation is for the account it started for, to the end. A's
+// "Sync now" waiting on A's pull while the tab switches to B used to carry on for B once the pull
+// landed: B's share lists and B's pull, each refused (412), two requests after a refusal.
+describe('an operation never carries on for another account', () => {
+  it('A\'s "Sync now" whose pull lands after the switch to B ends there, and sends nothing for B', async () => {
+    await signedIn()
+    useStore.setState({ shares: { uid: 'u1', outgoing: [], incoming: [], etag: 'e-u1', fetchedAt: 0, names: {} } })
+    let answerA
+    api.mockImplementation((path, o) => {
+      if (path === '/api/data' && o?.expect === 'u1') return new Promise(resolve => { answerA = () => resolve({ state: clone(PROFILE), rev: 3 }) })
+      if (o?.expect === 'u2') return Promise.reject(mismatch())   // B's session is not the browser's now
+      return Promise.resolve({})
+    })
+    const pullA = useStore.getState().pullState()
+    await vi.waitFor(() => expect(answerA).toBeTypeOf('function'))
+    const nowA = useStore.getState().syncNow()   // waits for A's pull
+    await settle()
+    useStore.getState().setUser({ id: 'u2', name: 'B' })
+    useStore.setState({ shares: { uid: 'u2', outgoing: [], incoming: [], etag: 'e-u2', fetchedAt: 0, names: {} } })
+    answerA()
+    await pullA; await nowA
+    await settle()
+    expect(api.mock.calls.filter(([, o]) => o?.expect === 'u2')).toEqual([])
+    expect(calls()).toEqual(['GET /api/data'])
+  })
+
+  // The same switch with no refusal at all: A's operation still ends, rather than syncing B.
+  it('A\'s "Sync now" does not sync B either when B\'s session would answer', async () => {
+    await signedIn()
+    let answerA
+    api.mockImplementation((path, o) => {
+      if (path === '/api/data' && o?.expect === 'u1') return new Promise(resolve => { answerA = () => resolve({ state: clone(PROFILE), rev: 3 }) })
+      return Promise.resolve({ state: clone(SERVER), rev: 4, outgoing: [], incoming: [], etag: 'e' })
+    })
+    const pullA = useStore.getState().pullState()
+    await vi.waitFor(() => expect(answerA).toBeTypeOf('function'))
+    const nowA = useStore.getState().syncNow()
+    await settle()
+    useStore.getState().setUser({ id: 'u2', name: 'B' })
+    answerA()
+    await pullA; await nowA
+    await settle()
+    expect(api.mock.calls.filter(([, o]) => o?.expect === 'u2')).toEqual([])
   })
 })
