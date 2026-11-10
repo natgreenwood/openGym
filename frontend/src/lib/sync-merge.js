@@ -342,21 +342,59 @@ const tieWin = (x, y) => (sameJSON(x, y) || tieKey(x) >= tieKey(y) ? x : y)
 // the Undo put back, and before the removal it took back, which this device never saw. The value
 // that wins is stamped just after the Undo, so every copy settles on it. A removal or edit seen
 // after the removal (a stamp from `del` on) still loses to the Undo, as before.
+//
+// An Undo that such a change overruled keeps its marker, as `[base, del, at, won]`: `at` is the
+// stamp the winning value now carries (the Undo's + 1, so an app that only knows `[base, del, at]`
+// still sees it beat the Undo) and `won` that change's own stamp. Without it, the first unseen
+// change to meet the Undo took its marker away, and a second one, made later on a third device,
+// could no longer win: the result depended on which of them met the Undo first (NATG-561). Now a
+// change stamped inside `(base, del)` replaces the winner when its own stamp is later than `won`,
+// loses when it is earlier, and on the same stamp the higher value wins ("Exact ties" below), the
+// marker unchanged. So the field ends up with the latest change the Undo never saw, whichever
+// order they met it in.
+//
+// Ties of the field's stamp itself: an Undo (`[base, del, at]`) wins over a plain value or an
+// overruled Undo, as before. An overruled Undo loses to a plain value: that is a change stamped
+// right after the Undo by a device whose clock was lifted past it. Two overruled Undos: the later
+// `won`, then the higher value.
+//
+// What this does not settle (NATG-697): a change stamped from `del` up to the Undo's own stamp, or
+// the removal reaching a copy before the Undo does, meeting a change made inside the window. Then
+// the removal and the window change have met first, and the Undo cannot bring back what that
+// discarded; that needs the history of what the removal replaced, which no copy keeps. An app
+// from before `[base, del, at, won]` ignores such a marker and drops it when it edits or merges the
+// entry, so the order matters again for that field until all of a person's devices are updated.
 
 // The marker of field `k` (`marks` is `_u` or `undone`) when it still describes the value stamped `at`.
 const undoOf = (marks, k, at) => {
   const u = isMap(marks) ? marks[k] : null
-  return Array.isArray(u) && u.length === 3 && at > 0 && Number(u[2]) === at ? u : null
+  return Array.isArray(u) && (u.length === 3 || u.length === 4) && at > 0 && Number(u[2]) === at ? u : null
 }
 // Between two stamps of one field, `x` (marked `ux`) and `y` (marked `uy`): which side's value
-// stays ('x', 'y' or '' on a tie) and the stamp it carries. See above.
+// stays ('x', 'y', or '' for the values to decide, "Exact ties"), the stamp it carries, and the
+// marker that goes with it (undefined: the winning side's own). See above.
 // An Undo and a change made on the removal can carry the same stamp when both clocks were lifted
 // from the removal's (stampChange: one past the highest stamp). The Undo wins that tie, whichever
 // copy is first: a first-wins tie kept a different value on each device, for good.
 function undoPick(tx, ux, ty, uy) {
-  if (tx > ty) return ux && ty > Number(ux[0]) && ty < Number(ux[1]) ? ['y', tx + 1] : ['x', tx]
-  if (ty > tx) return uy && tx > Number(uy[0]) && tx < Number(uy[1]) ? ['x', ty + 1] : ['y', ty]
-  return ux && !uy ? ['x', tx] : uy && !ux ? ['y', ty] : ['', tx]
+  if (ty > tx) {
+    const [side, at, mark] = undoPick(ty, uy, tx, ux)
+    return [side === 'x' ? 'y' : side === 'y' ? 'x' : side, at, mark]
+  }
+  if (tx > ty) {
+    if (!ux || !(ty > Number(ux[0]) && ty < Number(ux[1]))) return ['x', tx, ux || null]
+    const base = Number(ux[0]) || 0, del = Number(ux[1]) || 0
+    if (ux.length === 3) return ['y', tx + 1, [base, del, tx + 1, ty]]
+    const won = Number(ux[3]) || 0
+    return ty > won ? ['y', tx, [base, del, tx, ty]] : ty < won ? ['x', tx, ux] : ['', tx, ux]
+  }
+  const kx = ux ? ux.length : 0, ky = uy ? uy.length : 0
+  if (kx === 3 && ky !== 3) return ['x', tx, ux]
+  if (ky === 3 && kx !== 3) return ['y', ty, uy]
+  if (kx === 4 && !ky) return ['y', ty, null]
+  if (ky === 4 && !kx) return ['x', tx, null]
+  if (kx === 4 && ky === 4 && Number(ux[3]) !== Number(uy[3])) return Number(ux[3]) > Number(uy[3]) ? ['x', tx, ux] : ['y', ty, uy]
+  return ['', tx, undefined]
 }
 // `marks` brought up to date with `stamps` after a change stamped `now`: a pending marker
 // (`[base, del]`, set by the Undo itself) of a field this change stamped gets `now`; one whose field
@@ -368,7 +406,7 @@ function settleMarks(marks, stamps, now) {
     if (!Array.isArray(m)) continue
     const at = Number(stamps?.[k]) || 0
     if (m.length === 2 && at === now) out[k] = [Number(m[0]) || 0, Number(m[1]) || 0, now]
-    else if (m.length === 3 && at > 0 && Number(m[2]) === at) out[k] = m
+    else if ((m.length === 3 || m.length === 4) && at > 0 && Number(m[2]) === at) out[k] = m
   }
   return Object.keys(out).length ? out : null
 }
@@ -455,13 +493,14 @@ export function mergeEntry(a, b) {
   for (const k of new Set([...Object.keys(n), ...Object.keys(o), ...Object.keys(f)])) {
     if (ENTRY_META.has(k)) continue
     const tn = fieldTime(n, k), to = fieldTime(o, k)
-    let [side, at] = undoPick(tn, undoOf(n._u, k, tn), to, undoOf(o._u, k, to))
+    const un = undoOf(n._u, k, tn), uo = undoOf(o._u, k, to)
+    let [side, at, mark] = undoPick(tn, un, to, uo)
     // A tie undoPick leaves open: the higher value. A field neither side stamped still follows the
     // version edited last when there is one.
-    if (side === '' && (tn > 0 || tie) && tieWin(n[k], o[k]) !== n[k]) side = 'y'
+    if (side === '' && (tn > 0 || tie) && !sameJSON(n[k], o[k])) side = tieWin(n[k], o[k]) === n[k] ? 'x' : 'y'
     if (side === 'y') { if (k in o) out[k] = clone(o[k]); else delete out[k] }
     if (at > Math.max(tn, to)) { f[k] = at; bumped = Math.max(bumped, at) }
-    const kept = side === 'y' ? undoOf(o._u, k, at) : side === 'x' ? undoOf(n._u, k, at) : tieWin(undoOf(n._u, k, at) || undefined, undoOf(o._u, k, at) || undefined)
+    const kept = mark !== undefined ? mark : side === 'y' ? uo : side === 'x' ? un : tieWin(un || undefined, uo || undefined)
     if (kept) u[k] = clone(kept)
   }
   if (Object.keys(f).length) out._f = f; else delete out._f
@@ -985,14 +1024,20 @@ export function mergeEdits(a, b) {
  */
 function applyEdits(out, n, o) {
   const en = isMap(n.edited) ? n.edited : {}, eo = isMap(o.edited) ? o.edited : {}
-  const bumps = {}
+  const bumps = {}, marks = {}
   for (const k of new Set([...Object.keys(en), ...Object.keys(eo)])) {
     const tn = Number(en[k]) || 0, to = Number(eo[k]) || 0
     const un = undoOf(n.undone, k, tn), uo = undoOf(o.undone, k, to)
-    if (tn === to && !un === !uo) continue
     // An Undo's marker can hand the field to the side whose stamp is older (see "Undo" above).
-    const [side, at] = undoPick(tn, un, to, uo)
+    let [side, at, mark] = undoPick(tn, un, to, uo)
+    if (side === '') {
+      // A tie of plain stamps (or of two Undos) stays as it is, the newer copy's, as before; one the
+      // markers leave to the values (two overruled Undos, an equal `won`) goes to the higher value.
+      if (tn === to && !(un?.length === 4 && uo?.length === 4)) continue
+      side = tieWin(editedValue(n, k), editedValue(o, k)) === editedValue(n, k) ? 'x' : 'y'
+    }
     if (at > Math.max(tn, to)) bumps[k] = at
+    marks[k] = mark !== undefined ? mark : side === 'y' ? uo : un
     const src = side === 'y' ? o : n
     const dot = k.indexOf('.')
     if (dot < 0) {
@@ -1006,7 +1051,7 @@ function applyEdits(out, n, o) {
     const into = isMap(out[f]) ? out[f] : (out[f] = {})
     if (s in from) into[s] = clone(from[s]); else delete into[s]
   }
-  return bumps
+  return { bumps, marks }
 }
 
 // `prefer` names the side whose settings, plan and per-exercise config win regardless of `_ts`:
@@ -1164,15 +1209,16 @@ export function mergeStates(a0, b0, { prefer } = {}) {
   // Each stamped setting and plan day from the copy that changed it last (the `edited` section
   // above). `prefer` (sign-in) keeps the preferred side's, stamps and all.
   if (!prefer) {
-    const bumps = applyEdits(out, n, o)
+    const { bumps, marks } = applyEdits(out, n, o)
     const edited = mergeEdits(n.edited, o.edited)
     if (edited) { Object.assign(edited, bumps); out.edited = edited } else delete out.edited
-    // An Undo's markers that still describe the merged stamp of their setting.
+    // An Undo's markers that still describe the merged stamp of their setting: the one the merge
+    // decided (an overruled Undo's `[base, del, at, won]` included), else either copy's.
     const undone = {}
-    for (const k of new Set([...Object.keys(isMap(n.undone) ? n.undone : {}), ...Object.keys(isMap(o.undone) ? o.undone : {})])) {
+    for (const k of new Set([...Object.keys(isMap(n.undone) ? n.undone : {}), ...Object.keys(isMap(o.undone) ? o.undone : {}), ...Object.keys(marks)])) {
       const at = Number(edited?.[k]) || 0
-      const m = undoOf(n.undone, k, at) || undoOf(o.undone, k, at)
-      if (m && !(k in bumps)) undone[k] = clone(m)
+      const m = k in marks ? undoOf({ [k]: marks[k] }, k, at) : undoOf(n.undone, k, at) || undoOf(o.undone, k, at)
+      if (m) undone[k] = clone(m)
     }
     if (Object.keys(undone).length) out.undone = undone; else delete out.undone
     // The Coach's conversation, log and Undo snapshots from both copies (mergeCoach), whichever

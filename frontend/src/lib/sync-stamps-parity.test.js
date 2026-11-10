@@ -20,7 +20,8 @@ describe('api/sync-stamps.js matches sync-merge.js', () => {
       expect(S.mergeEdits(ea, eb)).toEqual(mergeEdits(ea, eb))
       const doc = { _ts: n(), edited: ea, deleted: a, routines: [{ id: 'r', _ts: n(), _f: { name: n() } }], plates: { kg: { _ts: n() } } }
       expect(S.highestStamp(doc)).toBe(highestStamp(doc))
-      const old = { id: 'r', name: 'A', ex: [1], _f: { ex: 5 }, ...(R() < 0.5 ? { _u: { ex: [1, 5, 5] } } : {}) }
+      const mark = R() < 0.5 ? [1, 5, 5] : [1, 4, 5, 2]   // an Undo, or one an unseen change overruled
+      const old = { id: 'r', name: 'A', ex: [1], _f: { ex: 5 }, ...(R() < 0.5 ? { _u: { ex: mark } } : {}) }
       const x = { id: 'r', name: R() < 0.5 ? 'A' : 'B', ex: [1, R() < 0.5 ? 2 : 1], ...(R() < 0.3 ? { _u: { name: [0, 4], ex: [1, 5, 5] } } : {}) }
       expect(S.stampEntry(clone(old), clone(x), 99)).toEqual(stampEntry(clone(old), clone(x), 99))
     }
@@ -39,7 +40,8 @@ describe('api/sync-stamps.js matches sync-merge.js', () => {
           if (R() < 0.7) f[k] = 1 + Math.floor(R() * 3)
         }
         if (Object.keys(f).length) x._f = f
-        if (R() < 0.3 && f.ex) x._u = { ex: [0, f.ex - 1 || 1, f.ex] }
+        // Undo markers of every kind, on stamps so close that their windows and `won` tie too.
+        if (R() < 0.5 && f.ex) x._u = { ex: R() < 0.5 ? [0, f.ex - 1 || 1, f.ex] : [0, 3, f.ex, Math.floor(R() * 3)] }
         x._ts = Math.max(Math.floor(R() * 4), ...Object.values(f))
         return x
       }

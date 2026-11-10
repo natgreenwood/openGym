@@ -151,7 +151,7 @@ function settleMarks(marks, stamps, now) {
     if (!Array.isArray(m)) continue;
     const at = Number(stamps?.[k]) || 0;
     if (m.length === 2 && at === now) out[k] = [Number(m[0]) || 0, Number(m[1]) || 0, now];
-    else if (m.length === 3 && at > 0 && Number(m[2]) === at) out[k] = m;
+    else if ((m.length === 3 || m.length === 4) && at > 0 && Number(m[2]) === at) out[k] = m;
   }
   return Object.keys(out).length ? out : null;
 }
@@ -165,14 +165,33 @@ const sameEntry = (a, b) => same({ ...a, _ts: 0, _f: 0, _u: 0 }, { ...b, _ts: 0,
 const fieldTime = (x, k) => Number(x?._f?.[k]) || 0;
 const tieKey = v => (v === undefined ? '' : JSON.stringify(canonical(v)));
 const tieWin = (x, y) => (same(x, y) || tieKey(x) >= tieKey(y) ? x : y);
+// An Undo's marker `[base, del, at]`, or `[base, del, at, won]` once an unseen change overruled it
+// (sync-merge.js "Undo"), while it still describes the field's stamp.
 const undoOf = (marks, k, at) => {
   const u = isMap(marks) ? marks[k] : null;
-  return Array.isArray(u) && u.length === 3 && at > 0 && Number(u[2]) === at ? u : null;
+  return Array.isArray(u) && (u.length === 3 || u.length === 4) && at > 0 && Number(u[2]) === at ? u : null;
 };
+// Which side's value stays ('x', 'y', or '' for the values to decide), its stamp, and the marker
+// that goes with it (undefined: the winning side's own), as sync-merge.js undoPick.
 function undoPick(tx, ux, ty, uy) {
-  if (tx > ty) return ux && ty > Number(ux[0]) && ty < Number(ux[1]) ? ['y', tx + 1] : ['x', tx];
-  if (ty > tx) return uy && tx > Number(uy[0]) && tx < Number(uy[1]) ? ['x', ty + 1] : ['y', ty];
-  return ux && !uy ? ['x', tx] : uy && !ux ? ['y', ty] : ['', tx];
+  if (ty > tx) {
+    const [side, at, mark] = undoPick(ty, uy, tx, ux);
+    return [side === 'x' ? 'y' : side === 'y' ? 'x' : side, at, mark];
+  }
+  if (tx > ty) {
+    if (!ux || !(ty > Number(ux[0]) && ty < Number(ux[1]))) return ['x', tx, ux || null];
+    const base = Number(ux[0]) || 0, del = Number(ux[1]) || 0;
+    if (ux.length === 3) return ['y', tx + 1, [base, del, tx + 1, ty]];
+    const won = Number(ux[3]) || 0;
+    return ty > won ? ['y', tx, [base, del, tx, ty]] : ty < won ? ['x', tx, ux] : ['', tx, ux];
+  }
+  const kx = ux ? ux.length : 0, ky = uy ? uy.length : 0;
+  if (kx === 3 && ky !== 3) return ['x', tx, ux];
+  if (ky === 3 && kx !== 3) return ['y', ty, uy];
+  if (kx === 4 && !ky) return ['y', ty, null];
+  if (ky === 4 && !kx) return ['x', tx, null];
+  if (kx === 4 && ky === 4 && Number(ux[3]) !== Number(uy[3])) return Number(ux[3]) > Number(uy[3]) ? ['x', tx, ux] : ['y', ty, uy];
+  return ['', tx, undefined];
 }
 /** Two versions of one entry merged field by field (sync-merge.js mergeEntry). Returns a new object. */
 export function mergeEntry(a, b) {
@@ -187,11 +206,12 @@ export function mergeEntry(a, b) {
   for (const k of new Set([...Object.keys(n), ...Object.keys(o), ...Object.keys(f)])) {
     if (ENTRY_META.has(k)) continue;
     const tn = fieldTime(n, k), to = fieldTime(o, k);
-    let [side, at] = undoPick(tn, undoOf(n._u, k, tn), to, undoOf(o._u, k, to));
-    if (side === '' && (tn > 0 || tie) && tieWin(n[k], o[k]) !== n[k]) side = 'y';
+    const un = undoOf(n._u, k, tn), uo = undoOf(o._u, k, to);
+    let [side, at, mark] = undoPick(tn, un, to, uo);
+    if (side === '' && (tn > 0 || tie) && !same(n[k], o[k])) side = tieWin(n[k], o[k]) === n[k] ? 'x' : 'y';
     if (side === 'y') { if (k in o) out[k] = clone(o[k]); else delete out[k]; }
     if (at > Math.max(tn, to)) { f[k] = at; bumped = Math.max(bumped, at); }
-    const kept = side === 'y' ? undoOf(o._u, k, at) : side === 'x' ? undoOf(n._u, k, at) : tieWin(undoOf(n._u, k, at) || undefined, undoOf(o._u, k, at) || undefined);
+    const kept = mark !== undefined ? mark : side === 'y' ? uo : side === 'x' ? un : tieWin(un || undefined, uo || undefined);
     if (kept) u[k] = clone(kept);
   }
   if (Object.keys(f).length) out._f = f; else delete out._f;

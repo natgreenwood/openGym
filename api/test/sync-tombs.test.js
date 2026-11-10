@@ -15,7 +15,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import { stampPut, TOMB_MAX, TOMB_KEEP_MS } from '../sync-stamps.js';
-import { mergeStates, stampChange, stampWorkout } from '../../frontend/src/lib/sync-merge.js';
+import { markEntryUndone, mergeStates, stampChange, stampWorkout } from '../../frontend/src/lib/sync-merge.js';
 
 const clone = v => JSON.parse(JSON.stringify(v));
 const NOW = 1_800_000_000_000;
@@ -215,4 +215,37 @@ test('PUT /api/data: an older app and a current one keep the kept content, and n
   assert.deepEqual(after.tombs, doc.tombs);
   assert.deepEqual(after.workouts.map(w => w.id), ['w2']);
   assert.ok(after.deleted.workouts.w1 > 0);
+});
+
+// NATG-561 Tester finding 1 (natg-561-undo-repro.mjs): B removes the bench exercise and then the
+// routine; C makes it four sets; A removes the exercise and puts it back with Undo. The Undo never
+// saw either change, both made inside its window, so the later of them (C's) is what comes back,
+// in both reconnect orders. Before, B→A→C restored the routine with no exercise.
+test('PUT /api/data: an Undo two unseen changes overrule keeps the later one in both reconnect orders (B→A→C, B→C→A)', async t => {
+  const T = Date.now() - 600000;
+  const base0 = { _ts: T + 10, unit: 'kg', workouts: [], routines: [{ id: 'r', name: 'Push', ex: [{ id: 'bench', sets: 3 }], _ts: T + 10 }] };
+  const copies = S0 => {
+    const at = (S, t, mut) => change(S, T + t, mut);
+    const a0 = at(S0, 130, x => { x.routines[0].ex = []; });
+    const A = at(a0, 160, x => {
+      x.routines[0].ex = clone(S0.routines[0].ex);
+      markEntryUndone(x.routines[0], 'ex', S0.routines[0]._f?.ex || 0, T + 130);
+    });
+    const B = at(at(S0, 100, x => { x.routines[0].ex = []; }), 120, x => { x.routines = []; });
+    const C = at(S0, 110, x => { x.routines[0].ex[0].sets = 4; });
+    return { A, B, C };
+  };
+  const results = {};
+  for (const order of ['BAC', 'BCA']) {
+    const api = await server(t);
+    const first = await api.put({ state: base0, stamped: true });
+    assert.equal(first.status, 200);
+    const by = copies((await api.get()).state);
+    for (const id of order) await push(api, by[id], first.body.rev);
+    results[order] = (await api.get()).state;
+  }
+  const { BAC, BCA } = results;
+  assert.deepEqual(BAC.routines, BCA.routines);
+  assert.deepEqual(BAC.routines[0].ex, [{ id: 'bench', sets: 4 }]);
+  assert.deepEqual(BAC.routines[0]._u, { ex: [0, T + 130, T + 161, T + 110] });
 });
