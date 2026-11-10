@@ -359,6 +359,9 @@ h4.sec{
 }
 .lrow:has(.lrow-i)+.lrow:has(.lrow-i)::before{inset-inline-start:55px}
 .lrow.tap:active{background:var(--surface-2)}
+/* .sect-b clips the global ring's outset (2px) down to a strip under the row (NATG-652), so a row
+   draws it inside its own edge instead, like .share-person. Colour and width stay the global ones. */
+.sect-b .lrow:focus-visible{outline-offset:-2.5px;border-radius:var(--r-card)}
 .lrow-i{
   width:29px;height:29px;border-radius:7px;flex:none;font-size:18px;
   display:flex;align-items:center;justify-content:center;
@@ -1508,6 +1511,9 @@ body.chips-dragging *{cursor:inherit}
 .menu-group.grouped+.menu-group.grouped{margin-top:14px}
 .menu-group.grouped .menu-list{gap:0;background:var(--surface);border-radius:var(--r-card);overflow:hidden}
 .menu-group.grouped .menu-item{border-radius:0;position:relative}
+/* The list's overflow clips an outset ring, and the next row paints over what is left: inset it,
+   as in .sect-b (NATG-652). */
+.menu-group.grouped .menu-item:focus-visible{outline-offset:-2.5px;border-radius:var(--r-card)}
 .menu-group.grouped .menu-item+.menu-item::before{
   content:'';position:absolute;top:0;inset-inline-start:56px;inset-inline-end:0;height:var(--hair);background:var(--sep-op);
 }
