@@ -642,6 +642,13 @@ host, matching CI. Isolate the file with
 `npx vitest run scripts/app-icons.test.mjs`; use the official CI runtime before
 regenerating icons as part of unrelated frontend changes.
 
+For icon timeout checks, fresh-draw has its own 30-second timeout and `--check`
+has 120 seconds; the global five-second default is unchanged. Run the full
+frontend suite with six bounded `node -e 'for(;;){}'` processes and repeat the
+four-file Backup media command above concurrently. Stop every load process
+after the suite finishes. Read the fresh-draw duration and result from Vitest's
+JSON report; other tests can independently time out under this load.
+
 ## API checks
 
 Verified with Node 22.22.1 and npm 9.2.0. The API is plain JavaScript on
