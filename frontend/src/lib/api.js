@@ -58,14 +58,19 @@ function refusal(status, body) {
 }
 
 export async function api(path, opts) {
-  const { timeout, ...init } = opts || {}
+  const { timeout, expect, ...init } = opts || {}
   // A phone with no server to talk to: local mode, or a pairing that is gone. There is no
   // relative URL to fall back on here — the WebView's own origin is Capacitor's local asset
   // server, which answers ANY path, PUT included, with index.html and a 200, so a push "landed"
   // there and the change was marked as synced while the server never saw it. status 0, not
   // undefined: this is not "offline", and the store must not show it as such.
   if (MOBILE && !remoteBase) throw failure(t('This phone is not connected to a server.'), 'not-paired', 0)
-  const headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers, remoteHeaders())
+  // The account this request is for (NATG-558): the server refuses a session that is not that
+  // account with a 412. Only over the same-origin cookie, which every tab of the browser shares
+  // and another tab can switch under this one. A paired phone's bearer already fixes its
+  // account, and the header is not on the preflight allow-list (api/server.js).
+  const expected = expect && !remoteBase ? { 'X-Expected-Account': expect } : {}
+  const headers = Object.assign({ 'Content-Type': 'application/json' }, init.headers, expected, remoteHeaders())
   // A paired phone has an absolute base of its own; everyone else is relative to where the app
   // is served, so a subpath deployment reaches its own API instead of the proxy's root.
   const url = remoteBase ? remoteBase + path : appBase().replace(/\/$/, '') + path
@@ -99,8 +104,14 @@ async function exchange(url, init) {
   let parsed = true
   try { data = await r.json() } catch { parsed = false }
   const body = parsed && data && typeof data === 'object' ? data : null
-  // The body rides along on the error: a 409 from /api/data carries the server's document.
-  if (!r.ok) { const e = new Error(refusal(r.status, body)); e.status = r.status; e.data = body || {}; throw e }
+  // The body rides along on the error: a 409 from /api/data carries the server's document. A 412
+  // carries its code too (account-mismatch, NATG-558), which the store tells from every other
+  // failure; no other status does, so a sync error's code stays what it was for those.
+  if (!r.ok) {
+    const e = new Error(refusal(r.status, body)); e.status = r.status; e.data = body || {}
+    if (r.status === 412 && typeof body?.code === 'string') e.code = body.code
+    throw e
+  }
   if (!body) throw failure(t('The server answered with something other than openGym data.'), 'bad-response', r.status)
   return body
 }
