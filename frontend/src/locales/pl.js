@@ -1921,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: przesuń serię. W lewo usuwa, w prawo kopiuje.',
   'Options: copy, remove': 'Opcje: kopiuj, usuń',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Inne urządzenie zsynchronizowało się podczas importu, więc jego zmiany zostały obok kopii.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Inne urządzenie zsynchronizowało się podczas resetu, więc to, co od tego czasu dodało, zostało zachowane.',
   'Save as a backup file': 'Zapisz jako plik kopii',
   'Add this device\'s plan to your profile?': 'Dodać plan z tego urządzenia do profilu?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Plan, notatki lub karty siłowni na tym urządzeniu powstały bez logowania. Dodaj je do profilu albo zostaw profil dokładnie taki, jaki jest na serwerze.',

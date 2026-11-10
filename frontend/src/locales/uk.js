@@ -1918,6 +1918,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Пс: змахни підхід. Ліворуч видаляє, праворуч копіює.',
   'Options: copy, remove': 'Дії: копіювати, видалити',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Інший пристрій синхронізувався під час імпорту, тож його зміни збережено поруч із копією.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Інший пристрій синхронізувався під час скидання, тож те, що він додав відтоді, збережено.',
   'Save as a backup file': 'Зберегти як файл копії',
   'Add this device\'s plan to your profile?': 'Додати план із цього пристрою в профіль?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'План, нотатки чи картки залу на цьому пристрої створено без входу. Додай їх у профіль або лиши профіль точно таким, як на сервері.',

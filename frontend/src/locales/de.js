@@ -1941,6 +1941,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: Wisch über einen Satz. Links löscht, rechts kopiert.',
   'Options: copy, remove': 'Optionen: kopieren, entfernen',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Ein anderes Gerät hat während des Imports synchronisiert, seine Änderungen bleiben neben dem Backup erhalten.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Ein anderes Gerät hat während des Zurücksetzens synchronisiert, was es seitdem hinzugefügt hat, bleibt erhalten.',
   'Save as a backup file': 'Als Backup-Datei sichern',
   'Add this device\'s plan to your profile?': 'Plan von diesem Gerät zum Profil hinzufügen?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'Plan, Notizen oder Studiokarten auf diesem Gerät wurden ohne Anmeldung angelegt. Zum Profil hinzufügen oder das Profil genau so lassen, wie es auf dem Server ist.',

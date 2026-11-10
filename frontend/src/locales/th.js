@@ -1932,6 +1932,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'ชู่: ปัดเซ็ตได้นะ ซ้ายลบ ขวาคัดลอก',
   'Options: copy, remove': 'ตัวเลือก: คัดลอก, ลบ',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'อุปกรณ์อื่นซิงก์ระหว่างที่คุณนำเข้า เลยเก็บการเปลี่ยนแปลงของมันไว้คู่กับข้อมูลสำรอง',
+  'Another device synced while you were resetting, so what it added since was kept.': 'อุปกรณ์อื่นซิงก์ระหว่างที่คุณรีเซ็ต เลยเก็บสิ่งที่มันเพิ่มไว้ตั้งแต่นั้น',
   'Save as a backup file': 'บันทึกเป็นไฟล์สำรอง',
   'Add this device\'s plan to your profile?': 'เพิ่มแผนจากอุปกรณ์นี้ลงในโปรไฟล์ของคุณหรือไม่',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'แผน โน้ต หรือบัตรยิมบนอุปกรณ์นี้ถูกสร้างขณะไม่ได้ลงชื่อเข้าใช้ เพิ่มลงในโปรไฟล์ของคุณ หรือคงโปรไฟล์ไว้ตามที่อยู่บนเซิร์ฟเวอร์',

@@ -1471,7 +1471,8 @@ describe('a reset or import followed, before its push, by this tab signing in to
     recordPuts(puts)
     await act(A, () => A.getState().resetEverything())
     await act(A, () => A.getState().pushState())
-    expect(puts.map(p => p.baseRev)).toEqual([null])
+    // Against the revision its own read of the profile returned, never without one (NATG-655).
+    expect(puts.map(p => p.baseRev)).toEqual([5])
     expect(ids(srv.doc)).toEqual([])
   })
 })
