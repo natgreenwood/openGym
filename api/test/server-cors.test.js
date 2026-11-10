@@ -62,6 +62,9 @@ for (const origin of ['https://localhost', 'capacitor://localhost']) {
     const allowed = r.headers['access-control-allow-headers'].toLowerCase().split(/\s*,\s*/);
     assert.ok(allowed.includes('content-type'), allowed.join());
     assert.ok(allowed.includes('authorization'), allowed.join());
+    // X-Expected-Account is for the same-origin cookie path only (NATG-558): a paired phone never
+    // sends it, so no preflight lets it through.
+    assert.ok(!allowed.includes('x-expected-account'), allowed.join());
     // The phone authenticates with a Bearer token, never the cookie: credentials stay off.
     assert.equal(r.headers['access-control-allow-credentials'], undefined);
     assert.match(String(r.headers.vary), /Origin/);
