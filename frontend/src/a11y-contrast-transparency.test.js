@@ -341,6 +341,17 @@ describe('Focus indicators (WCAG 1.4.11, NATG-617)', () => {
     expect(rule(css, '.stp button[aria-disabled="true"]>*')).toContain('opacity:.32')
   })
 
+  it('a done set row returns to full opacity while it holds focus, so its rings keep 3:1 (NATG-593)', () => {
+    // A done row dims to .45, which fades everything in it, a focused field's ring included.
+    expect(rule(css, '.setrow.done')).toContain('opacity:.45')
+    expect(rule(css, '.setrow.side.done')).toContain('opacity:.45')
+    const restore = '.setrow.done:has(:focus-visible),.setrow.side.done:has(:focus-visible)'
+    expect(rule(css, restore)).toContain('opacity:1')
+    // Equal specificity to `.setrow.side.done`, so it has to come after both dims.
+    expect(css.indexOf(restore)).toBeGreaterThan(css.search(/(?:^|[}\s])\.setrow\.done\s*\{/))
+    expect(css.indexOf(restore)).toBeGreaterThan(css.search(/(?:^|[}\s])\.setrow\.side\.done\s*\{/))
+  })
+
   it('no stylesheet draws a focus indicator in the raw accent or a tint of it', () => {
     const sheets = readdirSync(resolve(process.cwd(), 'src'), { recursive: true }).filter((f) => f.endsWith('.css'))
     const focus = sheets.flatMap((f) => [...read(f).matchAll(/([^{}]+)\{([^{}]*)\}/g)]

@@ -1473,6 +1473,10 @@ body.chips-dragging *{cursor:inherit}
 }
 .setrow.side.done .sidetag{background:var(--acc);color:var(--on-acc)}
 .setrow.side.done{opacity:.45}
+/* A done row stays editable, and its opacity would fade a focus ring inside it under 3:1, so it
+   comes back to full strength while it holds focus (NATG-593). A tapped number field counts as
+   focus-visible too, so the row also lights up while you type into it. */
+.setrow.done:has(:focus-visible),.setrow.side.done:has(:focus-visible){opacity:1}
 
 /* drop-set drops / rest-pause bursts riding on a work row, editable like the row itself
    (issue: drop-sets & rest-pause) */
