@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': 'Offline. Não é possível chegar ao servidor',
   'Not an openGym answer (HTTP {0})': 'Não é uma resposta do openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'O endereço do teu servidor respondeu com algo que não é o openGym (HTTP {0}). As tuas alterações ficam aqui.',
+  'This copy belongs to a different account': 'Esta cópia pertence a outra conta',
+  'This copy belongs to a different account. Sign in again or reload.': 'Esta cópia pertence a outra conta. Inicia sessão novamente ou recarrega a página.',
   'Server error (HTTP {0})': 'Erro do servidor (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'O teu servidor respondeu com um erro (HTTP {0}). As tuas alterações ficam aqui.',
   'The server refuses this browser': 'O servidor recusa este navegador',
@@ -1919,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'Psst: desliza uma série. Esquerda elimina, direita copia.',
   'Options: copy, remove': 'Opções: copiar, remover',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'Outro dispositivo sincronizou durante a importação, por isso as alterações dele ficaram junto à cópia.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'Outro dispositivo sincronizou enquanto repunha tudo, por isso o que ele adicionou entretanto ficou.',
   'Save as a backup file': 'Guardar como ficheiro de cópia',
   'Add this device\'s plan to your profile?': 'Adicionar o plano deste dispositivo ao teu perfil?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'O teu plano, notas ou cartões do ginásio neste dispositivo foram criados sem sessão iniciada. Adiciona-os ao teu perfil ou mantém o perfil exatamente como está no servidor.',
@@ -2708,4 +2711,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'É mais do que um treino consegue conter. Escolhe menos rotinas, ou rotinas com menos séries.',
   '{0} is too much to add to this workout.': '{0} é demasiado para adicionar a este treino.',
   'too much for this workout': 'demasiado para este treino',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'Máx. {0}',
+  'Some counts were lowered': 'Alguns valores foram reduzidos',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} exercício tinha mais do que a app permite. Vai ser adicionado com no máximo {1} séries ou intervalos, {2} quedas e {3} repetições rest-pause.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '{0} exercícios tinham mais do que a app permite. Vão ser adicionados com no máximo {1} séries ou intervalos, {2} quedas e {3} repetições rest-pause.',
+  'People you share this with won’t be able to open it': 'As pessoas com quem a partilhares não a vão conseguir abrir',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'É grande demais para uma rotina partilhada. Podes partilhá-la na mesma. Quando tiver menos séries ou exercícios, vão conseguir abri-la.',
 }

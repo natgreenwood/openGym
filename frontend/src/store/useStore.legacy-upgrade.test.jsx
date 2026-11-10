@@ -4,6 +4,7 @@
    offline setting, plan and note changes were undone on the first sync when another device had
    synced meanwhile, and pushed without stamps when none had. lib/sync-legacy.js. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const h = vi.hoisted(() => ({ api: null }))
 vi.mock('../lib/api.js', () => ({ api: (...a) => h.api(...a), setRemoteAuth: () => {} }))
@@ -52,15 +53,14 @@ function leaveOldCopy(base, mut) {
   localStorage.setItem('gym_owner', OWNER)
   localStorage.setItem('gym_user', JSON.stringify({ id: OWNER, name: 'Ana' }))
   localStorage.setItem('gym_state_v1', JSON.stringify(old))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: base._rev, ts: base._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: base._rev, ts: base._ts, uid: OWNER }))
   localStorage.setItem('gym_synced_fp', JSON.stringify(fp))
   localStorage.setItem('gym_dirty', '1')
 }
 async function openApp() {
-  vi.resetModules()
-  const m = await import('./useStore.js')
-  m.useStore.setState({ user: { id: OWNER, name: 'Ana' }, ready: true })
-  return m.useStore
+  const { useStore } = await freshStore()
+  useStore.setState({ user: { id: OWNER, name: 'Ana' }, ready: true })
+  return useStore
 }
 
 beforeEach(async () => {

@@ -121,6 +121,14 @@ export default defineConfig({
   // unlowered and one regex lookbehind kept 1.4.2 on its splash there. What the transpiler cannot
   // lower, scripts/check-bundle-syntax.mjs catches (its test builds the bundle).
   build: { chunkSizeWarningLimit: 1500, target: ['safari15', 'chrome100', 'firefox100', 'edge100'] },
-  // Gives happy-dom tests a working localStorage on Node 24+ (#733).
-  test: { setupFiles: ['./src/test-setup.js'] }
+  test: {
+    // Gives happy-dom tests a working localStorage on Node 24+ (#733).
+    setupFiles: ['./src/test-setup.js'],
+    // Every test starts from the real functions and globals, whatever the one before it spied on
+    // or stubbed, so a test that forgets to undo a vi.spyOn or vi.stubGlobal cannot change how the
+    // next one runs (NATG-615). mockReset stays off: vi.fn() mocks built in vi.mock factories keep
+    // their implementations across the tests of a file, and many files rely on that.
+    restoreMocks: true,
+    unstubGlobals: true
+  }
 })

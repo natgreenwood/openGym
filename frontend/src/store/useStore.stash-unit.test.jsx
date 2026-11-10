@@ -19,7 +19,7 @@ afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user:
 describe('a kept running workout and a unit switch elsewhere', () => {
   it('comes back converted into the profile\'s unit', async () => {
     const S = { ...clone(DEF), _ts: 100, unit: 'kg', workouts: [], active: clone(active) }
-    localStorage.setItem('gym_owner', 'u1'); localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: 100 }))
+    localStorage.setItem('gym_owner', 'u1'); localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: 100, uid: 'u1' }))
     useStore.setState({ S, user: { id: 'u1', name: 'x' }, ready: true })
     api.mockResolvedValue({ ok: true })
     expect(await useStore.getState().signOut()).toEqual({ owed: false })

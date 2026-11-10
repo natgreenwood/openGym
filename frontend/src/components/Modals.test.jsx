@@ -84,22 +84,26 @@ function mouse(target, type, clientY, clientX = 0) {
   target.dispatchEvent(event)
 }
 
+// linkedom's window is globalThis behind a proxy, so what a test sets on it outlives the test: a
+// read-only scrollY broke the next test's assignment, and a visualViewport left the keyboard up.
+// So every key a test adds to the global is taken off after it, whatever its name. The keys are
+// taken once the page is set up: window, document and the rest stay for the next beforeEach to
+// replace, and a block's beforeAll that runs ahead of it still finds them.
+let globalKeys
+
 beforeEach(async () => {
   mocks.state.sheets = []
   installDom()
   await act(async () => { root.render(React.createElement(Modals)) })
+  globalKeys = new Set(Reflect.ownKeys(globalThis))
 })
-
-// linkedom's window is globalThis behind a proxy, so what a test sets on it outlives the test: a
-// read-only scrollY broke the next test's assignment, and a visualViewport left the keyboard up.
-const WINDOW_KEYS = ['scrollY', 'scrollTo', 'innerHeight', 'visualViewport', 'requestAnimationFrame']
 
 afterEach(async () => {
   if (root) await act(async () => { root.unmount() })
   root = null
   container = null
   dom = null
-  for (const key of WINDOW_KEYS) delete globalThis[key]
+  for (const key of Reflect.ownKeys(globalThis)) if (!globalKeys.has(key)) Reflect.deleteProperty(globalThis, key)
   vi.restoreAllMocks()
 })
 

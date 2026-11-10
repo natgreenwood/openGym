@@ -1311,6 +1311,8 @@ export default {
   'Offline. The server can’t be reached': 'غير متصل. تعذّر الوصول إلى الخادم',
   'Not an openGym answer (HTTP {0})': 'ليس ردًّا من openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'ردّ عنوان خادمك بشيء غير openGym (HTTP {0}). تغييراتك محفوظة هنا.',
+  'This copy belongs to a different account': 'هذه النسخة تخص حسابًا آخر',
+  'This copy belongs to a different account. Sign in again or reload.': 'هذه النسخة تخص حسابًا آخر. سجّل الدخول من جديد أو أعد تحميل الصفحة.',
   'Server error (HTTP {0})': 'خطأ في الخادم (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'ردّ خادمك بخطأ (HTTP {0}). تغييراتك محفوظة هنا.',
   'The server refuses this browser': 'الخادم يرفض هذا المتصفح',
@@ -1974,6 +1976,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'نصيحة: اسحب مجموعة. لليمين حذف، لليسار نسخ.',
   'Options: copy, remove': 'خيارات: نسخ، إزالة',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'زامن جهاز آخر أثناء الاستيراد، فاحتفظنا بتغييراته إلى جانب النسخة الاحتياطية.',
+  'Another device synced while you were resetting, so what it added since was kept.': 'زامن جهاز آخر أثناء إعادة التعيين، فاحتفظنا بما أضافه منذ ذلك الحين.',
   'Save as a backup file': 'حفظ كملف نسخة احتياطية',
   'Add this device\'s plan to your profile?': 'إضافة خطة هذا الجهاز إلى ملفك؟',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'أُعدّت خطتك أو ملاحظاتك أو بطاقات النادي على هذا الجهاز أثناء تسجيل الخروج. أضفها إلى ملفك، أو أبقِ الملف كما هو على الخادم.',
@@ -2763,4 +2766,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'هذا أكثر مما يتسع له تمرين واحد. اختر روتينات أقل، أو روتينات بمجموعات أقل.',
   '{0} is too much to add to this workout.': '{0} أكبر من أن يُضاف إلى هذا التمرين.',
   'too much for this workout': 'أكثر مما يتسع له هذا التمرين',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'الحد الأقصى {0}',
+  'Some counts were lowered': 'تم تخفيض بعض الأعداد',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'كان في {0} تمرين أكثر مما يسمح به التطبيق. ستتم إضافته بحد أقصى {1} مجموعة أو فاصل و{2} دروب و{3} تكرار ريست بوز.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'كان في {0} تمارين أكثر مما يسمح به التطبيق. ستتم إضافتها بحد أقصى {1} مجموعة أو فاصل و{2} دروب و{3} تكرار ريست بوز.',
+  'People you share this with won’t be able to open it': 'لن يتمكن من تشاركه معهم من فتحه',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'إنه أكبر من أن يكون روتينًا مشتركًا. لا يزال بإمكانك مشاركته. عندما تقل مجموعاته أو تمارينه، سيتمكنون من فتحه.',
 }

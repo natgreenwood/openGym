@@ -14,6 +14,7 @@ vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }
 
 import { api } from '../lib/api.js'
 import { DEF } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 const ids = xs => (xs || []).map(x => x.id)
@@ -29,11 +30,10 @@ const store = () => useStore.getState()
 // The store is loaded after the storage each one writes, as a page loaded there sees it: it holds
 // that owner (or none) as its own, whatever a test before left behind.
 const load = async () => {
-  vi.resetModules()
-  ;({ useStore } = await import('./useStore.js'))
+  ;({ useStore } = await freshStore())
 }
 const signedIn = async (uid, S, rev) => {
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid }))
   localStorage.setItem('gym_owner', uid)   // as setUser signs in
   await load()
   useStore.setState({ S, user: { id: uid }, ready: true, sync: { offline: false, pending: false, lastSynced: 0 } })
@@ -93,7 +93,6 @@ beforeEach(() => { localStorage.clear(); api.mockReset(); vi.useFakeTimers({ toF
 afterEach(() => {
   vi.useRealTimers()
   localStorage.clear()
-  useStore?.setState({ S: clone(DEF), user: null, ready: false })
 })
 
 describe('with no account change, the import goes as before', () => {

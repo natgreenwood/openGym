@@ -1396,6 +1396,8 @@ export default {
   'Offline. The server can’t be reached': 'ออฟไลน์อยู่ เชื่อมต่อเซิร์ฟเวอร์ไม่ได้',
   'Not an openGym answer (HTTP {0})': 'ไม่ใช่การตอบกลับของ openGym (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': 'ที่อยู่เซิร์ฟเวอร์ของคุณตอบกลับด้วยสิ่งที่ไม่ใช่ openGym (HTTP {0}) การเปลี่ยนแปลงของคุณยังเก็บไว้ที่นี่',
+  'This copy belongs to a different account': 'สำเนานี้เป็นของบัญชีอื่น',
+  'This copy belongs to a different account. Sign in again or reload.': 'สำเนานี้เป็นของบัญชีอื่น ลงชื่อเข้าใช้อีกครั้งหรือโหลดหน้าใหม่',
   'Server error (HTTP {0})': 'เซิร์ฟเวอร์ผิดพลาด (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': 'เซิร์ฟเวอร์ของคุณตอบกลับด้วยข้อผิดพลาด (HTTP {0}) การเปลี่ยนแปลงของคุณยังเก็บไว้ที่นี่',
   'The server refuses this browser': 'เซิร์ฟเวอร์ปฏิเสธเบราว์เซอร์นี้',
@@ -1930,6 +1932,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': 'ชู่: ปัดเซ็ตได้นะ ซ้ายลบ ขวาคัดลอก',
   'Options: copy, remove': 'ตัวเลือก: คัดลอก, ลบ',
   'Another device synced while you were importing, so its changes were kept next to the backup.': 'อุปกรณ์อื่นซิงก์ระหว่างที่คุณนำเข้า เลยเก็บการเปลี่ยนแปลงของมันไว้คู่กับข้อมูลสำรอง',
+  'Another device synced while you were resetting, so what it added since was kept.': 'อุปกรณ์อื่นซิงก์ระหว่างที่คุณรีเซ็ต เลยเก็บสิ่งที่มันเพิ่มไว้ตั้งแต่นั้น',
   'Save as a backup file': 'บันทึกเป็นไฟล์สำรอง',
   'Add this device\'s plan to your profile?': 'เพิ่มแผนจากอุปกรณ์นี้ลงในโปรไฟล์ของคุณหรือไม่',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': 'แผน โน้ต หรือบัตรยิมบนอุปกรณ์นี้ถูกสร้างขณะไม่ได้ลงชื่อเข้าใช้ เพิ่มลงในโปรไฟล์ของคุณ หรือคงโปรไฟล์ไว้ตามที่อยู่บนเซิร์ฟเวอร์',
@@ -2719,4 +2722,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': 'มากเกินกว่าที่การฝึกหนึ่งครั้งจะรับได้ เลือกรูทีนให้น้อยลง หรือรูทีนที่มีเซตน้อยลง',
   '{0} is too much to add to this workout.': '{0} มากเกินกว่าจะเพิ่มในการฝึกนี้',
   'too much for this workout': 'มากเกินไปสำหรับการฝึกนี้',
+  // --- count limits (NATG-503) ---
+  'Max {0}': 'สูงสุด {0}',
+  'Some counts were lowered': 'ลดจำนวนบางรายการลงแล้ว',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'มี {0} ท่าที่เกินกว่าที่แอปอนุญาต จะถูกเพิ่มโดยมีสูงสุด {1} เซ็ตหรืออินเทอร์วัล {2} ดรอป และ {3} ครั้งเรสต์-พอส',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': 'มี {0} ท่าที่เกินกว่าที่แอปอนุญาต จะถูกเพิ่มโดยมีสูงสุด {1} เซ็ตหรืออินเทอร์วัล {2} ดรอป และ {3} ครั้งเรสต์-พอส',
+  'People you share this with won’t be able to open it': 'คนที่คุณแชร์ให้จะเปิดรูทีนนี้ไม่ได้',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': 'รูทีนนี้ใหญ่เกินไปสำหรับการแชร์ คุณยังแชร์ได้อยู่ เมื่อมีเซ็ตหรือท่าน้อยลง พวกเขาจะเปิดได้',
 }

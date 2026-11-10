@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': '오프라인. 서버에 연결할 수 없음',
   'Not an openGym answer (HTTP {0})': 'openGym 응답이 아님 (HTTP {0})',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': '서버 주소가 openGym이 아닌 다른 응답을 보냈습니다 (HTTP {0}). 변경 사항은 이 기기에 보관됩니다.',
+  'This copy belongs to a different account': '이 사본은 다른 계정의 것입니다',
+  'This copy belongs to a different account. Sign in again or reload.': '이 사본은 다른 계정의 것입니다. 다시 로그인하거나 페이지를 새로고침하세요.',
   'Server error (HTTP {0})': '서버 오류 (HTTP {0})',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': '서버가 오류로 응답했습니다 (HTTP {0}). 변경 사항은 이 기기에 보관됩니다.',
   'The server refuses this browser': '서버가 이 브라우저를 거부합니다',
@@ -1919,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': '쉿: 세트를 밀어 보세요. 왼쪽은 삭제, 오른쪽은 복사.',
   'Options: copy, remove': '옵션: 복사, 삭제',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '가져오는 동안 다른 기기가 동기화해서, 그 변경 사항도 백업과 함께 남겨 뒀어요.',
+  'Another device synced while you were resetting, so what it added since was kept.': '초기화하는 동안 다른 기기가 동기화해서, 그 뒤로 그 기기가 추가한 내용은 남겨 뒀어요.',
   'Save as a backup file': '백업 파일로 저장',
   'Add this device\'s plan to your profile?': '이 기기의 계획을 프로필에 추가할까요?',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '로그인하지 않은 상태에서 이 기기에 계획, 메모 또는 헬스장 카드가 만들어졌습니다. 프로필에 추가하거나 서버에 있는 프로필을 그대로 유지하세요.',
@@ -2708,4 +2711,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '운동 하나에 담을 수 있는 양을 넘습니다. 루틴을 줄이거나 세트가 적은 루틴을 고르세요.',
   '{0} is too much to add to this workout.': '{0}은(는) 이 운동에 추가하기에 너무 많습니다.',
   'too much for this workout': '이 운동에는 너무 많음',
+  // --- count limits (NATG-503) ---
+  'Max {0}': '최대 {0}',
+  'Some counts were lowered': '일부 값을 낮췄습니다',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '운동 {0}개가 앱에서 허용하는 것보다 많았습니다. 최대 세트 또는 인터벌 {1}개, 드롭 {2}회, 레스트포즈 반복 {3}회로 추가됩니다.',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '운동 {0}개가 앱에서 허용하는 것보다 많았습니다. 최대 세트 또는 인터벌 {1}개, 드롭 {2}회, 레스트포즈 반복 {3}회로 추가됩니다.',
+  'People you share this with won’t be able to open it': '공유받는 사람은 이 루틴을 열 수 없습니다',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '공유 루틴으로는 너무 큽니다. 그래도 공유할 수는 있습니다. 세트나 운동이 줄어들면 열 수 있게 됩니다.',
 }

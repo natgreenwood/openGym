@@ -8,6 +8,7 @@ vi.mock('../lib/api.js', () => ({ api: vi.fn() }))
 vi.mock('./useUI.js', () => ({ useUI: { getState: () => ({ toast: vi.fn() }) } }))
 
 import { freshState, DEF, restoredStateFor, restartedState } from './useStore.js'
+import { freshStore } from '../test-utils/fresh-store.js'
 
 describe('weigh-in default', () => {
   it('a fresh profile starts with the weigh-in off', () => {
@@ -43,8 +44,8 @@ describe('starting over', () => {
   // A store of its own for each test: the account that signed in last stays the owner the store
   // has seen, and a reset after it took its own save for another tab's (setState cannot reset it).
   let useStore
-  beforeEach(async () => { vi.resetModules(); ({ useStore } = await import('./useStore.js')) })
-  afterEach(() => { localStorage.clear(); useStore.setState({ S: JSON.parse(JSON.stringify(DEF)), user: null, ready: false }) })
+  beforeEach(async () => { ({ useStore } = await freshStore()) })
+  afterEach(() => { localStorage.clear() })
 
   it('Reset everything gives weigh-in off and small animations, in the same language', async () => {
     useStore.setState({ S: old(), user: null })

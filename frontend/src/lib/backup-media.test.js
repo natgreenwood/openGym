@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { exportBackupZip, readBackupFile, backupImportError, storeBackupMedia, undoBackupMedia, sanitizeCustomMedia, BACKUP_JSON } from './backup-media.js'
 import { createMediaStore, memoryBackend } from './media-store.js'
 import { zipStore, readZip } from './zip.js'
-import { sha256Hex } from './sha256.js'
+import { sha256Hex, sha256HexJs } from './sha256.js'
 import { jpeg, png, mp4 } from './media-samples.test-util.js'
 import { workoutMediaOf } from './media-refs.js'
 
@@ -31,22 +31,20 @@ describe('export with photos & videos', () => {
     expect(JSON.parse(await entries[0].blob.text())).toEqual(JSON.parse(JSON.stringify(S, null, 2)))
   })
 
+  // 1,999 files: hashed synchronously in pure JS and stored all at once, since awaiting
+  // crypto.subtle and the store once per file, one after another, made the fixture the part that
+  // slowed most under load. Its slowest run with the full suite and busy CPUs alongside was about
+  // 1.5 s (NATG-602); 15 s leaves room for a slower CI runner, and the global default stays.
   it('only exports archives the import path accepts at the entry limit', async () => {
     const media = createMediaStore(memoryBackend())
-    const S = stateWith([])
-    for (let i = 1; i <= 1999; i++) {
-      const bytes = png(i, 1)
-      const hash = await sha256Hex(bytes)
-      await media.put(hash, new Blob([bytes]), { mime: 'image/png' })
-      S.customEx.push({ id: `e${i}`, media: { kind: 'image', hash, mime: 'image/png', size: bytes.length, width: i, height: 1, at: 1 } })
-      if (i === 1998) {
-        const out = await exportBackupZip(S, { media })
-        expect(out).toMatchObject({ included: 1998, missing: 0 })
-        expect((await readBackupFile(new File([out.blob], 'backup.zip'))).files).toHaveLength(1998)
-      }
-    }
-    await expect(exportBackupZip(S, { media })).rejects.toMatchObject({ code: 'too-many' })
-  })
+    const files = Array.from({ length: 1999 }, (_, k) => { const bytes = png(k + 1, 1); return { bytes, hash: sha256HexJs(bytes) } })
+    await Promise.all(files.map(f => media.put(f.hash, new Blob([f.bytes]), { mime: 'image/png' })))
+    const exs = files.map((f, k) => ({ id: `e${k + 1}`, media: { kind: 'image', hash: f.hash, mime: 'image/png', size: f.bytes.length, width: k + 1, height: 1, at: 1 } }))
+    const out = await exportBackupZip(stateWith(exs.slice(0, 1998)), { media })
+    expect(out).toMatchObject({ included: 1998, missing: 0 })
+    expect((await readBackupFile(new File([out.blob], 'backup.zip'))).files).toHaveLength(1998)
+    await expect(exportBackupZip(stateWith(exs), { media })).rejects.toMatchObject({ code: 'too-many' })
+  }, 15000)
 })
 
 describe('import', () => {

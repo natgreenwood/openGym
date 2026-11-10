@@ -1385,6 +1385,8 @@ export default {
   'Offline. The server can’t be reached': '离线。无法连接服务器',
   'Not an openGym answer (HTTP {0})': '不是 openGym 的响应（HTTP {0}）',
   'Your server’s address answered with something other than openGym (HTTP {0}). Your changes are kept here.': '你的服务器地址返回了不属于 openGym 的内容（HTTP {0}）。你的更改保留在这里。',
+  'This copy belongs to a different account': '此副本属于另一个账户',
+  'This copy belongs to a different account. Sign in again or reload.': '此副本属于另一个账户。请重新登录或刷新页面。',
   'Server error (HTTP {0})': '服务器错误（HTTP {0}）',
   'Your server answered with an error (HTTP {0}). Your changes are kept here.': '你的服务器返回了错误（HTTP {0}）。你的更改保留在这里。',
   'The server refuses this browser': '服务器拒绝了此浏览器',
@@ -1919,6 +1921,7 @@ export default {
   'Psst: swipe a set. Left deletes, right copies.': '悄悄告诉你：滑动一组。左滑删除，右滑复制。',
   'Options: copy, remove': '选项：复制、删除',
   'Another device synced while you were importing, so its changes were kept next to the backup.': '导入时另一台设备同步了，所以它的更改也和备份一起保留了。',
+  'Another device synced while you were resetting, so what it added since was kept.': '重置时另一台设备同步了，所以它在此之后添加的内容保留了下来。',
   'Save as a backup file': '保存为备份文件',
   'Add this device\'s plan to your profile?': '把此设备上的计划加入你的个人资料？',
   'Your plan, notes or gym cards on this device were set up while signed out. Add them to your profile, or keep the profile exactly as it is on the server.': '此设备在未登录时设置了计划、备注或健身房卡。把它们加入你的个人资料，或保持个人资料与服务器上的完全一致。',
@@ -2708,4 +2711,11 @@ export default {
   'That’s more than one workout can hold. Pick fewer routines, or ones with fewer sets.': '这超出了一次训练能容纳的量。请少选几个训练日，或选组数更少的。',
   '{0} is too much to add to this workout.': '{0}太多了，无法加入这次训练。',
   'too much for this workout': '对这次训练来说太多',
+  // --- count limits (NATG-503) ---
+  'Max {0}': '最多 {0}',
+  'Some counts were lowered': '部分数值已调低',
+  '{0} exercise had more than the app allows. It’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 个动作超出了应用允许的范围。添加时最多 {1} 组或间歇、{2} 次递减和 {3} 次歇息暂停。',
+  '{0} exercises had more than the app allows. They’ll be added with at most {1} sets or intervals, {2} drops and {3} rest-pause reps.': '有 {0} 个动作超出了应用允许的范围。添加时最多 {1} 组或间歇、{2} 次递减和 {3} 次歇息暂停。',
+  'People you share this with won’t be able to open it': '你分享给的人将无法打开它',
+  'It’s too large for a shared routine. You can still share it. Once it has fewer sets or exercises, they’ll be able to open it.': '它对于共享训练计划来说太大了。你仍然可以分享它。等组数或动作减少后，他们就能打开了。',
 }

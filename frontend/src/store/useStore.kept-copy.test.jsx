@@ -25,7 +25,7 @@ afterEach(() => { localStorage.clear(); useStore.setState({ S: clone(DEF), user:
 const olgasCopy = (extra = {}) => {
   localStorage.setItem('gym_owner', 'olga')
   localStorage.setItem('gym_owner_name', 'Olga')
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 9, ts: 500 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 9, ts: 500, uid: 'olga' }))
   useStore.setState({ S: { ...clone(DEF), _ts: 500, workouts: [w('o1'), w('o2', '2026-09-02')], routines: [{ id: 'r1', name: 'Push', ex: [] }], ...extra }, user: null, ready: true })
 }
 

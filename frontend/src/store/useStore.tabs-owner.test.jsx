@@ -8,6 +8,7 @@
    profile as is". Each "tab" is a fresh import of the store sharing one localStorage; the browser's
    storage events are replayed in the order the writes happened, as the browser delivers them. */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { freshStore } from '../test-utils/fresh-store.js'
 import { localTZ } from '../lib/format.js'
 import { sharedPointer } from '../lib/routine-lookup.js'
 
@@ -67,12 +68,11 @@ async function act(t, fn) {
 }
 
 async function openTab(user) {
-  vi.resetModules()
   const tab = { store: null, ls: [], inbox: [], busy: 0 }
   const add = window.addEventListener
   window.addEventListener = function (type, l, o) { if (type === 'storage') tab.ls.push(l); else add.call(this, type, l, o) }
   try {
-    const m = await import('./useStore.js')
+    const m = await freshStore()
     DEF = m.DEF
     tab.store = m.useStore
   } finally { window.addEventListener = add }
@@ -109,7 +109,8 @@ const account = () => ({
 const savedCopy = (doc, rev) => {
   const S = clone(doc); delete S._rev
   localStorage.setItem('gym_state_v1', JSON.stringify(S))
-  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts }))
+  // The marker as the owner's tab left it, naming that account (NATG-556).
+  localStorage.setItem('gym_sync', JSON.stringify({ rev, ts: S._ts, uid: localStorage.getItem('gym_owner') }))
 }
 // Every PUT /api/data the server receives from here on, from either tab, with the revision it was
 // sent against.
@@ -152,7 +153,6 @@ beforeEach(async () => {
   DEF = (await import('./useStore.js')).DEF
 })
 afterEach(() => {
-  for (const t of tabs) t.store.setState({ user: null, ready: false })
   tabs = []
   localStorage.clear()
 })
@@ -829,7 +829,10 @@ describe('a request sent after its account has left the browser', () => {
   // the other tab signs out and in as B. The 401 arrives after that: it is about A's old session,
   // and boot's setUser(null) removed B's gym_user, so the other tab showed the sign-in screen
   // until its next boot. The same 401 with the owner unchanged still signs this tab out.
-  async function bootRefused({ toB }) {
+  // NATG-606: the other tab signs back in as A instead, after a sign-out (`roundTrip`) or after its
+  // own copy of A's session expired (`reSignIn`, the owner key left at A). The owner key ends where
+  // it was, so only the sign-in token shows boot that the 401 is about A's old session.
+  async function bootRefused({ toB, roundTrip, reSignIn }) {
     DEF = (await import('./useStore.js')).DEF
     const aId = OWNER, bId = 'B-' + OWNER
     const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
@@ -858,6 +861,14 @@ describe('a request sent after its account has left the browser', () => {
         await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
         expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
       }
+      if (roundTrip || reSignIn) {
+        if (roundTrip) await act(B, () => B.getState().signOut())
+        else await act(B, () => B.getState().setUser(null))   // tab 2's own 401: A's session is gone there too
+        srv.session = aId
+        await act(B, () => B.getState().setUser({ id: aId, name: 'Xavi' }, { adopt: true }))
+        await act(B, () => B.getState().adoptProfile(async () => false))   // "Keep profile as is"
+        expect(localStorage.getItem('gym_owner')).toBe(aId)
+      }
       writer = tabA
       held.release()
       await booting
@@ -874,12 +885,28 @@ describe('a request sent after its account has left the browser', () => {
     expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(bId)
     expect(localStorage.getItem('gym_owner')).toBe(bId)
     expect(B.getState().user?.id).toBe(bId)
-    // Tab 1 follows the other tab rather than saying A's session ended.
+    // Tab 1 follows the other tab rather than saying A's session ended, onto B's own copy.
     expect(A.getState().user?.id ?? null).not.toBe(OWNER)
     expect(A.getState().sync.lastError?.code).not.toBe('auth')
+    expect(ids(A.getState().S)).toEqual(['bW1'])
   })
 
+  for (const [label, how] of [['signed out and back in as A', { roundTrip: true }], ['signed in again as A after its own session expired', { reSignIn: true }]]) {
+    it(`NATG-606: a boot 401 landing after the other tab ${label} leaves A's new session signed in`, async () => {
+      const { A, B, aId } = await bootRefused(how)
+
+      expect(JSON.parse(localStorage.getItem('gym_user'))?.id).toBe(aId)
+      expect(localStorage.getItem('gym_owner')).toBe(aId)
+      expect(B.getState().user?.id).toBe(aId)
+      // Tab 1 stays on A and is not told A's session ended: the browser holds A's new one.
+      expect(A.getState().user?.id).toBe(aId)
+      expect(A.getState().sync.lastError?.code).not.toBe('auth')
+      expect(A.getState().sync.status).not.toBe('auth')
+    })
+  }
+
   it('NATG-574: a boot 401 with the owner unchanged still signs this tab out', async () => {
+    const gen = localStorage.getItem('gym_owner_gen')
     const { A, aId } = await bootRefused({ toB: false })
 
     expect(localStorage.getItem('gym_user')).toBeNull()
@@ -888,7 +915,36 @@ describe('a request sent after its account has left the browser', () => {
     // The copy stays with its owner, for A signing in again (adoptProfile).
     expect(localStorage.getItem('gym_owner')).toBe(aId)
     expect(ids(saved())).toEqual(['x1', 'x2', 'x3'])
+    // A 401 only drops this tab's user: no sign-in or sign-out, so no new token (NATG-606).
+    expect(localStorage.getItem('gym_owner_gen')).toBe(gen)
   })
+
+  // NATG-606: boot's own setUser for the owner already here is no sign-in. Were it to rewrite the
+  // token, boot's last check (a 401 from its pull) would always find it moved and never sign out.
+  // A browser without the token yet (opened before this was deployed) is not given one either.
+  for (const gen of ['g-before', null]) {
+    it(`NATG-606: a boot that signs A back in leaves the sign-in token ${gen ? 'as it was' : 'unset'}`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const aId = OWNER
+      const aDoc = { ...account(), _rev: 3, _wid: aId + '-w3', _wids: [aId + '-w2'] }
+      const srv = accounts({ [aId]: aDoc })
+      srv.session = aId
+      localStorage.setItem('gym_owner', aId)
+      if (gen) localStorage.setItem('gym_owner_gen', gen)
+      localStorage.setItem('gym_user', JSON.stringify({ id: aId, name: 'Xavi' }))
+      const S = clone(aDoc); delete S._rev
+      localStorage.setItem('gym_state_v1', JSON.stringify(S))
+      localStorage.setItem('gym_sync', JSON.stringify({ rev: 3, ts: S._ts, wid: aId + '-w3', uid: aId }))
+      const A = await openTab({ id: aId, name: 'Xavi' })
+      A.setState({ ready: false })
+
+      await act(A, () => A.getState().boot())
+      await act(A, settleTicks)
+
+      expect(A.getState().user?.id).toBe(aId)
+      expect(localStorage.getItem('gym_owner_gen')).toBe(gen)
+    })
+  }
 })
 
 // NATG-530: the NATG-528 window reached from a local edit instead of a late answer. The other tab
@@ -1415,8 +1471,98 @@ describe('a reset or import followed, before its push, by this tab signing in to
     recordPuts(puts)
     await act(A, () => A.getState().resetEverything())
     await act(A, () => A.getState().pushState())
-    expect(puts.map(p => p.baseRev)).toEqual([null])
+    // Against the revision its own read of the profile returned, never without one (NATG-655).
+    expect(puts.map(p => p.baseRev)).toEqual([5])
     expect(ids(srv.doc)).toEqual([])
+  })
+})
+
+// NATG-564 (NATG-532's real password UI, 3 trials in 20): tab 2 signs in as Yan while tab 1, which
+// it signs out, is still busy. The browser told tab 1 of Yan's final save only once tab 2 had also
+// written its marker. Tab 1 had already taken tab 2's provisional copy, in step with no revision,
+// as Yan's and stopped waiting: it then joined that copy's fresh-profile settings into Yan's final
+// save, and saving the join dropped Yan's marker. Tab 1 stayed signed out over Yan's data, and tab
+// 2 took the join back with no base and pushed it unconditionally.
+describe('a signed-out tab while the other tab finishes signing in to another account', () => {
+  const orders = {
+    // The browser's order: tab 1 hears of the final save and the marker only after tab 2 is done.
+    'tab 1 still busy while tab 2 answers the question': async (A, answer) => {
+      const tabA = tabs.find(x => x.store === A)
+      tabA.busy++
+      try { await answer() } finally { tabA.busy-- }
+      pump()
+    },
+    // Each write told to tab 1 the moment it is made.
+    'tab 1 hearing of each write as it is made': async (A, answer) => { await answer() },
+  }
+  for (const [order, deliver] of Object.entries(orders)) {
+    it(`${order}: tab 1 ends signed in as Yan, and Yan's marker, settings and base revision stay`, async () => {
+      DEF = (await import('./useStore.js')).DEF
+      const srv = server({ ...account(), _rev: 1 })
+      localStorage.setItem('gym_owner', OWNER)
+      savedCopy(srv.doc, 1)
+      const A = await openTab({ id: OWNER, name: 'Xavi' })
+      const B = await openTab({ id: OWNER, name: 'Xavi' })
+      const yanId = 'Y-' + OWNER
+      srv.doc = { ...clone(DEF), _ts: 50, lang: 'de', gifSize: 'full', weighIn: true, workouts: [w('yW1', '2026-09-05')], _rev: 4 }
+      const yanSettings = { lang: 'de', gifSize: 'full', weighIn: true }
+      const puts = []
+      recordPuts(puts)
+
+      await act(B, () => B.getState().setUser({ id: yanId, name: 'Yan' }, { adopt: true }))
+      expect(A.getState().user).toBeNull()
+      await deliver(A, () => act(B, () => B.getState().adoptProfile(async () => false)))   // "Keep profile as is"
+
+      // Tab 1 follows the sign-in and shows Yan's copy.
+      expect(A.getState().user?.id).toBe(yanId)
+      expect(ids(A.getState().S)).toEqual(['yW1'])
+      // Yan's marker is still where tab 2 wrote it.
+      expect(JSON.parse(localStorage.getItem('gym_sync'))?.rev).toBe(srv.doc._rev)
+      // Yan's settings, on the server and in the saved copy, are Yan's.
+      for (const [k, v] of Object.entries(yanSettings)) {
+        expect(srv.doc[k]).toBe(v)
+        expect(saved()[k]).toBe(v)
+      }
+      // Every push in the sequence is conditional, a later one from either tab included.
+      await act(B, () => B.getState().update(s => { s.restSec = 75 }))
+      await act(B, () => B.getState().pushState())
+      await act(A, () => A.getState().update(s => { s.restPauseSec = 20 }))
+      await act(A, () => A.getState().pushState())
+      expect(puts.length).toBeGreaterThan(0)
+      expect(puts.filter(p => p.baseRev == null)).toEqual([])
+      expect(srv.doc.restSec).toBe(75)
+      expect(srv.doc.restPauseSec).toBe(20)
+      expect(ids(srv.doc)).toEqual(['yW1'])
+    })
+  }
+})
+
+// The handover above ends once the tab follows the sign-in. A tab already signed in as the account
+// the owner moved to has nothing to follow (followSignIn wants a tab with no user): its handover
+// ends as it takes that account's copy, or it went on refusing every save it was asked for.
+describe('a tab already signed in as the account the other tab makes the owner', () => {
+  it('takes the account\'s copy and goes on saving and pushing its own changes', async () => {
+    DEF = (await import('./useStore.js')).DEF
+    const srv = server(null)
+    const xavi = { id: OWNER, name: 'Xavi' }
+    // Loaded with the account's user but no owner recorded beside the copy (a guest's copy).
+    localStorage.setItem('gym_state_v1', JSON.stringify({ ...clone(DEF), _ts: Date.now(), workouts: [w('gW1', '2026-09-04')] }))
+    localStorage.setItem('gym_user', JSON.stringify(xavi))
+    const A = await openTab(xavi)
+    const B = await openTab(null)
+
+    // Register in tab 2 (views/Login.jsx): the copy becomes Xavi's, saved under him, then pushed.
+    await act(B, () => B.getState().setUser(xavi))
+    await act(B, () => B.getState().pushState())
+    expect(A.getState().user?.id).toBe(OWNER)
+    expect(ids(A.getState().S)).toEqual(['gW1'])
+
+    await act(A, () => A.getState().update(s => { s.restSec = 45 }))
+    expect(saved().restSec).toBe(45)
+    expect(JSON.parse(localStorage.getItem('gym_stash') || '{}')).toEqual({})
+    await act(A, () => A.getState().pushState())
+    expect(srv.doc.restSec).toBe(45)
+    expect(ids(srv.doc)).toEqual(['gW1'])
   })
 })
 

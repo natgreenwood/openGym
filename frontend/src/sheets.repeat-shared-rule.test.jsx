@@ -5,6 +5,7 @@
 // repeat of that. A share that ends before the repeat leaves no rule to read, the same as a
 // routine of your own that was deleted. The real store, session builders and sheets throughout.
 import { beforeEach, afterEach, expect, it, vi } from 'vitest'
+import { freshStore } from './test-utils/fresh-store.js'
 vi.mock('./lib/api.js', () => ({ api: vi.fn(), setRemoteAuth: vi.fn() }))
 import { api } from './lib/api.js'
 let DEF, useStore, useUI, sheets, saveSessionAsRoutine, sharedViewOf
@@ -16,9 +17,8 @@ const setup = { id: BENCH, sets: 3, reps: 12, repsMin: 8, weight: 60 }
 const share = prog => ({ id: 's1', state: 'accepted', from: { id: 'u1', name: 'Sam' }, unit: 'kg', hash: 'h-' + prog, routine: { id: 'r9', name: 'Theirs', prog, ex: [{ ...setup }] } })
 let net
 beforeEach(async () => {
-  vi.resetModules()
   localStorage.clear()
-  ;({ DEF, useStore } = await import('./store/useStore.js'))
+  ;({ DEF, useStore } = await freshStore())
   ;({ useUI } = await import('./store/useUI.js'))
   sheets = await import('./sheets.jsx')
   ;({ saveSessionAsRoutine } = await import('./lib/session-routines.js'))
@@ -33,7 +33,7 @@ beforeEach(async () => {
   net = { incoming: [], etag: 'e1', rev: 1 }
   useStore.setState({ S, user: ME, ready: true, config: { shares: true }, shares: null, sharesError: false, sync: { ...fresh } })
   useUI.setState({ sheets: [] })
-  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0 }))
+  localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: S._ts || 0, uid: ME.id }))
   api.mockReset()
   api.mockImplementation(async (path, o = {}) => {
     if (path === '/api/shares') return { incoming: clone(net.incoming), outgoing: [], etag: net.etag }
@@ -43,7 +43,7 @@ beforeEach(async () => {
     return {}
   })
 })
-afterEach(() => { useStore.setState({ ready: false, user: null }); useUI.setState({ sheets: [] }) })
+afterEach(() => { useUI.setState({ sheets: [] }) })
 
 const own = (id, prog, ex = [{ ...setup }]) => useStore.getState().update(s => { s.routines.push({ id, name: 'Mine', prog, ex }) })
 const shareWith = async prog => { net.incoming = prog ? [share(prog)] : []; net.etag = 'e-' + (prog || 'gone'); await useStore.getState().loadShares() }
