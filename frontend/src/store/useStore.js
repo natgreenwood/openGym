@@ -377,6 +377,9 @@ export function restoredStateFor(local, remote, dirty = false) {
   return next
 }
 
+// What disposeStore runs, set once the store below has started its timers and listeners.
+let dispose = () => {}
+
 // The copies an edit in this tab put in place (update), as against one a pull, a merge, another
 // tab or a restore brought: the routine page raises its "too large to share" toast only for a
 // change made here (NATG-670 AC6). Held weakly, so a copy no longer in use is not kept for it.
@@ -453,6 +456,10 @@ export const useStore = create((set, get) => {
   const staleImports = new WeakSet()
   let lastCheck = 0
   let pollTm = null
+  // Every listener the store adds to window and document goes with this signal, so one abort()
+  // takes them all off (disposeStore).
+  const listening = new AbortController()
+  const { signal } = listening
   let offlineChanges = false   // a push failed for lack of network — the next one that lands says so
   let backupTm = null      // phone: the auto-backup after workout media changed, on its debounce
   let adoptHold = false    // a sign-in's adoption has not decided yet: no pull, no push (ADOPT_KEY)
@@ -885,12 +892,22 @@ export const useStore = create((set, get) => {
     clearTimeout(pollTm)
     pollTm = setTimeout(() => { checkRev(); schedulePoll() }, POLL_MS)
   }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkRev() })
-  window.addEventListener('focus', () => checkRev())
-  window.addEventListener('pageshow', e => { if (e.persisted) checkRev() })
-  window.addEventListener('online', () => checkRev(true))   // also retries a push that failed offline
-  onAppActive(() => checkRev())
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') checkRev() }, { signal })
+  window.addEventListener('focus', () => checkRev(), { signal })
+  window.addEventListener('pageshow', e => { if (e.persisted) checkRev() }, { signal })
+  window.addEventListener('online', () => checkRev(true), { signal })   // also retries a push that failed offline
+  const appActive = onAppActive(() => checkRev())
   schedulePoll()
+  // For tests only (test-utils/fresh-store.js): a store no test uses any more stops its timers,
+  // a save or push still on its debounce included, and hears no more events. Nothing in the app
+  // calls it: the store lives as long as the page, and a sign-out keeps the poll going for
+  // whoever signs in next.
+  dispose = () => {
+    for (const tm of [pollTm, saveTm, pushTm, backupTm]) clearTimeout(tm)
+    pollTm = saveTm = pushTm = backupTm = null
+    listening.abort()
+    appActive?.then(handle => handle?.remove()).catch(() => {})
+  }
 
   // A merge or a push of a copy whose base is not the signed-in account's: nothing is written, not
   // the copy, the marker or the owed flag, and the screens say so (connectionView). Every path
@@ -1109,11 +1126,11 @@ export const useStore = create((set, get) => {
       get().pushState()
     }
   }
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush() })
-  window.addEventListener('pagehide', flush)   // Safari kills the home-screen app without a visibilitychange at times
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flush() }, { signal })
+  window.addEventListener('pagehide', flush, { signal })   // Safari kills the home-screen app without a visibilitychange at times
   // The phone app: Capacitor's own "going to the background" too, in case the WebView's
   // visibilitychange comes late or not at all before iOS suspends the page.
-  document.addEventListener('pause', flush)
+  document.addEventListener('pause', flush, { signal })
 
   // The owner check in setUser only runs in the tab that signs in. Another tab of the same
   // browser still holding the previous profile, or a guest's copy, would keep writing it over the
@@ -1137,7 +1154,7 @@ export const useStore = create((set, get) => {
     // The copy this tab holds needs handing over only when the owner now is not the one it holds.
     if (owner === seenOwner) { if (moved) set({}); return }
     handOver(owner)
-  })
+  }, { signal })
   // Everything the owner event does, also run by a save that finds the owner moved before that
   // event has (refuseStale). That ends the imports begun before it too (ownerEpoch), as the event
   // would once it ran.
@@ -1181,7 +1198,7 @@ export const useStore = create((set, get) => {
     try { theirs = JSON.parse(e.newValue) } catch { return }
     if (theirs?.rev == null || (theirs.rev === metaOf().base?.rev && theirs.wid === metaOf().base?.wid)) return
     checkRev(true)
-  })
+  }, { signal })
 
   // Another tab saved: its copy joins this one's at once, so this tab shows it and never writes
   // over it. When the saved copy holds everything this tab has, this tab takes it as it is, with
@@ -1266,7 +1283,7 @@ export const useStore = create((set, get) => {
   window.addEventListener('storage', e => {
     if (e.key !== WID_KEY || !e.newValue || e.newValue === seenWid) return
     syncFromSaved()
-  })
+  }, { signal })
 
   // Before a sign-out decides anything: the pull on its way has landed, and the push in flight,
   // with any queued behind it, has landed too. Only then is the copy asked whether it still owes
@@ -2873,6 +2890,11 @@ export const useStore = create((set, get) => {
     }
   }
 })
+
+// Stops the store's timers and takes off every listener it added, on window, on document and on
+// the phone app's return to the foreground. Tests only: test-utils/fresh-store.js runs it after
+// each test, for every store a test loaded. The app never does (see dispose above).
+export function disposeStore() { dispose() }
 
 // The phone's reminders and nudges count the routines shared with you (lib/mobile.js).
 setSharedSource(() => sharedViewOf(useStore.getState()))
