@@ -1631,8 +1631,9 @@ export const useStore = create((set, get) => {
   meta.set(S0, { base: readStoredSync(), owed: storedOwed() })
   const user0 = (() => { try { return JSON.parse(localStorage.getItem('gym_user')) || null } catch { return null } })()
   adoptHold = !!user0 && readAdopt()?.uid === user0.id
-  // `unsettled`: a copy still owed at start carries edits the lists kept here never judged.
-  const sync0 = { offline: false, pending: storedOwed(), unsettled: storedOwed(), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
+  // `unsettled`: a copy that starts out owed, or changed since the revision it descends from (an
+  // edit saved here whose push never left), carries edits the lists kept here never judged.
+  const sync0 = { offline: false, pending: storedOwed(), unsettled: storedOwed() || localChanged(S0), auth: false, lastError: null, lastSynced: (() => { try { return +localStorage.getItem(SYNCED_AT_KEY) || 0 } catch { return 0 } })(), server: serverBase(), held: adoptHold }
   sync0.status = statusOf(sync0, user0)
 
   return {
