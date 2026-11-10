@@ -285,13 +285,16 @@ describe('routines keep the version edited last', () => {
     expect(ids(mergeStates(c, d).routines)).toEqual(['x', 'y', 'push', 'leg'])
   })
 
-  it('without stamps, or on a tie, the newer copy\'s version stays', () => {
+  it('without stamps the newer copy\'s version stays; on an exact tie the higher value, either way round', () => {
     const a = base({ _ts: 100, routines: [r('push', 15)] })
     const b = base({ _ts: 200, routines: [r('push', 10)] })
     expect(mergeStates(a, b).routines[0].ex[0].reps).toBe(10)
+    // The same edit time on both sides: the newer copy used to win, which kept a different routine
+    // depending on which two of three copies met first (NATG-561). Now the higher value wins.
     const c = base({ _ts: 100, routines: [r('push', 15, 50)] })
     const d = base({ _ts: 200, routines: [r('push', 10, 50)] })
-    expect(mergeStates(c, d).routines[0].ex[0].reps).toBe(10)
+    expect(mergeStates(c, d).routines[0].ex[0].reps).toBe(15)
+    expect(mergeStates(d, c).routines[0].ex[0].reps).toBe(15)
   })
 
   it('sign-in (prefer) keeps the preferred side\'s plan whatever the stamps say', () => {

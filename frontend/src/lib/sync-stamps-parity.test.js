@@ -3,7 +3,7 @@
    its own changes (an older app, an API planner) must hold in this side's merge. */
 import { describe, expect, it } from 'vitest'
 import * as S from '../../../api/sync-stamps.js'
-import { highestStamp, mergeDeletions, mergeEdits, mergeStates, stampChange, stampEntry, stampEdits, stampRestore } from './sync-merge.js'
+import { highestStamp, mergeDeletions, mergeEdits, mergeEntry, mergeStates, stampChange, stampEntry, stampEdits, stampRestore } from './sync-merge.js'
 
 const clone = v => JSON.parse(JSON.stringify(v))
 function rng(seed) { let s = seed >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s / 4294967296 } }
@@ -23,6 +23,29 @@ describe('api/sync-stamps.js matches sync-merge.js', () => {
       const old = { id: 'r', name: 'A', ex: [1], _f: { ex: 5 }, ...(R() < 0.5 ? { _u: { ex: [1, 5, 5] } } : {}) }
       const x = { id: 'r', name: R() < 0.5 ? 'A' : 'B', ex: [1, R() < 0.5 ? 2 : 1], ...(R() < 0.3 ? { _u: { name: [0, 4], ex: [1, 5, 5] } } : {}) }
       expect(S.stampEntry(clone(old), clone(x), 99)).toEqual(stampEntry(clone(old), clone(x), 99))
+    }
+  })
+
+  it('merges two versions of an entry the same, exact ties and Undo markers included', () => {
+    const vals = [undefined, 'A', 'B', 3, { sets: 3, reps: 5 }, { reps: 5, sets: 3 }, [1, 2]]
+    for (let seed = 1; seed < 500; seed++) {
+      const R = rng(seed)
+      const pick = xs => xs[Math.floor(R() * xs.length)]
+      const version = () => {
+        const x = { id: 'r' }, f = {}
+        for (const k of ['name', 'ex', 'note']) {
+          const v = pick(vals)
+          if (v !== undefined) x[k] = clone(v)
+          if (R() < 0.7) f[k] = 1 + Math.floor(R() * 3)
+        }
+        if (Object.keys(f).length) x._f = f
+        if (R() < 0.3 && f.ex) x._u = { ex: [0, f.ex - 1 || 1, f.ex] }
+        x._ts = Math.max(Math.floor(R() * 4), ...Object.values(f))
+        return x
+      }
+      const a = version(), b = version()
+      expect(S.mergeEntry(clone(a), clone(b))).toEqual(mergeEntry(clone(a), clone(b)))
+      expect(S.mergeEntry(clone(b), clone(a))).toEqual(mergeEntry(clone(b), clone(a)))
     }
   })
 })

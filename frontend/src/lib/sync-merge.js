@@ -14,20 +14,21 @@
  *   - equipProfiles, gymCards: union by id; of an id that both have, field by field as below
  *   - workouts, routines, customEx, equipProfiles, gymCards: of an id that both have, each field
  *     from the side that changed it last by its own stamp (`_f`, stampEntry / mergeEntry), the
- *     version edited last for every field neither side stamped
+ *     version edited last for every field neither side stamped; an exact tie of stamps to the
+ *     value that sorts higher, the same on every copy ("Exact ties" below)
  *   - customEx: union by id; of an id that both have, the version edited last by its own `_ts`
- *     (stampCustomEx), the newer copy's on a tie — a photo or link added on one device must not
+ *     (stampCustomEx), the newer copy's when neither has one — a photo or link added on one device must not
  *     be lost to the other's copy just because that one logged a set since
  *   - workouts: union by id; of an id that both have, the version edited last by its own `_ts`
  *     (stampWorkout — a workout changed after it was logged: its sets edited, moved to another
- *     day, its length or note corrected), the newer copy's on a tie; sorted by day and start
+ *     day, its length or note corrected), the newer copy's when neither has one; sorted by day and start
  *     like every other writer. Its `media` list is the exception: the union by hash of both
  *     copies' lists (the kept version's in its order, then the other's extras), so a photo added
  *     on one device survives the other's edit of the same workout — or its own photo
  *     (mergeWorkoutMedia)
  *   - routines: union by id in the newer copy's order, a routine only the older copy has next to
  *     its neighbour there (unionByNeighbours); of an id that both have, the version
- *     edited last by its own `_ts` (stampRoutines), the newer copy's on a tie
+ *     edited last by its own `_ts` (stampRoutines), the newer copy's when neither has one
  *   - bodyweight, measurements: union by day, the later-edited (`t`) entry of a day that both have
  *   - favEx: ordered set union, the newer copy first
  *   - exWeights: union by exercise, the better `w` for that exercise — larger for an ordinary
@@ -307,6 +308,24 @@ const ENTRY_META = new Set(['id', '_ts', '_f', '_u'])
 const fieldTime = (x, k) => Number(x?._f?.[k]) || 0
 const sameJSON = (x, y) => JSON.stringify(x) === JSON.stringify(y)
 
+// ---- Exact ties -------------------------------------------------------------------------------
+//
+// Two devices whose clocks are behind the copy they started from both stamp their first change one
+// past its highest stamp (stampChange), so two values of one field can carry the same stamp. The
+// first argument used to win that tie: two copies merged one way kept one value and the other way
+// the other, and three copies came out different depending on which two met first (NATG-561). Now
+// the value whose JSON, with every object's keys sorted, sorts higher wins, the same on every copy.
+// A missing value sorts lowest. canonical() is api/shared-routine.js's, copied: the app cannot
+// import the api.
+const canonical = v => {
+  if (Array.isArray(v)) return v.map(canonical)
+  if (v && typeof v === 'object') return Object.fromEntries(Object.keys(v).sort().map(k => [k, canonical(v[k])]))
+  return v
+}
+const tieKey = v => (v === undefined ? '' : JSON.stringify(canonical(v)))
+// Of two values (or Undo markers) that tie on every stamp, the one that wins; `x` when they are the same.
+const tieWin = (x, y) => (sameJSON(x, y) || tieKey(x) >= tieKey(y) ? x : y)
+
 // ---- Undo ---------------------------------------------------------------------------------------
 //
 // An Undo that puts a field back exactly as it was before one change (a swipe's removal) is itself
@@ -416,11 +435,18 @@ export function stampEntry(old, x, now) {
 }
 
 /**
- * Two versions of one entry: the version edited last (`_ts`; `a` on a tie), with every field the
- * other side changed later (`_f`) taken from that side, removal included. Returns a new object.
+ * Two versions of one entry: the version edited last (`_ts`), with every field the other side
+ * changed later (`_f`) taken from that side, removal included. A field whose stamps tie (an Undo's
+ * marker aside), or that neither side stamped in two versions edited at the same time, takes the
+ * value that sorts higher (see "Exact ties" above), whichever argument is first. Two versions
+ * without any edit time keep `a`'s unstamped fields. Returns a new object.
  */
 export function mergeEntry(a, b) {
-  const [n, o] = (Number(b?._ts) || 0) > (Number(a?._ts) || 0) ? [b, a] : [a, b]
+  const ta = Number(a?._ts) || 0, tb = Number(b?._ts) || 0
+  // Two versions with no edit time at all (from before entries were stamped) keep the old rule:
+  // the first argument's, the newer copy's in mergeStates.
+  const tie = ta === tb && ta > 0
+  const [n, o] = tb > ta || (tie && tieWin(a, b) !== a) ? [b, a] : [a, b]
   const out = clone(n)
   const f = { ...(isMap(o._f) ? o._f : {}) }
   for (const [k, v] of Object.entries(isMap(n._f) ? n._f : {})) if (!((Number(f[k]) || 0) > (Number(v) || 0))) f[k] = v
@@ -429,10 +455,13 @@ export function mergeEntry(a, b) {
   for (const k of new Set([...Object.keys(n), ...Object.keys(o), ...Object.keys(f)])) {
     if (ENTRY_META.has(k)) continue
     const tn = fieldTime(n, k), to = fieldTime(o, k)
-    const [side, at] = undoPick(tn, undoOf(n._u, k, tn), to, undoOf(o._u, k, to))
+    let [side, at] = undoPick(tn, undoOf(n._u, k, tn), to, undoOf(o._u, k, to))
+    // A tie undoPick leaves open: the higher value. A field neither side stamped still follows the
+    // version edited last when there is one.
+    if (side === '' && (tn > 0 || tie) && tieWin(n[k], o[k]) !== n[k]) side = 'y'
     if (side === 'y') { if (k in o) out[k] = clone(o[k]); else delete out[k] }
     if (at > Math.max(tn, to)) { f[k] = at; bumped = Math.max(bumped, at) }
-    const kept = side === 'y' ? undoOf(o._u, k, at) : side === 'x' ? undoOf(n._u, k, at) : undoOf(n._u, k, at) || undoOf(o._u, k, at)
+    const kept = side === 'y' ? undoOf(o._u, k, at) : side === 'x' ? undoOf(n._u, k, at) : tieWin(undoOf(n._u, k, at) || undefined, undoOf(o._u, k, at) || undefined)
     if (kept) u[k] = clone(kept)
   }
   if (Object.keys(f).length) out._f = f; else delete out._f

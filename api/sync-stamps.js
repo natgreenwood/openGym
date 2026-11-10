@@ -40,6 +40,8 @@
 //      restored) bringing an entry back, and that cannot be told apart from a deliberate re-add:
 //      a deleted entry that comes back is one tap to remove again, a wanted one dropped is lost.
 
+import { canonical } from './shared-routine.js';
+
 const isMap = v => !!v && typeof v === 'object' && !Array.isArray(v);
 const list = v => (Array.isArray(v) ? v : []);
 const same = (x, y) => JSON.stringify(x) === JSON.stringify(y);
@@ -153,6 +155,50 @@ function settleMarks(marks, stamps, now) {
   return Object.keys(out).length ? out : null;
 }
 const sameEntry = (a, b) => same({ ...a, _ts: 0, _f: 0, _u: 0 }, { ...b, _ts: 0, _f: 0, _u: 0 });
+
+// Two versions of one entry, field by field (sync-merge.js mergeEntry, "Undo" and "Exact ties"):
+// each field from the side that changed it last, an Undo's marker deciding a tie it covers, then
+// the value whose canonical JSON sorts higher, so a tie comes out the same whichever argument is
+// first. A field neither side stamped follows the version edited last (`a`'s when neither has an
+// edit time at all).
+const fieldTime = (x, k) => Number(x?._f?.[k]) || 0;
+const tieKey = v => (v === undefined ? '' : JSON.stringify(canonical(v)));
+const tieWin = (x, y) => (same(x, y) || tieKey(x) >= tieKey(y) ? x : y);
+const undoOf = (marks, k, at) => {
+  const u = isMap(marks) ? marks[k] : null;
+  return Array.isArray(u) && u.length === 3 && at > 0 && Number(u[2]) === at ? u : null;
+};
+function undoPick(tx, ux, ty, uy) {
+  if (tx > ty) return ux && ty > Number(ux[0]) && ty < Number(ux[1]) ? ['y', tx + 1] : ['x', tx];
+  if (ty > tx) return uy && tx > Number(uy[0]) && tx < Number(uy[1]) ? ['x', ty + 1] : ['y', ty];
+  return ux && !uy ? ['x', tx] : uy && !ux ? ['y', ty] : ['', tx];
+}
+/** Two versions of one entry merged field by field (sync-merge.js mergeEntry). Returns a new object. */
+export function mergeEntry(a, b) {
+  const ta = Number(a?._ts) || 0, tb = Number(b?._ts) || 0;
+  const tie = ta === tb && ta > 0;
+  const [n, o] = tb > ta || (tie && tieWin(a, b) !== a) ? [b, a] : [a, b];
+  const out = clone(n);
+  const f = { ...(isMap(o._f) ? o._f : {}) };
+  for (const [k, v] of Object.entries(isMap(n._f) ? n._f : {})) if (!((Number(f[k]) || 0) > (Number(v) || 0))) f[k] = v;
+  const u = {};
+  let bumped = 0;
+  for (const k of new Set([...Object.keys(n), ...Object.keys(o), ...Object.keys(f)])) {
+    if (ENTRY_META.has(k)) continue;
+    const tn = fieldTime(n, k), to = fieldTime(o, k);
+    let [side, at] = undoPick(tn, undoOf(n._u, k, tn), to, undoOf(o._u, k, to));
+    if (side === '' && (tn > 0 || tie) && tieWin(n[k], o[k]) !== n[k]) side = 'y';
+    if (side === 'y') { if (k in o) out[k] = clone(o[k]); else delete out[k]; }
+    if (at > Math.max(tn, to)) { f[k] = at; bumped = Math.max(bumped, at); }
+    const kept = side === 'y' ? undoOf(o._u, k, at) : side === 'x' ? undoOf(n._u, k, at) : tieWin(undoOf(n._u, k, at) || undefined, undoOf(o._u, k, at) || undefined);
+    if (kept) u[k] = clone(kept);
+  }
+  if (Object.keys(f).length) out._f = f; else delete out._f;
+  if (Object.keys(u).length) out._u = u; else delete out._u;
+  const ts = Math.max(ta, tb, bumped);
+  if (ts) out._ts = ts;
+  return out;
+}
 
 // What the server stamped for the last push of a writer that does not stamp (`_unstamped` on the
 // stored document): an older app takes the revision it is told for its own push and reads the
