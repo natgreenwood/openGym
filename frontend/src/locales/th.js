@@ -278,7 +278,8 @@ export default {
   // --- login / account ---
   'Enter a name': 'กรอกชื่อ',
   'Profile created, and this device’s data moved into it': 'สร้างโปรไฟล์แล้ว และย้ายข้อมูลจากเครื่องนี้เข้าไปแล้ว',
-  'Profile created, and your data moved into it': 'สร้างโปรไฟล์แล้ว และย้ายข้อมูลของคุณเข้าไปแล้ว',
+  'Profile created. Moving this device’s data into it…': 'สร้างโปรไฟล์แล้ว กำลังย้ายข้อมูลจากเครื่องนี้เข้าไป…',
+  'Profile created. This device’s data is kept here and moves into it at the next sync.': 'สร้างโปรไฟล์แล้ว ข้อมูลจากเครื่องนี้ยังเก็บไว้ที่นี่ และจะย้ายเข้าไปเมื่อซิงค์ครั้งถัดไป',
   'Welcome, {0}': 'ยินดีต้อนรับ {0}',
   'Welcome back, {0}': 'ยินดีต้อนรับกลับมา {0}',
   'Registration failed': 'สมัครไม่สำเร็จ',
